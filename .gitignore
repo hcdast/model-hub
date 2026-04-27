@@ -11,3 +11,5 @@ seed/model-configs.json
 image/
 /config/
 logs/
+.kiro/
+scripts/
