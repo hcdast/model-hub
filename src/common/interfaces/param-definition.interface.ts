@@ -30,6 +30,8 @@ export interface ParamDefinition {
   hide?: boolean;
   configs?: ParamConfigItem[];
   extra_credit_multiplier?: number;
+  /** 标记为 true 时，创建任务时跳过该字段的参数校验（直接透传） */
+  skipValidation?: boolean;
 }
 
 /** 模型参数定义集合 */

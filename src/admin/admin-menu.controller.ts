@@ -6,9 +6,16 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { AdminJwtGuard } from './guards/admin-jwt.guard';
-import { MenuRegistryService } from './services/menu-registry.service';
+import {
+  MenuRegistryService,
+  MenuGroup,
+} from './services/menu-registry.service';
 import { PermissionCheckService } from './permission-check.service';
 
+/**
+ * 菜单管理控制器
+ * 提供菜单树查询接口，根据当前用户权限返回过滤后的菜单结构
+ */
 @ApiTags('管理后台 - 菜单')
 @ApiBearerAuth('AdminJwt')
 @Controller('api/v1/admin/menu')
@@ -19,16 +26,27 @@ export class AdminMenuController {
     private readonly permissionCheckService: PermissionCheckService,
   ) {}
 
+  /**
+   * 获取当前用户的菜单树
+   * 根据用户权限过滤菜单项，无权限的菜单项和空的父级分组会被移除
+   */
   @Get()
   @ApiOperation({
     summary: '获取菜单树',
     description: '返回当前用户权限过滤后的菜单树',
   })
   @ApiResponse({ status: 200, description: '查询成功' })
-  async getMenuTree(@Req() req: any) {
+  async getMenuTree(
+    @Req() req: any,
+  ): Promise<{ code: number; data: MenuGroup[] }> {
+    // 从 JWT 守卫注入的用户信息中获取用户 ID
     const userId = req.user?.userId || req.user?.id;
+
+    // 通过权限检查服务获取用户的所有权限
     const permissions =
       await this.permissionCheckService.getUserPermissions(userId);
+
+    // 根据用户权限过滤菜单树并返回
     const tree = this.menuRegistryService.getFilteredMenuTree(permissions);
     return { code: 0, data: tree };
   }

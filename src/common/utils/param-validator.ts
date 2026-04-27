@@ -21,6 +21,16 @@ export function validateParams(
     const value = input[field];
     const provided = field in input && value !== undefined && value !== null;
 
+    // 0. skipValidation: 跳过校验，直接透传值或填充默认值
+    if (def.skipValidation) {
+      if (provided) {
+        sanitized[field] = value;
+      } else if (def.default !== undefined) {
+        sanitized[field] = def.default;
+      }
+      continue;
+    }
+
     // 1. required 检查
     if (def.required && !provided) {
       errors.push({ field, message: `${field} 是必填参数` });

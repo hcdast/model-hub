@@ -37,7 +37,8 @@ import ForbiddenPage from './pages/Forbidden';
 
 const { Header, Sider, Content } = Layout;
 
-// Icon name string → React component mapping
+// 图标名称字符串 → React 组件映射表
+// 后端菜单 API 返回图标名称字符串，前端通过此映射表转换为实际组件
 const iconMap: Record<string, React.ReactNode> = {
   DashboardOutlined: <DashboardOutlined />,
   UnorderedListOutlined: <UnorderedListOutlined />,
@@ -60,15 +61,20 @@ const iconMap: Record<string, React.ReactNode> = {
   SettingOutlined: <SettingOutlined />,
 };
 
+/** 解析图标名称为 React 组件，未匹配时使用默认图标 */
 function resolveIcon(iconName?: string): React.ReactNode {
   if (!iconName) return undefined;
   return iconMap[iconName] ?? <AppstoreOutlined />;
 }
 
-/** Convert backend MenuGroup[] into Ant Design Menu items with SubMenu support */
+/**
+ * 将后端返回的 MenuGroup[] 转换为 Ant Design Menu 组件的 items 格式
+ * 一级菜单作为 SubMenu，二级菜单作为 Menu.Item
+ * 特殊情况：仅有一个子项的分组会被扁平化为单个菜单项
+ */
 function buildAntdMenuItems(groups: MenuGroup[]) {
   return groups.map((group) => {
-    // If group has only one child and that child's path matches a simple route, flatten it
+    // 单子项分组：扁平化显示，避免不必要的 SubMenu 嵌套
     if (group.children.length === 1 && group.children[0].path) {
       const child = group.children[0];
       return {
@@ -77,7 +83,7 @@ function buildAntdMenuItems(groups: MenuGroup[]) {
         label: child.label,
       };
     }
-    // Multi-child group → SubMenu
+    // 多子项分组 → 渲染为 SubMenu（一级菜单），子项为 Menu.Item（二级菜单）
     return {
       key: `group-${group.key}`,
       icon: resolveIcon(group.icon),
@@ -91,7 +97,7 @@ function buildAntdMenuItems(groups: MenuGroup[]) {
   });
 }
 
-/** Find the selected menu key based on current pathname */
+/** 根据当前路径查找选中的菜单项 key */
 function findSelectedKey(groups: MenuGroup[], pathname: string): string[] {
   for (const group of groups) {
     for (const child of group.children) {
@@ -103,7 +109,7 @@ function findSelectedKey(groups: MenuGroup[], pathname: string): string[] {
   return ['/'];
 }
 
-/** Find open SubMenu keys for current pathname */
+/** 根据当前路径查找需要展开的 SubMenu key */
 function findOpenKeys(groups: MenuGroup[], pathname: string): string[] {
   for (const group of groups) {
     for (const child of group.children) {
@@ -121,11 +127,11 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-/** Route-level permission check — redirects to /forbidden if user lacks the required permission */
+/** 路由级权限检查 — 用户无权限时重定向到 /forbidden 页面 */
 function PermissionRoute({ permission, children }: { permission?: string; children: React.ReactNode }) {
   const { permissions, roles } = useAuthStore();
   if (!permission) return <>{children}</>;
-  // super_admin role always has full access (handles stale sessions without permissions in localStorage)
+  // super_admin 角色始终拥有完整访问权限（兼容 localStorage 中无权限数据的旧会话）
   if (roles.includes('super_admin')) return <>{children}</>;
   if (permissions.includes('*') || permissions.includes(permission)) return <>{children}</>;
   return <Navigate to="/forbidden" replace />;

@@ -126,13 +126,49 @@ export class PollingService {
     try {
       queryResult = await adapter.queryTask(providerTaskId);
     } catch (err: any) {
+      if (concToken) {
+        await this.rateLimiter.releaseConcurrent(`provider:${providerName}:poll:concurrent`, concToken);
+        concToken = null;
+      }
+
+      // 利用 adapter.mapError 判断是否可重试
+      const mapped = adapter.mapError(err);
       ErrorLogger.logError(
         this.logger,
         err,
-        { taskId: task.taskId, provider: task.provider, model: task.model, providerTaskId },
+        { taskId: task.taskId, provider: task.provider, model: task.model, providerTaskId, retryable: mapped.retryable },
         'Query task failed',
       );
-      throw err;
+
+      if (mapped.retryable) {
+        // 可重试错误（502/503/429 等）：用 deferNextPoll 推迟下次轮询，不消耗 pollCount
+        const backoffMs = Math.min(
+          (task.polling?.pollInterval ?? this.config.polling.defaultIntervalMs) * 2,
+          this.config.polling.maxIntervalMs,
+        );
+        await this.taskRepo.deferNextPoll(task.taskId, backoffMs);
+        await this.timelineService.addEvent(task.taskId, TimelineEvent.POLL_RESULT, {
+          providerStatus: 'error', errorCode: mapped.code, retryable: true, nextRetryMs: backoffMs,
+        });
+        this.logger.warn(
+          `Query retryable error, deferred ${backoffMs}ms | taskId=${task.taskId}, code=${mapped.code}`,
+        );
+      } else {
+        // 不可重试错误：直接标记任务失败
+        await this.taskRepo.updateStatus(
+          task.taskId,
+          [TaskStatus.SUBMITTED, TaskStatus.PROCESSING],
+          TaskStatus.FAILED,
+          { error: { code: mapped.code, message: mapped.message, retryable: false } },
+        );
+        this.metrics.taskFailedTotal.inc({
+          feature_type: task.featureType, provider: task.provider, error_code: mapped.code,
+        });
+        await this.timelineService.addEvent(task.taskId, TimelineEvent.TASK_FAILED, { errorCode: mapped.code });
+        this.eventEmitter.emit('system.task_failed', buildTaskEvent(task.taskId, task.model, task.provider, 'failed', Date.now() - (task as any).createdAt.getTime()));
+        this.eventEmitter.emit('system.provider_error', buildProviderEvent(task.provider, mapped.code, mapped.message));
+      }
+      return;
     } finally {
       if (concToken) {
         await this.rateLimiter.releaseConcurrent(`provider:${providerName}:poll:concurrent`, concToken);

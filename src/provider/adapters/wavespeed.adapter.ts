@@ -143,7 +143,7 @@ export class WaveSpeedAdapter implements IProviderAdapter {
     ]);
     const body: Record<string, any> = {};
     for (const [k, v] of Object.entries(rest)) {
-      if (knownRestKeys.has(k)) body[k] = v;
+      if (knownRestKeys.has(k) && v !== '' && v !== undefined && v !== null) body[k] = v;
     }
 
     if (prompt !== undefined) body.prompt = prompt;

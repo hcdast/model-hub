@@ -1,8 +1,9 @@
 # Model-Hub 技术方案文档
 
-> 版本：v2.3  
-> 最后更新：2026-04-20  
+> 版本：v2.4  
+> 最后更新：2026-04-27  
 > 状态：设计阶段  
+> 变更：v2.4 轮询查询失败优雅重试机制（retryable/non-retryable 分类处理 + 退避调度）  
 > 变更：v2.3 完善错误日志系统、补充厂商适配器开发指南、添加故障排查手册  
 > 变更：v2.2 路由规则 `model_routing_rules` 落地（fixed / weighted / primary_fallback）、管理端 CRUD；补充「主挂了再切备」TODO  
 > 变更：v2.1 新增管理后台设计（前后端同项目不同服务）  
@@ -25,6 +26,7 @@
 10. [统一 API 设计](#10-统一-api-设计)
 11. [任务状态机设计](#11-任务状态机设计)
 12. [定时轮询策略](#12-定时轮询策略)
+    - [11.5 轮询查询失败优雅重试](#115-轮询查询失败优雅重试--v24-新增) ★ v2.4 新增
 13. [回调可靠性设计](#13-回调可靠性设计)
 14. [安全方案](#14-安全方案)
 15. [可观测与告警](#15-可观测与告警)
@@ -1864,6 +1866,106 @@ async pollPendingTasks() {
 - **厂商 429**：该厂商所有任务 `nextPollAt` 延后 60s
 - **厂商 5xx**：延后 30s + 触发熔断计数
 - **熔断**：连续 N 次失败后暂停该厂商轮询 5 分钟
+
+### 11.5 轮询查询失败优雅重试 ★ v2.4 新增
+
+> **背景**：`queryTask` 调用厂商 API 查询任务状态时，可能因厂商临时故障（502/503/429 等）抛出异常。v2.4 之前，异常直接 re-throw，`nextPollAt` 和 `pollCount` 均未更新，导致下一个 30s cron 周期立即重新拉取该任务"暴力重试"，产生大量 ERROR 日志且无退避。
+
+#### 设计原则
+
+| 原则 | 说明 |
+|------|------|
+| **复用 `mapError`** | 所有 Adapter 已实现 `mapError(err) → { code, message, retryable }`，轮询阶段直接复用，无需新增判断逻辑 |
+| **可重试 vs 不可重试** | `retryable: true`（429/5xx）→ 退避重试；`retryable: false`（400/401/403）→ 直接标记 `FAILED` |
+| **不消耗 pollCount** | 可重试错误使用 `deferNextPoll`（仅推迟 `nextPollAt`），不递增 `pollCount`，避免因上游临时故障导致任务被误判超时 |
+| **退避策略** | `backoffMs = min(currentPollInterval × 2, maxIntervalMs)`，给上游恢复时间 |
+| **及时释放资源** | 异常时提前释放并发令牌（`concToken`），避免占用并发槽位 |
+
+#### 处理流程
+
+```
+queryTask(providerTaskId) 抛出异常
+    │
+    ├── 释放并发令牌（concToken）
+    │
+    ├── adapter.mapError(err) → { code, message, retryable }
+    │
+    ├─── retryable === true ──────────────────────────────┐
+    │    │                                                 │
+    │    ├── 计算退避时间 backoffMs                         │
+    │    │   = min(pollInterval × 2, maxIntervalMs)       │
+    │    │                                                 │
+    │    ├── deferNextPoll(taskId, backoffMs)              │
+    │    │   → 仅更新 nextPollAt，不增加 pollCount          │
+    │    │                                                 │
+    │    ├── 记录 POLL_RESULT 时间线事件                    │
+    │    │   { providerStatus: 'error', retryable: true,  │
+    │    │     errorCode, nextRetryMs }                    │
+    │    │                                                 │
+    │    └── WARN 日志（非 ERROR，减少告警噪音）             │
+    │                                                      │
+    └─── retryable === false ─────────────────────────────┐
+         │                                                 │
+         ├── updateStatus → FAILED                         │
+         │   { code, message, retryable: false }           │
+         │                                                 │
+         ├── metrics.taskFailedTotal.inc(...)               │
+         │                                                 │
+         ├── 记录 TASK_FAILED 时间线事件                    │
+         │                                                 │
+         └── 发射 system.task_failed + provider_error 事件  │
+```
+
+#### 各 Adapter `mapError` 可重试判定（已有实现）
+
+| Adapter | 可重试条件 | 错误码格式 |
+|---------|-----------|-----------|
+| WaveSpeed | `status === 429 \|\| status >= 500` | `WAVESPEED_502` |
+| Cloudwise | `status === 429 \|\| status >= 500` | `CLOUDWISE_503` |
+| Akool | `status === 429 \|\| status >= 500` | `AKOOL_502` |
+| MiniMax | `status === 429 \|\| status >= 500` | `MINIMAX_429` |
+| Seedance | `status === 429 \|\| status >= 500` | `SEEDANCE_500` |
+| Tencent | `RequestLimitExceeded \|\| InternalError` | `TENCENT_RequestLimitExceeded` |
+| Wan | `status === 429 \|\| status >= 500` | `WAN_502` |
+
+#### 与现有机制的对比
+
+| 阶段 | 重试机制 | 退避策略 | 说明 |
+|------|---------|---------|------|
+| **提交阶段**（FeatureQueueProcessor） | Bull 队列自动重试 | Bull 内置指数退避 | `retryable` 时 throw → Bull 重试 |
+| **轮询阶段**（PollingService）★ v2.4 | `deferNextPoll` 推迟 | `pollInterval × 2`，上限 `maxIntervalMs` | 不消耗 pollCount |
+| **轮询限流** | `deferNextPoll` 推迟 | 固定 500ms / 1000ms | QPS/并发超限时 |
+| **回调阶段**（CallbackProcessor） | Bull 队列自动重试 | 指数退避，超限进死信 | `maxRetries` 配置 |
+
+#### 关键代码（`polling.service.ts` `pollSingleTask` catch 块）
+
+```typescript
+try {
+  queryResult = await adapter.queryTask(providerTaskId);
+} catch (err: any) {
+  // 提前释放并发令牌
+  if (concToken) {
+    await this.rateLimiter.releaseConcurrent(...);
+    concToken = null;
+  }
+
+  const mapped = adapter.mapError(err);
+
+  if (mapped.retryable) {
+    // 可重试：退避调度，不消耗 pollCount
+    const backoffMs = Math.min(
+      (task.polling?.pollInterval ?? this.config.polling.defaultIntervalMs) * 2,
+      this.config.polling.maxIntervalMs,
+    );
+    await this.taskRepo.deferNextPoll(task.taskId, backoffMs);
+    // 记录时间线 + WARN 日志
+  } else {
+    // 不可重试：直接标记 FAILED + 发射事件
+    await this.taskRepo.updateStatus(task.taskId, [...], TaskStatus.FAILED, { error: mapped });
+  }
+  return;
+}
+```
 
 ---
 
