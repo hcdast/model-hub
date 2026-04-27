@@ -1,0 +1,375 @@
+/**
+ * 现有模块的 Feature Module Descriptors
+ * 从 RbacInitializationService 中的硬编码权限列表迁移而来
+ */
+import { FeatureModuleDescriptor } from '../interfaces/feature-module.interface';
+
+export const overviewDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'overview',
+  displayName: '系统总览',
+  menus: [
+    {
+      path: '/',
+      label: '总览',
+      icon: 'DashboardOutlined',
+      parentKey: 'overview',
+      sortOrder: 0,
+    },
+  ],
+};
+
+export const userDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'user',
+  displayName: '用户管理',
+  permissions: [
+    {
+      resource: 'user',
+      actions: ['read', 'create', 'update', 'delete'],
+      displayNames: {
+        read: '查看用户',
+        create: '创建用户',
+        update: '更新用户',
+        delete: '删除用户',
+      },
+      module: 'user-management',
+    },
+  ],
+  menus: [
+    {
+      path: '/users',
+      label: '用户管理',
+      icon: 'UserOutlined',
+      parentKey: 'security',
+      sortOrder: 20,
+      requiredPermission: 'user:read',
+    },
+  ],
+};
+
+export const roleDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'role',
+  displayName: '角色管理',
+  permissions: [
+    {
+      resource: 'role',
+      actions: ['read', 'create', 'update', 'delete'],
+      displayNames: {
+        read: '查看角色',
+        create: '创建角色',
+        update: '更新角色',
+        delete: '删除角色',
+      },
+      module: 'role-management',
+    },
+  ],
+  menus: [
+    {
+      path: '/roles',
+      label: '角色管理',
+      icon: 'TeamOutlined',
+      parentKey: 'security',
+      sortOrder: 30,
+      requiredPermission: 'role:read',
+    },
+  ],
+};
+
+export const permissionDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'permission',
+  displayName: '权限管理',
+  permissions: [
+    {
+      resource: 'permission',
+      actions: ['read', 'create'],
+      displayNames: {
+        read: '查看权限',
+        create: '创建权限',
+      },
+      module: 'permission-management',
+    },
+  ],
+  menus: [
+    {
+      path: '/permissions',
+      label: '权限管理',
+      icon: 'KeyOutlined',
+      parentKey: 'security',
+      sortOrder: 40,
+      requiredPermission: 'permission:read',
+    },
+  ],
+};
+
+export const modelDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'model',
+  displayName: '模型配置',
+  permissions: [
+    {
+      resource: 'model',
+      actions: ['read', 'create', 'update', 'delete'],
+      displayNames: {
+        read: '查看模型配置',
+        create: '创建模型配置',
+        update: '更新模型配置',
+        delete: '删除模型配置',
+      },
+      module: 'model-management',
+    },
+  ],
+  menus: [
+    {
+      path: '/models',
+      label: '模型配置',
+      icon: 'AppstoreOutlined',
+      parentKey: 'business',
+      sortOrder: 30,
+      requiredPermission: 'model:read',
+    },
+    {
+      path: '/model-routing-rules',
+      label: '路由规则',
+      icon: 'BranchesOutlined',
+      parentKey: 'business',
+      sortOrder: 40,
+      requiredPermission: 'model:read',
+    },
+  ],
+};
+
+export const taskDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'task',
+  displayName: '任务管理',
+  permissions: [
+    {
+      resource: 'task',
+      actions: ['read', 'create', 'update', 'delete'],
+      displayNames: {
+        read: '查看任务',
+        create: '创建任务',
+        update: '更新任务',
+        delete: '删除任务',
+      },
+      module: 'task-management',
+    },
+  ],
+  menus: [
+    {
+      path: '/tasks',
+      label: '任务管理',
+      icon: 'UnorderedListOutlined',
+      parentKey: 'business',
+      sortOrder: 10,
+      requiredPermission: 'task:read',
+    },
+  ],
+};
+
+export const apiClientDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'api-client',
+  displayName: 'API客户端',
+  permissions: [
+    {
+      resource: 'api-client',
+      actions: ['read', 'create', 'update', 'delete'],
+      displayNames: {
+        read: '查看API客户端',
+        create: '创建API客户端',
+        update: '更新API客户端',
+        delete: '删除API客户端',
+      },
+      module: 'api-client-management',
+    },
+  ],
+  menus: [
+    {
+      path: '/api-clients',
+      label: 'API 客户端',
+      icon: 'ApiOutlined',
+      parentKey: 'system',
+      sortOrder: 10,
+      requiredPermission: 'api-client:read',
+    },
+  ],
+};
+
+export const auditDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'audit',
+  displayName: '审计日志',
+  permissions: [
+    {
+      resource: 'audit',
+      actions: ['read'],
+      displayNames: {
+        read: '查看审计日志',
+      },
+      module: 'audit-management',
+    },
+  ],
+  menus: [
+    {
+      path: '/audit-logs',
+      label: '审计日志',
+      icon: 'FileSearchOutlined',
+      parentKey: 'security',
+      sortOrder: 10,
+      requiredPermission: 'audit:read',
+    },
+  ],
+};
+
+export const statsDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'stats',
+  displayName: '统计数据',
+  permissions: [
+    {
+      resource: 'stats',
+      actions: ['read'],
+      displayNames: {
+        read: '查看统计数据',
+      },
+      module: 'stats-management',
+    },
+  ],
+  menus: [
+    {
+      path: '/stats',
+      label: '统计报表',
+      icon: 'BarChartOutlined',
+      parentKey: 'system',
+      sortOrder: 20,
+      requiredPermission: 'stats:read',
+    },
+  ],
+};
+
+export const queueDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'queue',
+  displayName: '队列管理',
+  permissions: [
+    {
+      resource: 'queue',
+      actions: ['read', 'execute'],
+      displayNames: {
+        read: '查看队列',
+        execute: '执行队列操作',
+      },
+      module: 'queue-management',
+    },
+  ],
+  menus: [
+    {
+      path: '/queues',
+      label: '队列监控',
+      icon: 'SyncOutlined',
+      parentKey: 'business',
+      sortOrder: 20,
+      requiredPermission: 'queue:read',
+    },
+  ],
+};
+
+export const providerDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'provider',
+  displayName: '提供商配置',
+  permissions: [
+    {
+      resource: 'provider',
+      actions: ['read', 'create', 'update', 'delete'],
+      displayNames: {
+        read: '查看提供商配置',
+        create: '创建提供商配置',
+        update: '更新提供商配置',
+        delete: '删除提供商配置',
+      },
+      module: 'provider-management',
+    },
+  ],
+  menus: [
+    {
+      path: '/provider-configs',
+      label: '厂商配置',
+      icon: 'CloudServerOutlined',
+      parentKey: 'provider',
+      sortOrder: 10,
+      requiredPermission: 'provider:read',
+    },
+    {
+      path: '/account-pool',
+      label: '账号池',
+      icon: 'DatabaseOutlined',
+      parentKey: 'provider',
+      sortOrder: 20,
+      requiredPermission: 'provider:read',
+    },
+    {
+      path: '/account-costs',
+      label: '成本观测',
+      icon: 'DollarOutlined',
+      parentKey: 'provider',
+      sortOrder: 30,
+      requiredPermission: 'provider:read',
+    },
+  ],
+};
+
+export const notificationRuleDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'notification-rule',
+  displayName: '通知规则',
+  menus: [
+    {
+      path: '/notification-rules',
+      label: '通知规则',
+      icon: 'BellOutlined',
+      parentKey: 'notification',
+      sortOrder: 10,
+      requiredPermission: 'notification-rule:read',
+    },
+  ],
+};
+
+export const notificationRecordDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'notification-record',
+  displayName: '通知记录',
+  menus: [
+    {
+      path: '/notification-records',
+      label: '通知记录',
+      icon: 'MailOutlined',
+      parentKey: 'notification',
+      sortOrder: 20,
+      requiredPermission: 'notification-record:read',
+    },
+  ],
+};
+
+export const inAppNotificationDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'in-app-notification',
+  displayName: '站内通知',
+  menus: [
+    {
+      path: '/notifications',
+      label: '站内通知',
+      icon: 'NotificationOutlined',
+      parentKey: 'notification',
+      sortOrder: 30,
+    },
+  ],
+};
+
+/** All built-in module descriptors */
+export const builtInDescriptors: FeatureModuleDescriptor[] = [
+  overviewDescriptor,
+  userDescriptor,
+  roleDescriptor,
+  permissionDescriptor,
+  modelDescriptor,
+  taskDescriptor,
+  apiClientDescriptor,
+  auditDescriptor,
+  statsDescriptor,
+  queueDescriptor,
+  providerDescriptor,
+  notificationRuleDescriptor,
+  notificationRecordDescriptor,
+  inAppNotificationDescriptor,
+];

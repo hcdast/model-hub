@@ -9,5 +9,5 @@ coverage/
 # 由 scripts/collect-model-configs.cjs 生成，体积较大，不提交仓库
 seed/model-configs.json
 image/
-config/
+/config/
 logs/
