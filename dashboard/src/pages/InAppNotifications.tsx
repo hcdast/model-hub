@@ -1,0 +1,82 @@
+import { useEffect, useState } from 'react';
+import { Table, Card, Typography, Space, Tag, Button, Select, message, Badge } from 'antd';
+import { CheckOutlined } from '@ant-design/icons';
+import { inAppNotificationApi } from '../services/api';
+
+const severityColor: Record<string, string> = { info: 'blue', warning: 'orange', critical: 'red' };
+
+export default function InAppNotificationsPage() {
+  const [data, setData] = useState<any>({ items: [], total: 0 });
+  const [loading, setLoading] = useState(false);
+  const [unread, setUnread] = useState(0);
+  const [params, setParams] = useState<Record<string, any>>({ page: 1, pageSize: 20 });
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const [res, countRes]: any[] = await Promise.all([
+        inAppNotificationApi.list(params),
+        inAppNotificationApi.unreadCount(),
+      ]);
+      setData(res.data || { items: [], total: 0 });
+      setUnread(countRes.data?.count || 0);
+    } catch { /* ignore */ }
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchData(); }, [params]);
+
+  const handleMarkRead = async (id: string) => {
+    try {
+      await inAppNotificationApi.markRead(id);
+      fetchData();
+    } catch { message.error('操作失败'); }
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await inAppNotificationApi.markAllRead();
+      message.success('已全部标记为已读');
+      fetchData();
+    } catch { message.error('操作失败'); }
+  };
+
+  const columns = [
+    { title: '标题', dataIndex: 'title', width: 240, render: (v: string, record: any) => record.read ? v : <strong>{v}</strong> },
+    { title: '事件类型', dataIndex: 'eventType', width: 180, render: (v: string) => <Tag>{v}</Tag> },
+    { title: '严重级别', dataIndex: 'severity', width: 100, render: (v: string) => <Tag color={severityColor[v]}>{v}</Tag> },
+    { title: '内容', dataIndex: 'message', ellipsis: true },
+    { title: '状态', dataIndex: 'read', width: 80, render: (v: boolean) => v ? <Tag>已读</Tag> : <Tag color="blue">未读</Tag> },
+    { title: '时间', dataIndex: 'createdAt', width: 180, render: (t: string) => t ? new Date(t).toLocaleString('zh-CN') : '-' },
+    {
+      title: '操作', width: 80, render: (_: any, record: any) =>
+        !record.read ? <Button type="link" size="small" icon={<CheckOutlined />} onClick={() => handleMarkRead(record._id)}>已读</Button> : null,
+    },
+  ];
+
+  return (
+    <div>
+      <Space style={{ marginBottom: 8 }} align="center">
+        <Typography.Title level={4} style={{ margin: 0 }}>站内通知</Typography.Title>
+        {unread > 0 && <Badge count={unread} />}
+      </Space>
+      <Card>
+        <Space style={{ marginBottom: 16 }}>
+          <Select allowClear placeholder="阅读状态" style={{ width: 140 }}
+            options={[{ value: 'false', label: '未读' }, { value: 'true', label: '已读' }]}
+            onChange={(v) => setParams({ ...params, read: v, page: 1 })}
+          />
+          <Button onClick={handleMarkAllRead} disabled={unread === 0}>全部标记已读</Button>
+        </Space>
+        <Table
+          columns={columns} dataSource={data.items} rowKey="_id" loading={loading} size="small" scroll={{ x: 1000 }}
+          pagination={{
+            current: params.page, pageSize: params.pageSize, total: data.total,
+            showTotal: (t) => `共 ${t} 条`,
+            onChange: (p, ps) => setParams({ ...params, page: p, pageSize: ps }),
+          }}
+        />
+      </Card>
+    </div>
+  );
+}
