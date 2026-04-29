@@ -311,10 +311,20 @@ function AppLayout() {
   );
 }
 
+/**
+ * 已登录用户访问 /login 时自动重定向到首页，
+ * 避免每次打开 http://localhost:7003/login 都要重新登录
+ */
+function GuestGuard({ children }: { children: React.ReactNode }) {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  if (isAuthenticated) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
+      <Route path="/login" element={<GuestGuard><LoginPage /></GuestGuard>} />
       <Route path="/*" element={<AuthGuard><AppLayout /></AuthGuard>} />
     </Routes>
   );

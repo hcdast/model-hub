@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Card, Table, Button, Space, Typography, message, Modal, Form, Input, InputNumber, Switch, Tag } from 'antd';
+import { Card, Table, Button, Space, Typography, message, Modal, Form, Input, InputNumber, Switch, Avatar } from 'antd';
 import { ReloadOutlined, EditOutlined } from '@ant-design/icons';
 import { providerConfigApi } from '../services/api';
 
 interface Row {
   provider_name: string;
   enabled: boolean;
+  icon_url: string;
   base_url: string;
   api_key_masked: string;
   has_api_key: boolean;
   limits: { maxConcurrent?: number; maxPerSecond?: number; maxPerMinute?: number };
   poll_limits: { max_per_second?: number; max_concurrent?: number };
-  source: string;
   revision: number;
   updatedAt?: string;
   extra?: Record<string, unknown>;
@@ -47,6 +47,7 @@ export default function ProviderConfigsPage() {
       const detailData = detail.data || {};
       form.setFieldsValue({
         enabled: detailData.enabled ?? r.enabled,
+        icon_url: detailData.icon_url ?? r.icon_url ?? '',
         base_url: detailData.base_url ?? r.base_url,
         api_key: '',
         max_concurrent: r.limits?.maxConcurrent,
@@ -63,6 +64,7 @@ export default function ProviderConfigsPage() {
     } catch {
       form.setFieldsValue({
         enabled: r.enabled,
+        icon_url: r.icon_url || '',
         base_url: r.base_url,
         api_key: '',
         max_concurrent: r.limits?.maxConcurrent,
@@ -98,6 +100,7 @@ export default function ProviderConfigsPage() {
 
       await providerConfigApi.upsert(editing.provider_name, {
         enabled: v.enabled,
+        icon_url: v.icon_url?.trim() || '',
         base_url: v.base_url,
         api_key: v.api_key?.trim() ? v.api_key.trim() : undefined,
         limits: Object.keys(limits).length ? limits : undefined,
@@ -115,12 +118,9 @@ export default function ProviderConfigsPage() {
 
   return (
     <Card
-      title={(
-        <Space>
-          <Typography.Title level={4} style={{ margin: 0 }}>厂商运行时配置</Typography.Title>
-          <Tag color="blue">MongoDB</Tag>
-        </Space>
-      )}
+      title={
+        <Typography.Title level={4} style={{ margin: 0 }}>厂商运行时配置</Typography.Title>
+      }
       extra={(
         <Button icon={<ReloadOutlined />} onClick={() => void fetchData()} loading={loading}>
           刷新
@@ -136,13 +136,21 @@ export default function ProviderConfigsPage() {
         dataSource={items}
         pagination={false}
         columns={[
-          { title: '厂商', dataIndex: 'provider_name', width: 140 },
           {
-            title: '来源',
-            dataIndex: 'source',
-            width: 90,
-            render: (s: string) => (
-              <Tag color={s === 'db' ? 'blue' : 'default'}>{s === 'defaults' ? '默认' : s}</Tag>
+            title: '厂商',
+            dataIndex: 'provider_name',
+            width: 180,
+            render: (name: string, r: Row) => (
+              <Space>
+                {r.icon_url ? (
+                  <Avatar size={24} src={r.icon_url} shape="square" />
+                ) : (
+                  <Avatar size={24} shape="square" style={{ backgroundColor: '#e8e8e8', color: '#999', fontSize: 12 }}>
+                    {name.charAt(0).toUpperCase()}
+                  </Avatar>
+                )}
+                <span>{name}</span>
+              </Space>
             ),
           },
           { title: 'base_url', dataIndex: 'base_url', ellipsis: true },
@@ -183,6 +191,23 @@ export default function ProviderConfigsPage() {
         <Form form={form} layout="vertical">
           <Form.Item name="enabled" label="启用（DB 行）" valuePropName="checked">
             <Switch />
+          </Form.Item>
+          <Form.Item name="icon_url" label="厂商图标 URL">
+            <Input placeholder="https://example.com/icon.png" />
+          </Form.Item>
+          <Form.Item
+            noStyle
+            shouldUpdate={(prev, cur) => prev.icon_url !== cur.icon_url}
+          >
+            {({ getFieldValue }) => {
+              const url = getFieldValue('icon_url');
+              return url ? (
+                <div style={{ marginBottom: 16 }}>
+                  <Typography.Text type="secondary" style={{ marginRight: 8 }}>预览：</Typography.Text>
+                  <Avatar size={32} src={url} shape="square" />
+                </div>
+              ) : null;
+            }}
           </Form.Item>
           <Form.Item name="base_url" label="Base URL">
             <Input placeholder="https://..." />

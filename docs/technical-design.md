@@ -1,8 +1,10 @@
 # Model-Hub 技术方案文档
 
-> 版本：v2.4  
-> 最后更新：2026-04-27  
+> 版本：v2.6  
+> 最后更新：2026-04-29  
 > 状态：设计阶段  
+> 变更：v2.6 统一密钥管理 — `provider_runtime_configs` 移除 `api_key`，所有密钥收敛到 `account_pool_entries`  
+> 变更：v2.5 Dashboard 总览页新增全部数据统计模块（历史累计任务统计）  
 > 变更：v2.4 轮询查询失败优雅重试机制（retryable/non-retryable 分类处理 + 退避调度）  
 > 变更：v2.3 完善错误日志系统、补充厂商适配器开发指南、添加故障排查手册  
 > 变更：v2.2 路由规则 `model_routing_rules` 落地（fixed / weighted / primary_fallback）、管理端 CRUD；补充「主挂了再切备」TODO  
@@ -22,6 +24,7 @@
     - [6.8 TODO：主挂了再切备（健康感知故障转移）](#68-todo主挂了再切备健康感知故障转移)
 7. [Provider Adapter 统一抽象层](#7-provider-adapter-统一抽象层)
 8. [数据模型设计（MongoDB）](#8-数据模型设计mongodb)
+    - [8.10 统一密钥管理架构](#810-统一密钥管理架构) ★ v2.6 新增
 9. [按功能队列隔离设计](#9-按功能队列隔离设计) ★ v2.0 重构
 10. [统一 API 设计](#10-统一-api-设计)
 11. [任务状态机设计](#11-任务状态机设计)
@@ -1290,13 +1293,80 @@ class AkoolAdapter implements IProviderAdapter {
 { timestamp: 1 }                   // TTL 索引，保留 7 天
 ```
 
-### 8.9 provider_runtime_configs 集合（厂商连接与限流，唯一来源）
+### 8.9 provider_runtime_configs 集合（厂商全局配置，不含密钥）
 
-各厂商的 `base_url`、`api_key`、submit 路径 `limits`（`max_concurrent` / `max_per_second` / `max_per_minute`）及可选轮询路径 `poll_limits` **仅**从 Mongo 本集合读取（`ProviderConfigService`）；`config/*.json` / Nacos **不再**包含 `providers`。无文档或文档 `enabled === false` 时回退为代码内建默认 `base_url` 与限流（`api_key` 为空）。进程内短 TTL 刷新 + 管理端写入后 `invalidateAndRefresh`。
+> ⚠️ **v2.6 变更**：`api_key` 字段已从本集合移除，所有厂商 API 密钥统一存储在 `account_pool_entries` 集合中。详见 [8.10 统一密钥管理架构](#810-统一密钥管理架构)。
+
+各厂商的 `base_url`、submit 路径 `limits`（`max_concurrent` / `max_per_second` / `max_per_minute`）及可选轮询路径 `poll_limits` **仅**从 Mongo 本集合读取（`ProviderConfigService`）；`config/*.json` / Nacos **不再**包含 `providers`。无文档或文档 `enabled === false` 时回退为代码内建默认 `base_url` 与限流。进程内短 TTL 刷新 + 管理端写入后 `invalidateAndRefresh`。
+
+本集合**仅存储非密钥的全局配置**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `provider_name` | string | 厂商唯一标识（如 `wavespeed-ai`） |
+| `enabled` | boolean | 厂商启用开关 |
+| `icon_url` | string | 厂商图标 URL |
+| `base_url` | string | 厂商 API 默认地址 |
+| `extra` | object | 非密钥扩展字段（如 `region`、`subAppId`） |
+| `limits` | object | 提交任务限流（`max_concurrent` / `max_per_second` / `max_per_minute`） |
+| `poll_limits` | object | 轮询限流（`max_per_second` / `max_concurrent`） |
+| `revision` | number | 版本号 |
 
 - **限流键名**：submit 使用 `provider:{name}:qps` / `provider:{name}:concurrent`；轮询 query 使用 `provider:{name}:poll:qps` 及可选 `provider:{name}:poll:concurrent`，与 submit 隔离。
-- **密钥**：管理端列表/详情仅返回 `api_key_masked`；更新时 body 不传 `api_key` 表示不修改。
 - **种子**：`npm run seed:providers:apply` 将 `seed/provider-runtime-configs.json` 写入 Mongo（首次部署或迁移用）。
+
+### 8.10 统一密钥管理架构
+
+> ★ v2.6 新增：将所有厂商 API 密钥从 `provider_runtime_configs` 收敛到 `account_pool_entries`，实现"密钥只有一个来源"。
+
+#### 设计原则
+
+| 原则 | 说明 |
+|------|------|
+| **单一来源** | 所有 API 密钥仅存储在 `account_pool_entries` 集合中 |
+| **职责分离** | `provider_runtime_configs` 负责全局配置（地址、限流），`account_pool_entries` 负责认证凭据 |
+| **特殊认证支持** | 通过 `extra_credentials` 字段支持 tencent-cloud 等需要多认证参数的厂商 |
+| **向后兼容** | 过渡期通过 `secret_migration_complete` 标志控制降级行为 |
+
+#### 密钥选择流程
+
+```
+请求发起
+  └── AccountPoolService.selectAccount(provider)
+        ├── 有可用账号 → 使用 account.api_key + account.extra_credentials
+        └── 无可用账号
+              ├── secret_migration_complete=false → 打印 deprecation 警告，尝试降级
+              └── secret_migration_complete=true  → 抛出错误，提示配置账号池
+```
+
+#### account_pool_entries 密钥相关字段
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `api_key` | string | API 密钥（唯一来源） |
+| `extra_credentials` | object | 扩展认证参数（如 tencent-cloud 的 `secretId`/`secretKey`/`region`） |
+| `base_url` | string | 可选覆盖厂商默认地址 |
+
+#### 各厂商认证结构
+
+| 厂商 | api_key | extra_credentials |
+|------|---------|-------------------|
+| wavespeed-ai | Bearer Token | `{}` |
+| cloudwise | Bearer Token | `{}` |
+| akool | Bearer Token | `{}` |
+| minimax | Bearer Token | `{ bizId }` |
+| seedance | Bearer Token | `{}` |
+| alibaba | Bearer Token | `{}` |
+| tencent-cloud | — | `{ secretId, secretKey, region, subAppId }` |
+
+#### 迁移指南
+
+1. 执行迁移脚本：`npm run migrate:secrets`（将 provider_runtime_configs 中的密钥迁移到 account_pool_entries）
+2. 验证迁移结果：检查 account_pool_entries 中每个厂商都有对应的 `{provider}-default` 条目
+3. 部署新版本代码
+4. 验证所有厂商请求正常
+5. 执行清理脚本：`npm run cleanup:provider-secrets`（从 provider_runtime_configs 中移除密钥字段）
+6. 设置 `secret_migration_complete: true`
 
 ---
 
@@ -3299,12 +3369,94 @@ export class DashboardModule {}
 
 | 指标 | 数据源 | 刷新频率 |
 |------|--------|---------|
-| 今日任务总量 | `GET /api/v1/admin/stats/daily?date=today` | 30s |
-| 今日成功率 | 同上（successCount / totalCount） | 30s |
-| 当前队列总深度 | `GET /api/v1/admin/queues/stats` → summary.totalDepth | 10s |
-| 当前处理中任务 | 同上 → summary.totalActive | 10s |
-| 今日平均端到端时长 | 同上（avgTotalE2eMs） | 30s |
-| 活跃告警数 | `GET /api/v1/admin/alerts/active` | 30s |
+| 今日任务总量 | `GET /api/v1/admin/overview` → `today.totalTasks` | 30s |
+| 今日成功率 | 同上 → `today.successRate` | 30s |
+| ★ 全部任务总量 | 同上 → `total.totalTasks` | 30s |
+| ★ 全部成功率 | 同上 → `total.successRate` | 30s |
+| 当前队列总深度 | 同上 → `queues.totalDepth` | 30s |
+| 当前处理中任务 | 同上 → `queues.totalActive` | 30s |
+
+> ★ v2.5 新增：顶部统计行从 4 列（`lg={6}`）扩展为 6 列（`lg={4}`），新增"全部任务总量"和"全部成功率"卡片，与今日数据形成对比展示。
+
+**详情卡片区域：**
+
+| 卡片 | 内容 | 数据源 |
+|------|------|--------|
+| 今日任务统计 | 成功 / 失败 / 超时 / 总量（4 列） | `today.*` |
+| ★ 全部数据统计 | 成功 / 失败 / 超时 / 总量（4 列） | `total.*` |
+| 队列状态 | 等待+延迟 / 处理中 | `queues.*` |
+
+> ★ v2.5 新增："全部数据统计" Card 与"今日任务统计" Card 使用相同的 Row + 4 列 Col 布局和颜色编码（成功绿色 #52c41a、失败红色 #ff4d4f、超时黄色 #faad14），保持视觉一致性。
+
+**页面布局（v2.5 更新）：**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  顶部统计行（Row 6 列，每列 lg={4}）                                         │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │
+│  │今日任务  │ │今日成功率│ │★全部任务 │ │★全部成功率│ │队列深度  │ │处理中    │ │
+│  │  总量    │ │          │ │  总量    │ │          │ │          │ │          │ │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘ │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  中部详情行（Row 3 列）                                                      │
+│  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐                │
+│  │ 今日任务统计     │ │ ★全部数据统计   │ │ 队列状态         │                │
+│  │ 成功/失败/超时/  │ │ 成功/失败/超时/  │ │ 等待+延迟/处理中 │                │
+│  │ 总量             │ │ 总量             │ │                  │                │
+│  └─────────────────┘ └─────────────────┘ └─────────────────┘                │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Overview API 响应结构（v2.5 更新）：**
+
+```typescript
+// GET /api/v1/admin/overview
+{
+  code: 0,
+  data: {
+    today: {
+      totalTasks: number,
+      successTasks: number,
+      failedTasks: number,
+      timeoutTasks: number,
+      cancelledTasks: number,
+      successRate: number       // 基于已完结任务计算，保留两位小数
+    },
+    total: {                    // ★ v2.5 新增：全部历史累计统计
+      totalTasks: number,
+      successTasks: number,
+      failedTasks: number,
+      timeoutTasks: number,
+      cancelledTasks: number,
+      successRate: number       // 计算公式与 today 一致
+    },
+    queues: {
+      totalDepth: number,
+      totalActive: number
+    },
+    snapshotAt: Date
+  }
+}
+```
+
+**后端实现要点（v2.5）：**
+
+- `StatsService` 新增 `getAllTimeStats()` 方法，复用 `getTodayRealtimeStats()` 的 aggregation pipeline 结构，仅移除 `createdAt` 时间范围过滤条件
+- `AdminStatsController.getOverview()` 使用 `Promise.all` 并行调用 `getAllTimeStats()`、`getTodayRealtimeStats()` 和 `getLatestStats()`
+- 空集合时返回全零默认值
+- `successRate` 计算公式：`Math.round((successTasks / completedTasks) * 10000) / 100`，`completedTasks = successTasks + failedTasks + timeoutTasks + cancelledTasks`
+
+**前端防御性处理（v2.5）：**
+
+- `data?.total || {}` 防御 `total` 字段为空
+- 所有数值使用 `|| 0` 兜底
+- `successRate?.toFixed(1) || '0.0'` 防御 NaN
+
+**性能考量（v2.5）：**
+
+全量聚合需扫描整个 `tasks` 集合。当前数据量级（数十万级）可在合理时间内完成。未来数据量增长到百万级以上时可考虑：
+- 使用 `task_daily_stats` 预聚合表进行 `$sum` 汇总（需额外处理当日未聚合数据）
+- 引入 Redis 缓存，设置较短 TTL（如 60 秒）
 
 **趋势图表（ECharts）：**
 

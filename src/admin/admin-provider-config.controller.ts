@@ -61,6 +61,7 @@ export class AdminProviderConfigController {
       return {
         provider_name: name,
         enabled: row?.enabled ?? true,
+        icon_url: row?.icon_url || '',
         base_url: resolved.baseUrl,
         api_key_masked: maskApiKey(resolved.apiKey),
         has_api_key: !!resolved.apiKey?.trim(),
@@ -69,7 +70,6 @@ export class AdminProviderConfigController {
           max_per_second: resolved.pollLimits.maxPerSecond ?? resolved.limits.maxPerSecond,
           max_concurrent: resolved.pollLimits.maxConcurrent,
         },
-        source: resolved.source,
         revision: row?.revision ?? 0,
         updatedAt: (row as { updatedAt?: Date })?.updatedAt,
       };
@@ -93,6 +93,7 @@ export class AdminProviderConfigController {
       data: {
         provider_name: name,
         enabled: row?.enabled ?? true,
+        icon_url: row?.icon_url || '',
         base_url: resolved.baseUrl,
         api_key_masked: maskApiKey(resolved.apiKey),
         has_api_key: !!resolved.apiKey?.trim(),
@@ -102,7 +103,6 @@ export class AdminProviderConfigController {
           max_per_second: resolved.pollLimits.maxPerSecond ?? resolved.limits.maxPerSecond,
           max_concurrent: resolved.pollLimits.maxConcurrent,
         },
-        source: resolved.source,
         revision: row?.revision ?? 0,
         updatedAt: (row as { updatedAt?: Date })?.updatedAt,
       },
@@ -119,6 +119,7 @@ export class AdminProviderConfigController {
       enabled?: boolean;
       base_url?: string;
       api_key?: string;
+      icon_url?: string;
       extra?: Record<string, unknown>;
       limits?: {
         max_concurrent?: number;
@@ -140,6 +141,7 @@ export class AdminProviderConfigController {
     const setDoc: Record<string, unknown> = {};
     if (body.enabled !== undefined) setDoc.enabled = body.enabled;
     if (body.base_url !== undefined) setDoc.base_url = String(body.base_url).trim();
+    if (body.icon_url !== undefined) setDoc.icon_url = String(body.icon_url).trim();
     if (body.extra !== undefined) setDoc.extra = body.extra;
     if (body.limits !== undefined) setDoc.limits = body.limits;
     if (body.poll_limits !== undefined) setDoc.poll_limits = body.poll_limits;

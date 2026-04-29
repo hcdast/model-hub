@@ -75,8 +75,9 @@ export class AdminStatsController {
   @ApiOperation({ summary: 'Dashboard 总览', description: '今日核心指标概览（任务量、成功率、队列深度）' })
   @ApiResponse({ status: 200, description: '查询成功' })
   async getOverview() {
-    // 今日任务数据直接从 tasks 表实时聚合，避免依赖次日凌晨才运行的预聚合定时任务
-    const [todayStats, queueStats] = await Promise.all([
+    // 并行调用三个数据源，减少接口响应时间
+    const [totalStats, todayStats, queueStats] = await Promise.all([
+      this.statsService.getAllTimeStats(),
       this.statsService.getTodayRealtimeStats(),
       this.queueStatsCollector.getLatestStats(),
     ]);
@@ -85,6 +86,7 @@ export class AdminStatsController {
       code: 0,
       data: {
         today: todayStats,
+        total: totalStats,
         queues: {
           totalDepth: queueStats.reduce((s, q) => s + (q.depth || 0), 0),
           totalActive: queueStats.reduce((s, q) => s + (q.active || 0), 0),

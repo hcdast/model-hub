@@ -771,7 +771,7 @@ export class HealthController {
 | `CallbackService` | `callback/callback.service.ts` | `sendCallback()`, `buildPayload()`, `handleDeadLetter()` |
 | `CallbackSignatureService` | `callback/callback-signature.service.ts` | `sign()`, `verify()` |
 | `CallbackLogRepository` | `callback/callback-log.repository.ts` | `log()`, `findByTaskId()` |
-| ★ `StatsService` | `stats/stats.service.ts` | `aggregateDaily()`, `aggregateMonthly()`, `queryDaily()`, `queryMonthly()` |
+| ★ `StatsService` | `stats/stats.service.ts` | `aggregateDaily()`, `aggregateMonthly()`, `queryDaily()`, `queryMonthly()`, ★ `getAllTimeStats()`, `getTodayRealtimeStats()` |
 | ★ `StatsAggregationScheduler` | `stats/stats-aggregation.scheduler.ts` | `aggregateDailyStats()`, `aggregateMonthlyStats()` |
 | ★ `StatsCompareService` | `stats/stats-compare.service.ts` | `compareProviders()` |
 | ★ `RouteAdminService` | `admin/route-admin.service.ts` | `switchProvider()`, `rollback()`, `getHistory()` |

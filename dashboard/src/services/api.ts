@@ -12,7 +12,11 @@ api.interceptors.response.use(
   (res) => res.data,
   (err) => {
     if (err.response?.status === 401) {
+      // 清除所有认证相关的 localStorage 数据，保持与 auth store 一致
       localStorage.removeItem('token');
+      localStorage.removeItem('username');
+      localStorage.removeItem('roles');
+      localStorage.removeItem('permissions');
       window.location.href = '/login';
     }
     return Promise.reject(err);

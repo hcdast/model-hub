@@ -175,6 +175,60 @@ export class StatsService {
     };
   }
 
+  /**
+   * 全量聚合历史任务统计（直接查 tasks 表，无时间范围限制）
+   * 用于 Dashboard 总览页面展示系统自上线以来的累计数据
+   */
+  async getAllTimeStats(): Promise<{
+    totalTasks: number;
+    successTasks: number;
+    failedTasks: number;
+    timeoutTasks: number;
+    cancelledTasks: number;
+    successRate: number;
+  }> {
+    const pipeline = [
+      {
+        $group: {
+          _id: null,
+          totalTasks: { $sum: 1 },
+          successTasks: {
+            $sum: { $cond: [{ $eq: ['$status', 'SUCCESS'] }, 1, 0] },
+          },
+          failedTasks: {
+            $sum: { $cond: [{ $eq: ['$status', 'FAILED'] }, 1, 0] },
+          },
+          timeoutTasks: {
+            $sum: { $cond: [{ $eq: ['$status', 'TIMEOUT'] }, 1, 0] },
+          },
+          cancelledTasks: {
+            $sum: { $cond: [{ $eq: ['$status', 'CANCELLED'] }, 1, 0] },
+          },
+        },
+      },
+    ];
+
+    const results = await this.taskModel.aggregate(pipeline);
+    const row = results[0] || {
+      totalTasks: 0, successTasks: 0, failedTasks: 0,
+      timeoutTasks: 0, cancelledTasks: 0,
+    };
+
+    // 已完结任务 = SUCCESS + FAILED + TIMEOUT + CANCELLED
+    const completedTasks = row.successTasks + row.failedTasks + row.timeoutTasks + row.cancelledTasks;
+
+    return {
+      totalTasks: row.totalTasks,
+      successTasks: row.successTasks,
+      failedTasks: row.failedTasks,
+      timeoutTasks: row.timeoutTasks,
+      cancelledTasks: row.cancelledTasks,
+      successRate: completedTasks > 0
+        ? Math.round((row.successTasks / completedTasks) * 10000) / 100
+        : 0,
+    };
+  }
+
   async queryDaily(
     filters: {
       dateFrom?: string;

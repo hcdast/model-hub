@@ -11,6 +11,10 @@ export class ProviderRuntimeConfig {
   @Prop({ default: true })
   enabled!: boolean;
 
+  /** 厂商图标 URL */
+  @Prop()
+  icon_url?: string;
+
   @Prop()
   base_url?: string;
 
