@@ -6,6 +6,7 @@ import {
 } from '../interfaces/provider-adapter.interface';
 import { ProviderConfigService } from '../provider-config.service';
 import { createRuntimeConfiguredAxios } from '../create-runtime-axios';
+import { AccountPoolService } from '../account-pool/account-pool.service';
 import { ErrorLogger } from '../../common/utils/error-logger.util';
 
 @Injectable()
@@ -14,11 +15,16 @@ export class WanAdapter implements IProviderAdapter {
   private readonly logger = new Logger(WanAdapter.name);
   private readonly httpClient: AxiosInstance;
 
-  constructor(private readonly providerConfig: ProviderConfigService) {
+  constructor(
+    private readonly providerConfig: ProviderConfigService,
+    private readonly accountPoolService: AccountPoolService,
+  ) {
     this.httpClient = createRuntimeConfiguredAxios(
       this.providerConfig,
       this.providerName,
       { timeout: 30000 },
+      undefined,
+      this.accountPoolService,
     );
   }
 

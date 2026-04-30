@@ -1,27 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Card, Table, Button, Space, Typography, message, Modal, Form, Input, InputNumber, Switch, Avatar } from 'antd';
-import { ReloadOutlined, EditOutlined } from '@ant-design/icons';
+import { Card, Table, Button, Space, Typography, message, Modal, Form, Input, InputNumber, Switch, Avatar, Alert } from 'antd';
+import { ReloadOutlined, EditOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { providerConfigApi } from '../services/api';
-
-interface Row {
-  provider_name: string;
-  enabled: boolean;
-  icon_url: string;
-  base_url: string;
-  api_key_masked: string;
-  has_api_key: boolean;
-  limits: { maxConcurrent?: number; maxPerSecond?: number; maxPerMinute?: number };
-  poll_limits: { max_per_second?: number; max_concurrent?: number };
-  revision: number;
-  updatedAt?: string;
-  extra?: Record<string, unknown>;
-}
+import type { ProviderConfigItem } from '../services/api';
 
 export default function ProviderConfigsPage() {
-  const [items, setItems] = useState<Row[]>([]);
+  const [items, setItems] = useState<ProviderConfigItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<Row | null>(null);
+  const [editing, setEditing] = useState<ProviderConfigItem | null>(null);
   const [form] = Form.useForm();
 
   const fetchData = useCallback(async () => {
@@ -39,9 +26,8 @@ export default function ProviderConfigsPage() {
     void fetchData();
   }, [fetchData]);
 
-  const openEdit = async (r: Row) => {
+  const openEdit = async (r: ProviderConfigItem) => {
     setEditing(r);
-    // 获取详情以获取 extra 字段
     try {
       const detail: any = await providerConfigApi.get(r.provider_name);
       const detailData = detail.data || {};
@@ -49,24 +35,17 @@ export default function ProviderConfigsPage() {
         enabled: detailData.enabled ?? r.enabled,
         icon_url: detailData.icon_url ?? r.icon_url ?? '',
         base_url: detailData.base_url ?? r.base_url,
-        api_key: '',
         max_concurrent: r.limits?.maxConcurrent,
         max_per_second: r.limits?.maxPerSecond,
         max_per_minute: r.limits?.maxPerMinute,
         poll_max_per_second: r.poll_limits?.max_per_second,
         poll_max_concurrent: r.poll_limits?.max_concurrent,
-        // Tencent Cloud 特殊字段
-        subAppId: detailData.extra?.subAppId || '',
-        secretId: detailData.extra?.secretId || '',
-        secretKey: detailData.extra?.secretKey || '',
-        region: detailData.extra?.region || '',
       });
     } catch {
       form.setFieldsValue({
         enabled: r.enabled,
         icon_url: r.icon_url || '',
         base_url: r.base_url,
-        api_key: '',
         max_concurrent: r.limits?.maxConcurrent,
         max_per_second: r.limits?.maxPerSecond,
         max_per_minute: r.limits?.maxPerMinute,
@@ -89,23 +68,13 @@ export default function ProviderConfigsPage() {
       if (v.poll_max_per_second != null) poll_limits.max_per_second = v.poll_max_per_second;
       if (v.poll_max_concurrent != null) poll_limits.max_concurrent = v.poll_max_concurrent;
 
-      // 构建 extra 字段（仅 tencent-cloud 需要）
-      const extra: Record<string, unknown> = {};
-      if (editing.provider_name === 'tencent-cloud') {
-        if (v.subAppId?.trim()) extra.subAppId = v.subAppId.trim();
-        if (v.secretId?.trim()) extra.secretId = v.secretId.trim();
-        if (v.secretKey?.trim()) extra.secretKey = v.secretKey.trim();
-        if (v.region?.trim()) extra.region = v.region.trim();
-      }
-
+      // 密钥已统一在账号池管理，不再提交 api_key 和密钥相关的 extra 字段
       await providerConfigApi.upsert(editing.provider_name, {
         enabled: v.enabled,
         icon_url: v.icon_url?.trim() || '',
         base_url: v.base_url,
-        api_key: v.api_key?.trim() ? v.api_key.trim() : undefined,
         limits: Object.keys(limits).length ? limits : undefined,
         poll_limits: Object.keys(poll_limits).length ? poll_limits : undefined,
-        extra: Object.keys(extra).length ? extra : undefined,
       });
       message.success('已保存');
       setModalOpen(false);
@@ -127,10 +96,19 @@ export default function ProviderConfigsPage() {
         </Button>
       )}
     >
+      {/* 密钥统一管理提示 */}
+      <Alert
+        message="API 密钥已统一在「账号池」页面管理"
+        description="所有厂商的 API 密钥、Secret ID/Key 等认证信息已迁移至账号池统一管理。此页面仅用于配置厂商的 Base URL、限流参数和启用状态等全局设置。"
+        type="info"
+        showIcon
+        icon={<InfoCircleOutlined />}
+        style={{ marginBottom: 16 }}
+      />
       <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
-        厂商连接信息与限流均来自 MongoDB 集合 <code>provider_runtime_configs</code>；密钥仅展示脱敏，更新时仅在输入框填写新密钥才会覆盖。未落库前使用服务内建默认 base_url 与限流。
+        厂商连接信息与限流均来自 MongoDB 集合 <code>provider_runtime_configs</code>。未落库前使用服务内建默认 base_url 与限流。
       </Typography.Paragraph>
-      <Table<Row>
+      <Table<ProviderConfigItem>
         rowKey="provider_name"
         loading={loading}
         dataSource={items}
@@ -140,7 +118,7 @@ export default function ProviderConfigsPage() {
             title: '厂商',
             dataIndex: 'provider_name',
             width: 180,
-            render: (name: string, r: Row) => (
+            render: (name: string, r: ProviderConfigItem) => (
               <Space>
                 {r.icon_url ? (
                   <Avatar size={24} src={r.icon_url} shape="square" />
@@ -154,7 +132,6 @@ export default function ProviderConfigsPage() {
             ),
           },
           { title: 'base_url', dataIndex: 'base_url', ellipsis: true },
-          { title: '密钥', dataIndex: 'api_key_masked', width: 120 },
           {
             title: '并发 / QPS',
             key: 'lim',
@@ -189,6 +166,12 @@ export default function ProviderConfigsPage() {
         width={560}
       >
         <Form form={form} layout="vertical">
+          <Alert
+            message="密钥请在「账号池」页面管理"
+            type="warning"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
           <Form.Item name="enabled" label="启用（DB 行）" valuePropName="checked">
             <Switch />
           </Form.Item>
@@ -212,27 +195,6 @@ export default function ProviderConfigsPage() {
           <Form.Item name="base_url" label="Base URL">
             <Input placeholder="https://..." />
           </Form.Item>
-          <Form.Item name="api_key" label="API Key（留空则不修改）">
-            <Input.Password placeholder="仅更新时填写" autoComplete="new-password" />
-          </Form.Item>
-          
-          {editing?.provider_name === 'tencent-cloud' && (
-            <>
-              <Typography.Text type="secondary">腾讯云特殊配置</Typography.Text>
-              <Form.Item name="subAppId" label="Sub App ID">
-                <Input placeholder="1500057761" />
-              </Form.Item>
-              <Form.Item name="secretId" label="Secret ID">
-                <Input placeholder="AKIDT..." />
-              </Form.Item>
-              <Form.Item name="secretKey" label="Secret Key（留空则不修改）">
-                <Input.Password placeholder="仅更新时填写" />
-              </Form.Item>
-              <Form.Item name="region" label="Region">
-                <Input placeholder="ap-guangzhou" />
-              </Form.Item>
-            </>
-          )}
 
           <Typography.Text type="secondary">Submit 限流</Typography.Text>
           <Form.Item name="max_concurrent" label="max_concurrent">

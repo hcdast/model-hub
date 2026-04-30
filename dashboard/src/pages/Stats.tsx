@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Table, Card, DatePicker, Select, Space, Typography, Row, Col, Statistic } from 'antd';
 import dayjs from 'dayjs';
+import ReactEChartsCore from 'echarts-for-react';
 import { statsApi } from '../services/api';
+import { aggregateDailySummary, buildTaskVolumeOption } from '../utils/trend-chart-helpers';
 
 export default function StatsPage() {
   const [data, setData] = useState<any>({ items: [], total: 0 });
@@ -22,6 +24,15 @@ export default function StatsPage() {
   };
 
   useEffect(() => { fetchData(); }, [dateRange, featureType]);
+
+  // 按日期聚合趋势数据
+  const dailySummary = useMemo(() => aggregateDailySummary(data.items), [data.items]);
+
+  // 动态提取 featureType 选项
+  const featureTypeOptions = useMemo(
+    () => [...new Set(data.items.map((r: any) => r.featureType).filter(Boolean))] as string[],
+    [data.items],
+  );
 
   const summary = data.items.reduce(
     (acc: any, r: any) => ({
@@ -57,6 +68,15 @@ export default function StatsPage() {
         </Row>
       </Card>
 
+      {/* 趋势折线图 */}
+      <Card title="趋势图" style={{ marginBottom: 16 }}>
+        {dailySummary.length > 0 ? (
+          <ReactEChartsCore option={buildTaskVolumeOption(dailySummary)} style={{ height: 300 }} />
+        ) : (
+          <Typography.Text type="secondary">暂无趋势数据</Typography.Text>
+        )}
+      </Card>
+
       <Card>
         <Space style={{ marginBottom: 16 }} wrap>
           <DatePicker.RangePicker
@@ -65,7 +85,7 @@ export default function StatsPage() {
           />
           <Select
             placeholder="功能类型" allowClear style={{ width: 180 }}
-            options={['image_generate', 'image_to_video', 'character_swap', 'video_upscale'].map((v) => ({ label: v, value: v }))}
+            options={featureTypeOptions.map((v: string) => ({ label: v, value: v }))}
             onChange={setFeatureType}
           />
         </Space>

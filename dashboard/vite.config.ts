@@ -35,6 +35,16 @@ export default defineConfig(() => {
     build: {
       outDir: 'dist',
       sourcemap: false,
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+            'vendor-antd': ['antd', '@ant-design/icons'],
+            'vendor-echarts': ['echarts', 'echarts-for-react'],
+            'vendor-monaco': ['@monaco-editor/react'],
+          },
+        },
+      },
     },
     define: {
       // 将根目录 .env 中的 NODE_ENV 暴露给前端

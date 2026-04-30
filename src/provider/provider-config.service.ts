@@ -98,7 +98,7 @@ export class ProviderConfigService implements OnModuleInit, OnModuleDestroy {
     return {
       providerName,
       baseUrl: DEFAULT_BASE_URL[providerName] || '',
-      apiKey: '',
+      // 已移除: apiKey — 密钥统一收敛到 account_pool_entries
       limits,
       pollLimits: {
         maxPerSecond: def.maxPerSecond,
@@ -112,7 +112,6 @@ export class ProviderConfigService implements OnModuleInit, OnModuleDestroy {
     base: ResolvedProviderRuntime,
     doc: {
       base_url?: string;
-      api_key?: string;
       extra?: Record<string, unknown>;
       limits?: {
         max_concurrent?: number;
@@ -123,7 +122,8 @@ export class ProviderConfigService implements OnModuleInit, OnModuleDestroy {
       enabled?: boolean;
     },
   ): ResolvedProviderRuntime {
-    const extraBiz = doc.extra?.bizId ?? doc.extra?.biz_id;
+    // 已移除: 不再从 doc 读取 api_key（密钥统一收敛到 account_pool_entries）
+    // 已移除: 不再从 doc.extra 提取 bizId（移入 account_pool_entries.extra_credentials）
     const limits: RateLimitConfig = {
       maxConcurrent: doc.limits?.max_concurrent ?? base.limits.maxConcurrent,
       maxPerSecond: doc.limits?.max_per_second ?? base.limits.maxPerSecond,
@@ -134,9 +134,6 @@ export class ProviderConfigService implements OnModuleInit, OnModuleDestroy {
     return {
       providerName: base.providerName,
       baseUrl: doc.base_url?.trim() || base.baseUrl,
-      apiKey: doc.api_key?.trim() || base.apiKey,
-      bizId:
-        (typeof extraBiz === 'string' ? extraBiz : undefined) ?? base.bizId,
       limits,
       pollLimits: {
         maxPerSecond: pollSecond,
@@ -145,7 +142,7 @@ export class ProviderConfigService implements OnModuleInit, OnModuleDestroy {
       enabled: doc.enabled !== false,
       source: 'db',
       extra: doc.extra || {},
-    } as any;
+    };
   }
 
   /** 同步读取；无快照时用代码默认值（未落库或未启用 DB 行） */

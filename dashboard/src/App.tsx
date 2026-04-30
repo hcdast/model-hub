@@ -1,17 +1,18 @@
 import { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { Layout, Menu, Typography, Avatar, Dropdown, theme, Modal, Form, Input, message, Spin } from 'antd';
+import { Layout, Menu, Typography, Avatar, Dropdown, theme, Modal, Form, Input, message, Spin, Badge, Space, ConfigProvider, Button } from 'antd';
 import {
   DashboardOutlined, UnorderedListOutlined, CloudServerOutlined,
   BarChartOutlined, AuditOutlined, UserOutlined, LogoutOutlined,
   AppstoreOutlined, KeyOutlined, BranchesOutlined, ApiOutlined,
   TeamOutlined, SafetyOutlined, LockOutlined, WalletOutlined,
   ClusterOutlined, BellOutlined, FileTextOutlined, NotificationOutlined,
-  SettingOutlined,
+  SettingOutlined, SunOutlined, MoonOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from './store/auth';
 import { useMenuStore, type MenuGroup, type MenuItem } from './store/menu';
-import { userApi } from './services/api';
+import { useThemeStore } from './store/theme';
+import { userApi, inAppNotificationApi } from './services/api';
 import LoginPage from './pages/Login';
 import DashboardPage from './pages/Dashboard';
 import TasksPage from './pages/Tasks';
@@ -229,11 +230,27 @@ function AppLayout() {
   const { username, logout } = useAuthStore();
   const { menuGroups, loading: menuLoading, fetchMenu } = useMenuStore();
   const { token: { colorBgContainer, borderRadiusLG } } = theme.useToken();
+  const toggleTheme = useThemeStore((s) => s.toggle);
+  const themeMode = useThemeStore((s) => s.mode);
   const [changePwdOpen, setChangePwdOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const fetchUnreadCount = async () => {
+    try {
+      const res: any = await inAppNotificationApi.unreadCount();
+      setUnreadCount(res.data?.count || 0);
+    } catch { /* ignore */ }
+  };
 
   useEffect(() => {
     fetchMenu();
   }, [fetchMenu]);
+
+  useEffect(() => {
+    fetchUnreadCount();
+    const timer = setInterval(fetchUnreadCount, 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   const antdMenuItems = buildAntdMenuItems(menuGroups);
   const selectedKeys = findSelectedKey(menuGroups, location.pathname);
@@ -264,20 +281,34 @@ function AppLayout() {
       <Layout>
         <Header style={{ padding: '0 24px', background: colorBgContainer, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f0f0f0' }}>
           <Typography.Text strong>管理后台</Typography.Text>
-          <Dropdown menu={{
-            items: [
-              { key: 'user', label: username || 'admin', icon: <UserOutlined />, disabled: true },
-              { type: 'divider' },
-              { key: 'change-password', label: '修改密码', icon: <LockOutlined />,
-                onClick: () => setChangePwdOpen(true),
-              },
-              { key: 'logout', label: '退出登录', icon: <LogoutOutlined />, danger: true,
-                onClick: () => { logout(); navigate('/login'); },
-              },
-            ],
-          }}>
-            <Avatar icon={<UserOutlined />} style={{ cursor: 'pointer', backgroundColor: '#1677ff' }} />
-          </Dropdown>
+          <Space size="middle">
+            <Badge count={unreadCount} size="small" offset={[-2, 2]}>
+              <BellOutlined
+                style={{ fontSize: 18, cursor: 'pointer' }}
+                onClick={() => navigate('/notifications')}
+              />
+            </Badge>
+            <Button
+              type="text"
+              icon={themeMode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
+              onClick={toggleTheme}
+              style={{ fontSize: 18 }}
+            />
+            <Dropdown menu={{
+              items: [
+                { key: 'user', label: username || 'admin', icon: <UserOutlined />, disabled: true },
+                { type: 'divider' },
+                { key: 'change-password', label: '修改密码', icon: <LockOutlined />,
+                  onClick: () => setChangePwdOpen(true),
+                },
+                { key: 'logout', label: '退出登录', icon: <LogoutOutlined />, danger: true,
+                  onClick: () => { logout(); navigate('/login'); },
+                },
+              ],
+            }}>
+              <Avatar icon={<UserOutlined />} style={{ cursor: 'pointer', backgroundColor: '#1677ff' }} />
+            </Dropdown>
+          </Space>
         </Header>
         <Content style={{ margin: 24, padding: 24, background: colorBgContainer, borderRadius: borderRadiusLG, minHeight: 360 }}>
           <Routes>
@@ -322,10 +353,17 @@ function GuestGuard({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const themeMode = useThemeStore((s) => s.mode);
   return (
-    <Routes>
-      <Route path="/login" element={<GuestGuard><LoginPage /></GuestGuard>} />
-      <Route path="/*" element={<AuthGuard><AppLayout /></AuthGuard>} />
-    </Routes>
+    <ConfigProvider
+      theme={{
+        algorithm: themeMode === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm,
+      }}
+    >
+      <Routes>
+        <Route path="/login" element={<GuestGuard><LoginPage /></GuestGuard>} />
+        <Route path="/*" element={<AuthGuard><AppLayout /></AuthGuard>} />
+      </Routes>
+    </ConfigProvider>
   );
 }

@@ -4,6 +4,7 @@ import {
 } from 'antd';
 import { PlusOutlined, ReloadOutlined, KeyOutlined } from '@ant-design/icons';
 import { apiClientApi } from '../services/api';
+import { ErrorHandler } from '../utils/error-handler';
 
 export default function ApiClientsPage() {
   const [items, setItems] = useState<any[]>([]);
@@ -26,8 +27,8 @@ export default function ApiClientsPage() {
       setTotal(res.data?.total ?? 0);
       setPage(res.data?.page ?? p);
       setPageSize(res.data?.pageSize ?? ps);
-    } catch {
-      message.error('加载失败');
+    } catch (err) {
+      ErrorHandler.handleApiError(err, '加载失败');
     }
     setLoading(false);
   };
@@ -57,8 +58,8 @@ export default function ApiClientsPage() {
       setCreateOpen(false);
       form.resetFields();
       fetchData(1, pageSize);
-    } catch {
-      message.error('创建失败');
+    } catch (err) {
+      ErrorHandler.handleApiError(err, '创建失败');
     }
     setCreating(false);
   };
@@ -79,8 +80,8 @@ export default function ApiClientsPage() {
             ),
           });
           fetchData(page, pageSize);
-        } catch {
-          message.error('轮换失败');
+        } catch (err) {
+          ErrorHandler.handleApiError(err, '轮换失败');
         }
       },
     });
@@ -91,8 +92,8 @@ export default function ApiClientsPage() {
       await apiClientApi.setEnabled(record.clientId, enabled);
       message.success(enabled ? '已启用' : '已禁用');
       fetchData(page, pageSize);
-    } catch {
-      message.error('更新失败');
+    } catch (err) {
+      ErrorHandler.handleApiError(err, '更新失败');
     }
   };
 
@@ -111,8 +112,8 @@ export default function ApiClientsPage() {
       setPriorityOpen(false);
       setEditingClient(null);
       fetchData(page, pageSize);
-    } catch {
-      message.error('更新失败');
+    } catch (err) {
+      ErrorHandler.handleApiError(err, '更新失败');
     }
   };
 

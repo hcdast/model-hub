@@ -4,13 +4,7 @@ import { Card, Descriptions, Steps, Button, Space, Typography, Spin, message, Ta
 import { ArrowLeftOutlined, RedoOutlined, StopOutlined } from '@ant-design/icons';
 import StatusTag from '../components/StatusTag';
 import { taskApi } from '../services/api';
-
-/** 将优先级数值 (0-100) 映射为标签和颜色 */
-function priorityToLabel(priority: number): { label: string; color: string } {
-  if (priority <= 33) return { label: '高', color: 'red' };
-  if (priority <= 66) return { label: '中', color: 'orange' };
-  return { label: '低', color: 'blue' };
-}
+import { priorityToLabel, formatDateTime } from '../utils/format-helpers';
 
 export default function TaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>();
@@ -92,8 +86,8 @@ export default function TaskDetailPage() {
               ? <>{task.priority} <Tag color={priorityToLabel(task.priority).color}>{priorityToLabel(task.priority).label}</Tag></>
               : '-'}
           </Descriptions.Item>
-          <Descriptions.Item label="创建时间">{new Date(task.createdAt).toLocaleString('zh-CN')}</Descriptions.Item>
-          <Descriptions.Item label="更新时间">{new Date(task.updatedAt).toLocaleString('zh-CN')}</Descriptions.Item>
+          <Descriptions.Item label="创建时间">{formatDateTime(task.createdAt)}</Descriptions.Item>
+          <Descriptions.Item label="更新时间">{formatDateTime(task.updatedAt)}</Descriptions.Item>
         </Descriptions>
       </Card>
 
@@ -116,7 +110,7 @@ export default function TaskDetailPage() {
               title: e.event,
               description: (
                 <div>
-                  <Typography.Text type="secondary">{new Date(e.timestamp).toLocaleString('zh-CN')}</Typography.Text>
+                  <Typography.Text type="secondary">{formatDateTime(e.timestamp)}</Typography.Text>
                   {e.durationFromPrev > 0 && <Tag style={{ marginLeft: 8 }}>+{e.durationFromPrev}ms</Tag>}
                   {e.detail && Object.keys(e.detail).length > 0 && (
                     <div style={{ marginTop: 4 }}>

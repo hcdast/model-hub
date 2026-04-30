@@ -18,7 +18,11 @@ export class ProviderRuntimeConfig {
   @Prop()
   base_url?: string;
 
-  /** 明文存储；生产建议后续接 KMS 或字段加密 */
+  /**
+   * @deprecated 密钥已统一收敛到 account_pool_entries，此字段仅在过渡期保留。
+   * 迁移完成后将通过 cleanup 脚本移除。请使用 AccountPoolEntry.api_key 代替。
+   * 明文存储；生产建议后续接 KMS 或字段加密
+   */
   @Prop()
   api_key?: string;
 

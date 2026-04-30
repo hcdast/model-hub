@@ -36,6 +36,29 @@ function maskApiKey(key: string | undefined): string {
   return `****${key.slice(-4)}`;
 }
 
+/**
+ * 对 extra_credentials 中的值进行脱敏处理
+ * 字符串值仅显示前4位 + ****，非字符串值保持原样
+ */
+function maskExtraCredentials(
+  creds: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!creds || typeof creds !== 'object') return {};
+  const masked: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(creds)) {
+    if (typeof value === 'string') {
+      if (value.length <= 4) {
+        masked[key] = '****';
+      } else {
+        masked[key] = `${value.slice(0, 4)}****`;
+      }
+    } else {
+      masked[key] = value;
+    }
+  }
+  return masked;
+}
+
 @ApiTags('管理后台 - 账号池管理')
 @ApiBearerAuth('AdminJwt')
 @Controller('api/v1/admin/account-pool')
@@ -83,6 +106,9 @@ export class AdminAccountPoolController {
     const items = rows.map((r) => ({
       ...r,
       api_key: maskApiKey(r.api_key),
+      extra_credentials: maskExtraCredentials(
+        (r as any).extra_credentials as Record<string, unknown> | undefined,
+      ),
     }));
 
     return { code: 0, data: { items, total, page: p, pageSize: ps } };
@@ -97,7 +123,13 @@ export class AdminAccountPoolController {
     if (!row) return { code: 3001, message: 'Account not found' };
     return {
       code: 0,
-      data: { ...row, api_key: maskApiKey(row.api_key) },
+      data: {
+        ...row,
+        api_key: maskApiKey(row.api_key),
+        extra_credentials: maskExtraCredentials(
+          (row as any).extra_credentials as Record<string, unknown> | undefined,
+        ),
+      },
     };
   }
 
@@ -112,6 +144,8 @@ export class AdminAccountPoolController {
       account_alias: string;
       api_key: string;
       base_url?: string;
+      extra_credentials?: Record<string, unknown>;
+      description?: string;
       weight?: number;
       enabled?: boolean;
       daily_cost_limit?: number;
@@ -149,6 +183,8 @@ export class AdminAccountPoolController {
         account_alias: body.account_alias,
         api_key: body.api_key,
         base_url: body.base_url,
+        extra_credentials: body.extra_credentials ?? {},
+        description: body.description ?? '',
         weight: body.weight ?? 1,
         enabled: body.enabled ?? true,
         daily_cost_limit: body.daily_cost_limit ?? 0,
@@ -167,9 +203,16 @@ export class AdminAccountPoolController {
         req.ip,
       );
 
+      const plain = doc.toObject();
       return {
         code: 0,
-        data: { ...doc.toObject(), api_key: maskApiKey(doc.api_key) },
+        data: {
+          ...plain,
+          api_key: maskApiKey(doc.api_key),
+          extra_credentials: maskExtraCredentials(
+            (plain as any).extra_credentials as Record<string, unknown> | undefined,
+          ),
+        },
       };
     } catch (err: any) {
       if (err.code === 11000) {
@@ -193,6 +236,8 @@ export class AdminAccountPoolController {
       account_alias?: string;
       api_key?: string;
       base_url?: string;
+      extra_credentials?: Record<string, unknown>;
+      description?: string;
       weight?: number;
       enabled?: boolean;
       daily_cost_limit?: number;
@@ -234,6 +279,8 @@ export class AdminAccountPoolController {
     if (body.account_alias !== undefined) setDoc.account_alias = body.account_alias;
     if (body.api_key !== undefined) setDoc.api_key = body.api_key;
     if (body.base_url !== undefined) setDoc.base_url = body.base_url;
+    if (body.extra_credentials !== undefined) setDoc.extra_credentials = body.extra_credentials;
+    if (body.description !== undefined) setDoc.description = body.description;
     if (body.weight !== undefined) setDoc.weight = body.weight;
     if (body.enabled !== undefined) setDoc.enabled = body.enabled;
     if (body.daily_cost_limit !== undefined) setDoc.daily_cost_limit = body.daily_cost_limit;
@@ -261,11 +308,18 @@ export class AdminAccountPoolController {
       req.ip,
     );
 
+    if (!updated) return { code: 0, data: null };
+
+    const plain = updated.toObject();
     return {
       code: 0,
-      data: updated
-        ? { ...updated.toObject(), api_key: maskApiKey(updated.api_key) }
-        : null,
+      data: {
+        ...plain,
+        api_key: maskApiKey(updated.api_key),
+        extra_credentials: maskExtraCredentials(
+          (plain as any).extra_credentials as Record<string, unknown> | undefined,
+        ),
+      },
     };
   }
 

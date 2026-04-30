@@ -84,7 +84,21 @@ export const modelRoutingApi = {
   remove: (id: string) => api.delete(`/model-routing-rules/${id}`),
 };
 
-/** 厂商运行时配置（Mongo provider_runtime_configs） */
+// ---- 厂商运行时配置类型（精简后，不再包含密钥字段） ----
+export interface ProviderConfigItem {
+  provider_name: string;
+  enabled: boolean;
+  icon_url: string;
+  base_url: string;
+  limits: { maxConcurrent?: number; maxPerSecond?: number; maxPerMinute?: number };
+  poll_limits: { max_per_second?: number; max_concurrent?: number };
+  revision: number;
+  extra?: Record<string, unknown>;
+  updatedAt?: string;
+  // 已移除: api_key_masked, has_api_key — 密钥统一在账号池管理
+}
+
+/** 厂商运行时配置（Mongo provider_runtime_configs），密钥已移至账号池 */
 export const providerConfigApi = {
   list: () => api.get('/provider-configs'),
   get: (providerName: string) =>
@@ -102,6 +116,27 @@ export const apiClientApi = {
   updateDefaultPriority: (clientId: string, defaultPriority: number) =>
     api.patch(`/api-clients/${encodeURIComponent(clientId)}/priority`, { defaultPriority }),
 };
+
+// ---- 账号池条目类型（增强后，新增 extra_credentials 和 description） ----
+export interface AccountPoolEntryItem {
+  _id: string;
+  provider_name: string;
+  account_alias: string;
+  api_key: string;
+  base_url?: string;
+  extra_credentials?: Record<string, unknown>;
+  description?: string;
+  weight: number;
+  enabled: boolean;
+  health_status: string;
+  daily_cost_limit: number;
+  monthly_cost_limit: number;
+  tags: string[];
+  metadata: Record<string, unknown>;
+  revision: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 // ---- 账号池管理 API ----
 export const accountPoolApi = {

@@ -5,6 +5,7 @@ import {
 } from 'antd';
 import { ReloadOutlined, SearchOutlined, BranchesOutlined, PlusOutlined, EditOutlined, DollarOutlined } from '@ant-design/icons';
 import { modelApi } from '../services/api';
+import { ErrorHandler } from '../utils/error-handler';
 import PricingModal from '../components/PricingModal';
 
 export default function ModelsPage() {
@@ -37,8 +38,8 @@ export default function ModelsPage() {
       setTotal(res.data?.total ?? 0);
       setPage(res.data?.page ?? p);
       setPageSize(res.data?.pageSize ?? ps);
-    } catch {
-      message.error('加载失败');
+    } catch (err) {
+      ErrorHandler.handleApiError(err, '加载失败');
     }
     setLoading(false);
   };
@@ -55,8 +56,8 @@ export default function ModelsPage() {
     try {
       const res: any = await modelApi.getDetail(modelName);
       setDetail(res.data || null);
-    } catch {
-      message.error('加载详情失败');
+    } catch (err) {
+      ErrorHandler.handleApiError(err, '加载详情失败');
     }
     setDetailLoading(false);
   };
@@ -66,8 +67,8 @@ export default function ModelsPage() {
       await modelApi.toggle(record.model_name, disabled);
       message.success(disabled ? '已禁用' : '已启用');
       fetchData(page, pageSize);
-    } catch {
-      message.error('更新失败');
+    } catch (err) {
+      ErrorHandler.handleApiError(err, '更新失败');
     }
   };
 
@@ -76,8 +77,8 @@ export default function ModelsPage() {
       const res: any = await modelApi.getDetail(record.model_name);
       setPricingModel(res.data || null);
       setPricingOpen(true);
-    } catch {
-      message.error('加载定价信息失败');
+    } catch (err) {
+      ErrorHandler.handleApiError(err, '加载定价信息失败');
     }
   };
 

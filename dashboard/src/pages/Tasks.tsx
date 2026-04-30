@@ -1,16 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Table, Card, Select, Button, Space, Typography, Tooltip, Tag, Popconfirm, message } from 'antd';
+import { ErrorHandler } from '../utils/error-handler';
 import { ReloadOutlined, StopOutlined } from '@ant-design/icons';
 import StatusTag from '../components/StatusTag';
 import { taskApi } from '../services/api';
-
-/** 将优先级数值 (0-100) 映射为标签和颜色 */
-function priorityToLabel(priority: number): { label: string; color: string } {
-  if (priority <= 33) return { label: '高', color: 'red' };
-  if (priority <= 66) return { label: '中', color: 'orange' };
-  return { label: '低', color: 'blue' };
-}
+import { priorityToLabel, formatDateTime } from '../utils/format-helpers';
 
 const STATUS_OPTIONS = ['PENDING', 'SUBMITTED', 'PROCESSING', 'SUCCESS', 'FAILED', 'TIMEOUT', 'CANCELLED'];
 
@@ -64,7 +59,7 @@ export default function TasksPage() {
     { title: '厂商', dataIndex: 'provider', key: 'provider', width: 130 },
     { title: '功能类型', dataIndex: 'featureType', key: 'featureType', width: 140 },
     { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', width: 180,
-      render: (t: string) => t ? new Date(t).toLocaleString('zh-CN') : '-',
+      render: (t: string) => formatDateTime(t),
     },
     { title: '操作', key: 'actions', width: 160,
       render: (_: any, record: any) => (
@@ -78,7 +73,7 @@ export default function TasksPage() {
                   await taskApi.cancel(record.taskId);
                   message.success('任务已取消');
                   fetchData();
-                } catch { message.error('取消失败'); }
+                } catch (err) { ErrorHandler.handleApiError(err, '取消失败'); }
               }}
               okText="确认"
               cancelText="取消"

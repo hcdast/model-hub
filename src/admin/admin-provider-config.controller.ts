@@ -27,12 +27,6 @@ import { PermissionGuard } from './guards/permission.guard';
 import { RequirePermissions } from './decorators/require-permissions.decorator';
 import { AuditLogService } from './audit-log.service';
 
-function maskApiKey(key: string | undefined): string {
-  if (!key) return '';
-  if (key.length <= 4) return '****';
-  return `****${key.slice(-4)}`;
-}
-
 @ApiTags('管理后台 - 厂商运行时配置')
 @ApiBearerAuth('AdminJwt')
 @Controller('api/v1/admin/provider-configs')
@@ -47,7 +41,7 @@ export class AdminProviderConfigController {
 
   @Get()
   @RequirePermissions('provider:read')
-  @ApiOperation({ summary: '厂商运行时配置列表（MongoDB，密钥脱敏）' })
+  @ApiOperation({ summary: '厂商运行时配置列表（MongoDB，不含密钥）' })
   @ApiResponse({ status: 200, description: '成功' })
   async list() {
     const rows = await this.runtimeModel
@@ -63,8 +57,6 @@ export class AdminProviderConfigController {
         enabled: row?.enabled ?? true,
         icon_url: row?.icon_url || '',
         base_url: resolved.baseUrl,
-        api_key_masked: maskApiKey(resolved.apiKey),
-        has_api_key: !!resolved.apiKey?.trim(),
         limits: resolved.limits,
         poll_limits: {
           max_per_second: resolved.pollLimits.maxPerSecond ?? resolved.limits.maxPerSecond,
@@ -75,12 +67,18 @@ export class AdminProviderConfigController {
       };
     });
 
-    return { code: 0, data: { items } };
+    return {
+      code: 0,
+      data: {
+        items,
+        notice: 'API 密钥已统一在「账号池」页面管理，请前往账号池页面查看和配置密钥。',
+      },
+    };
   }
 
   @Get(':providerName')
   @RequirePermissions('provider:read')
-  @ApiOperation({ summary: '单厂商详情（密钥脱敏）' })
+  @ApiOperation({ summary: '单厂商详情（不含密钥）' })
   async detail(@Param('providerName') providerName: string) {
     const name = decodeURIComponent(providerName);
     if (!REGISTERED_PROVIDER_NAMES.includes(name as any)) {
@@ -95,8 +93,6 @@ export class AdminProviderConfigController {
         enabled: row?.enabled ?? true,
         icon_url: row?.icon_url || '',
         base_url: resolved.baseUrl,
-        api_key_masked: maskApiKey(resolved.apiKey),
-        has_api_key: !!resolved.apiKey?.trim(),
         extra: row?.extra || {},
         limits: resolved.limits,
         poll_limits: {
@@ -105,20 +101,20 @@ export class AdminProviderConfigController {
         },
         revision: row?.revision ?? 0,
         updatedAt: (row as { updatedAt?: Date })?.updatedAt,
+        notice: 'API 密钥已统一在「账号池」页面管理，请前往账号池页面查看和配置密钥。',
       },
     };
   }
 
   @Put(':providerName')
   @RequirePermissions('provider:update')
-  @ApiOperation({ summary: 'Upsert 厂商配置写入 Mongo（不传 api_key 则不改密钥）' })
+  @ApiOperation({ summary: 'Upsert 厂商配置写入 Mongo（不含密钥，密钥请在账号池管理）' })
   async upsert(
     @Param('providerName') providerName: string,
     @Body()
     body: {
       enabled?: boolean;
       base_url?: string;
-      api_key?: string;
       icon_url?: string;
       extra?: Record<string, unknown>;
       limits?: {
@@ -146,9 +142,7 @@ export class AdminProviderConfigController {
     if (body.limits !== undefined) setDoc.limits = body.limits;
     if (body.poll_limits !== undefined) setDoc.poll_limits = body.poll_limits;
 
-    if (body.api_key !== undefined && body.api_key !== null && String(body.api_key).trim() !== '') {
-      setDoc.api_key = String(body.api_key).trim();
-    }
+    // 已移除: api_key 参数 — 密钥统一在账号池管理
 
     const updated = await this.runtimeModel.findOneAndUpdate(
       { provider_name: name },
@@ -164,7 +158,7 @@ export class AdminProviderConfigController {
       {
         provider_name: name,
         revision: updated.revision,
-        keys: Object.keys(setDoc).filter((k) => k !== 'api_key'),
+        keys: Object.keys(setDoc),
       },
       req.ip,
     );

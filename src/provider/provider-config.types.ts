@@ -10,11 +10,13 @@ export interface PollLimitConfig {
 export interface ResolvedProviderRuntime {
   providerName: string;
   baseUrl: string;
-  apiKey: string;
-  bizId?: string;
+  // 已移除: apiKey — 密钥统一收敛到 account_pool_entries
+  // 已移除: bizId — 移入 account_pool_entries.extra_credentials
   limits: RateLimitConfig;
   pollLimits: PollLimitConfig;
   enabled: boolean;
   /** 当前快照：Mongo 文档覆盖，或仅代码内默认值 */
   source: 'db' | 'defaults';
+  /** 非密钥扩展字段（如 region 等），密钥相关字段请使用 ResolvedAccountCredentials */
+  extra?: Record<string, unknown>;
 }

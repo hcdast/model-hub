@@ -11,6 +11,12 @@ import {
 export class StatsService {
   private readonly logger = new Logger(StatsService.name);
 
+  /** 全量统计缓存（内存缓存，TTL 60 秒） */
+  private allTimeStatsCache: {
+    data: { totalTasks: number; successTasks: number; failedTasks: number; timeoutTasks: number; cancelledTasks: number; successRate: number } | null;
+    expireAt: number;
+  } = { data: null, expireAt: 0 };
+
   constructor(
     @InjectModel(Task.name) private readonly taskModel: Model<TaskDocument>,
     @InjectModel(TaskDailyStats.name)
@@ -178,6 +184,7 @@ export class StatsService {
   /**
    * 全量聚合历史任务统计（直接查 tasks 表，无时间范围限制）
    * 用于 Dashboard 总览页面展示系统自上线以来的累计数据
+   * 使用内存缓存，TTL 60 秒，减少 MongoDB 聚合压力
    */
   async getAllTimeStats(): Promise<{
     totalTasks: number;
@@ -187,6 +194,17 @@ export class StatsService {
     cancelledTasks: number;
     successRate: number;
   }> {
+    const now = Date.now();
+
+    // 缓存命中且未过期，直接返回
+    if (this.allTimeStatsCache.data && now < this.allTimeStatsCache.expireAt) {
+      this.logger.debug('getAllTimeStats: 使用缓存');
+      return this.allTimeStatsCache.data;
+    }
+
+    // 缓存未命中，执行 MongoDB 聚合
+    this.logger.debug('getAllTimeStats: 执行 MongoDB 聚合');
+
     const pipeline = [
       {
         $group: {
@@ -217,7 +235,7 @@ export class StatsService {
     // 已完结任务 = SUCCESS + FAILED + TIMEOUT + CANCELLED
     const completedTasks = row.successTasks + row.failedTasks + row.timeoutTasks + row.cancelledTasks;
 
-    return {
+    const result = {
       totalTasks: row.totalTasks,
       successTasks: row.successTasks,
       failedTasks: row.failedTasks,
@@ -227,6 +245,11 @@ export class StatsService {
         ? Math.round((row.successTasks / completedTasks) * 10000) / 100
         : 0,
     };
+
+    // 写入缓存，TTL 60 秒
+    this.allTimeStatsCache = { data: result, expireAt: now + 60_000 };
+
+    return result;
   }
 
   async queryDaily(

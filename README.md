@@ -394,7 +394,7 @@ curl http://localhost:6000/metrics             # Prometheus 指标
 | `callback.timeoutMs` | number | 回调超时（ms） |
 | `callback.maxRetries` | number | 回调最大重试次数 |
 | `polling.*` | - | 轮询配置（间隔/批量/最大次数/最大时长等） |
-| （厂商密钥/URL/限流） | - | **不在** Nacos/本地 JSON 配置；见 MongoDB `provider_runtime_configs`，或 `npm run seed:providers:apply` |
+| （厂商密钥/URL/限流） | - | 厂商 URL 和限流见 MongoDB `provider_runtime_configs`；**API 密钥统一在 `account_pool_entries` 管理**（见下方迁移指南），或 `npm run seed:providers:apply` |
 | `admin.jwtSecret` | string | 管理后台 JWT 签名密钥 |
 | `admin.jwtExpiresIn` | string | JWT 有效期（如 `2h`） |
 | `admin.defaultUsername` | string | 首次启动创建的管理员用户名 |
@@ -423,7 +423,11 @@ model-hub/
 │   │       ├── task-daily-stats.schema.ts
 │   │       ├── queue-snapshot.schema.ts
 │   │       ├── admin-user.schema.ts
-│   │       └── audit-log.schema.ts
+│   │       ├── audit-log.schema.ts
+│   │       ├── account-pool-entry.schema.ts    # ★ 账号池条目（密钥唯一来源）
+│   │       ├── account-cost-daily.schema.ts    # ★ 账号每日成本聚合
+│   │       ├── provider-runtime-config.schema.ts  # 厂商全局配置（不含密钥）
+│   │       └── model-config.schema.ts          # 模型配置
 │   ├── redis/                          # Redis 模块
 │   │   ├── redis.module.ts             # ioredis 连接
 │   │   ├── redis.constants.ts          # REDIS_CLIENT 注入 Token
@@ -450,13 +454,28 @@ model-hub/
 │   │   ├── queue-registry.service.ts   # 队列统一注册/发现
 │   │   └── queue-router.service.ts     # 两级路由分发
 │   ├── provider/                       # 厂商适配模块
-│   │   ├── provider.module.ts          # 注册 3 个 Adapter
+│   │   ├── provider.module.ts          # 注册所有 Adapter
 │   │   ├── provider.registry.ts        # Adapter 注册表
+│   │   ├── provider-config.service.ts  # 厂商全局配置（不含密钥）
+│   │   ├── provider-config.types.ts    # ResolvedProviderRuntime 类型
+│   │   ├── create-runtime-axios.ts     # 统一 Axios 工厂（从账号池注入密钥）
 │   │   ├── interfaces/provider-adapter.interface.ts  # IProviderAdapter 接口
+│   │   ├── account-pool/              # ★ 账号池子模块（密钥唯一来源）
+│   │   │   ├── account-pool.module.ts
+│   │   │   ├── account-pool.service.ts          # 账号池核心服务
+│   │   │   ├── resolved-account-credentials.interface.ts  # 认证凭据类型
+│   │   │   ├── circuit-breaker.service.ts       # 熔断器
+│   │   │   ├── cost-tracker.service.ts          # 成本追踪
+│   │   │   ├── health-check.scheduler.ts        # 健康探测
+│   │   │   └── strategies/                      # 负载均衡策略
 │   │   └── adapters/
 │   │       ├── wavespeed.adapter.ts
 │   │       ├── cloudwise.adapter.ts
-│   │       └── akool.adapter.ts
+│   │       ├── akool.adapter.ts
+│   │       ├── tencent.adapter.ts      # ★ 使用 extra_credentials 签名
+│   │       ├── minimax.adapter.ts
+│   │       ├── seedance.adapter.ts
+│   │       └── wan.adapter.ts
 │   ├── polling/                        # 轮询模块
 │   │   ├── polling.module.ts
 │   │   ├── polling.scheduler.ts        # Cron 调度 + 分布式锁
@@ -525,9 +544,19 @@ model-hub/
 │   ├── development.json                # 本地开发配置（NACOS_ENABLE=false 时使用）
 │   ├── production.json                 # 生产本地降级配置
 │   └── nacos-config-template.json      # Nacos JSON 配置模板
+├── seed/                               # 种子数据
+│   ├── provider-runtime-configs.json   # 厂商全局配置（不含密钥）
+│   ├── account-pool-entries.json       # ★ 账号池默认条目模板（api_key 留空）
+│   └── model-configs.json              # 模型配置
+├── scripts/                            # 运维脚本
+│   ├── migrate-secrets-to-pool.cjs     # ★ 密钥迁移脚本（provider_runtime_configs → account_pool_entries）
+│   ├── cleanup-provider-secrets.cjs    # ★ 密钥清理脚本（移除旧 api_key 字段）
+│   ├── seed-provider-runtime-from-config.cjs  # 种子数据导入
+│   ├── collect-model-configs.cjs       # 模型配置采集
+│   └── ...                             # 其他运维脚本
 ├── docs/
-│   ├── technical-design.md             # 技术方案文档（v2.1；部分章节仍含已下线的 model_routes 描述，以代码为准）
-│   └── project-architecture.md         # 项目架构清单（同上）
+│   ├── technical-design.md             # 技术方案文档（v2.6；含统一密钥管理架构）
+│   └── project-architecture.md         # 项目架构清单
 ├── ecosystem.config.js                 # PM2 多进程配置（api/worker/scheduler/admin-server）
 ├── .env.example                        # 环境变量模板（仅 Nacos 连接参数）
 ├── package.json
@@ -586,5 +615,8 @@ pm2 start ecosystem.config.js  # PM2 启动全部服务
 npm test                 # 单元测试
 npm run lint             # ESLint 检查
 npm run migrate:clientid # 将 tasks / idempotency_records 的 tenantId 迁移为 clientId
+npm run migrate:secrets  # ★ 将 provider_runtime_configs 中的密钥迁移到 account_pool_entries
+npm run cleanup:provider-secrets  # ★ 迁移验证后，清理 provider_runtime_configs 中的密钥字段
 npm run seed:api-client  # 若 api_clients 为空则创建默认客户端并打印 apiKey
+npm run seed:providers:apply  # 导入厂商配置 + 账号池种子数据
 ```

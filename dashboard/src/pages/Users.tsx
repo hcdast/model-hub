@@ -8,6 +8,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { userApi, roleApi } from '../services/api';
+import { ErrorHandler } from '../utils/error-handler';
 
 export default function UsersPage() {
   const [users, setUsers] = useState<any[]>([]);
@@ -50,8 +51,8 @@ export default function UsersPage() {
       setTotal(res.data?.total ?? 0);
       setPage(res.data?.page ?? p);
       setPageSize(res.data?.pageSize ?? ps);
-    } catch {
-      message.error('加载用户列表失败');
+    } catch (err) {
+      ErrorHandler.handleApiError(err, '加载用户列表失败');
     }
     setLoading(false);
   }, [page, pageSize, searchUsername]);
@@ -79,7 +80,7 @@ export default function UsersPage() {
       createForm.resetFields();
       fetchUsers(1, pageSize, searchUsername);
     } catch (err: any) {
-      message.error(err.response?.data?.message || '创建用户失败');
+      ErrorHandler.handleApiError(err, '创建用户失败');
     }
     setCreating(false);
   };
@@ -96,7 +97,7 @@ export default function UsersPage() {
       editForm.resetFields();
       fetchUsers(page, pageSize, searchUsername);
     } catch (err: any) {
-      message.error(err.response?.data?.message || '更新用户失败');
+      ErrorHandler.handleApiError(err, '更新用户失败');
     }
     setEditing(false);
   };
@@ -117,7 +118,7 @@ export default function UsersPage() {
       message.success(enabled ? '已启用' : '已禁用');
       fetchUsers(page, pageSize, searchUsername);
     } catch (err: any) {
-      message.error(err.response?.data?.message || '操作失败');
+      ErrorHandler.handleApiError(err, '操作失败');
     }
   };
 
@@ -127,7 +128,7 @@ export default function UsersPage() {
       message.success('用户已删除');
       fetchUsers(page, pageSize, searchUsername);
     } catch (err: any) {
-      message.error(err.response?.data?.message || '删除失败');
+      ErrorHandler.handleApiError(err, '删除失败');
     }
   };
 
@@ -153,7 +154,7 @@ export default function UsersPage() {
         ),
       });
     } catch (err: any) {
-      message.error(err.response?.data?.message || '重置密码失败');
+      ErrorHandler.handleApiError(err, '重置密码失败');
     }
   };
 

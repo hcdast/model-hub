@@ -31,7 +31,9 @@
     "seed:rbac": "node scripts/seed-rbac-permissions.cjs",
     "migrate:rbac": "node scripts/migrate-admin-users-rbac.cjs",
     "validate:rbac": "node scripts/validate-rbac-permissions.cjs",
-    "sync:docs": "node scripts/sync-docs.cjs"
+    "sync:docs": "node scripts/sync-docs.cjs",
+    "migrate:secrets": "node scripts/migrate-secrets-to-pool.cjs",
+    "cleanup:provider-secrets": "node scripts/cleanup-provider-secrets.cjs"
   },
   "dependencies": {
     "@nestjs/bull": "^10.2.3",

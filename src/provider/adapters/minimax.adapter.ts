@@ -7,6 +7,8 @@ import {
 import { ProviderConfigService } from '../provider-config.service';
 import { ResolvedProviderRuntime } from '../provider-config.types';
 import { createRuntimeConfiguredAxios } from '../create-runtime-axios';
+import { AccountPoolService } from '../account-pool/account-pool.service';
+import { ResolvedAccountCredentials } from '../account-pool/resolved-account-credentials.interface';
 import { ErrorLogger } from '../../common/utils/error-logger.util';
 
 @Injectable()
@@ -15,17 +17,22 @@ export class MiniMaxAdapter implements IProviderAdapter {
   private readonly logger = new Logger(MiniMaxAdapter.name);
   private readonly httpClient: AxiosInstance;
 
-  constructor(private readonly providerConfig: ProviderConfigService) {
+  constructor(
+    private readonly providerConfig: ProviderConfigService,
+    private readonly accountPoolService: AccountPoolService,
+  ) {
     this.httpClient = createRuntimeConfiguredAxios(
       this.providerConfig,
       this.providerName,
       { timeout: 60000 },
-      (config: InternalAxiosRequestConfig, r: ResolvedProviderRuntime) => {
+      (config: InternalAxiosRequestConfig, _r: ResolvedProviderRuntime, credentials?: ResolvedAccountCredentials) => {
         const h = AxiosHeaders.from(config.headers ?? {});
-        if (r.bizId) h.set('X-Biz-Id', r.bizId);
+        const bizId = credentials?.extraCredentials?.bizId as string | undefined;
+        if (bizId) h.set('X-Biz-Id', bizId);
         else h.delete('X-Biz-Id');
         config.headers = h;
       },
+      this.accountPoolService,
     );
   }
 

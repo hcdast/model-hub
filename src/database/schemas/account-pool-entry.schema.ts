@@ -18,6 +18,17 @@ export class AccountPoolEntry {
   @Prop()
   base_url?: string;
 
+  /**
+   * 扩展认证字段，支持 tencent-cloud 等需要多个认证参数的厂商
+   * 示例: { secretId: "AKIDxxx", secretKey: "4vl6xxx", region: "ap-guangzhou" }
+   */
+  @Prop({ type: Object, default: {} })
+  extra_credentials!: Record<string, unknown>;
+
+  /** 账号描述，便于管理员识别用途 */
+  @Prop({ default: '' })
+  description!: string;
+
   @Prop({ default: 1 })
   weight!: number;
 
@@ -51,3 +62,9 @@ AccountPoolEntrySchema.index({ provider_name: 1, enabled: 1 });
 
 // 唯一索引：同一 provider 下 api_key 不可重复
 AccountPoolEntrySchema.index({ provider_name: 1, api_key: 1 }, { unique: true });
+
+// 唯一索引：同一 provider 下 account_alias 不可重复
+AccountPoolEntrySchema.index(
+  { provider_name: 1, account_alias: 1 },
+  { unique: true },
+);

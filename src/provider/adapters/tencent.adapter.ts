@@ -9,9 +9,11 @@ import {
   RateLimitConfig,
 } from '../interfaces/provider-adapter.interface';
 import { ProviderConfigService } from '../provider-config.service';
+import { AccountPoolService } from '../account-pool/account-pool.service';
+import { ResolvedAccountCredentials } from '../account-pool/resolved-account-credentials.interface';
 import { ErrorLogger } from '../../common/utils/error-logger.util';
 
-// Tencent Cloud SDK types
+// 腾讯云 SDK 类型定义
 interface TencentCredential {
   secretId: string;
   secretKey: string;
@@ -87,36 +89,105 @@ const TencentKlingModelMap: Record<string, { version: string; mode: string; reso
   'tencent-cloud/kling-v2.6-std/motion-control': { version: '2.6', mode: 'std', resolution: '1080p' },
 };
 
+/**
+ * 用于缓存 VOD 客户端的 key，避免每次请求都重新创建
+ */
+function buildClientCacheKey(secretId: string, region: string): string {
+  return `${secretId}:${region}`;
+}
+
 @Injectable()
 export class TencentAdapter implements IProviderAdapter {
   readonly providerName = 'tencent-cloud';
   private readonly logger = new Logger(TencentAdapter.name);
-  private readonly subAppId: number;
-  private vodClient: any;
-  private initPromise: Promise<void> | null = null;
-  private initialized = false;
+
+  /** 按 secretId+region 缓存已初始化的 VOD 客户端，避免重复创建 */
+  private readonly clientCache = new Map<string, any>();
+  /** 正在初始化中的 Promise，防止并发重复初始化 */
+  private readonly initPromises = new Map<string, Promise<any>>();
 
   constructor(
     private readonly providerConfig: ProviderConfigService,
-  ) {
-    // 从 ProviderConfigService 的 extra 字段读取腾讯云凭证
-    const resolved = this.providerConfig.getResolvedSync(this.providerName);
-    const extra = (resolved as any).extra || {};
-    
-    this.subAppId = Number(extra.subAppId) || 0;
-    const secretId = String(extra.secretId || '');
-    const secretKey = String(extra.secretKey || '');
-    const region = String(extra.region || '');
+    private readonly accountPoolService: AccountPoolService,
+  ) {}
+
+  /**
+   * 从账号池获取凭证，构建 ResolvedAccountCredentials。
+   * 密钥的唯一来源是 account_pool_entries.extra_credentials。
+   */
+  private async resolveCredentials(): Promise<{
+    credentials: ResolvedAccountCredentials;
+    secretId: string;
+    secretKey: string;
+    region: string;
+    subAppId: number;
+    accountId: string;
+  }> {
+    const account = await this.accountPoolService.selectAccount(this.providerName);
+    if (!account) {
+      throw new Error(
+        `Provider "${this.providerName}" has no available account pool entries. ` +
+        `Please add at least one account in the Account Pool management page.`,
+      );
+    }
+
+    const credentials: ResolvedAccountCredentials = {
+      apiKey: account.api_key,
+      extraCredentials: (account as any).extra_credentials || {},
+      accountId: (account as any)._id?.toString?.() ?? '',
+      accountAlias: account.account_alias,
+    };
+
+    const { secretId, secretKey, region, subAppId } = credentials.extraCredentials as Record<string, any>;
 
     if (!secretId || !secretKey) {
-      this.logger.warn('Tencent Cloud credentials not configured in provider runtime config');
-    } else {
-      // 启动异步初始化，但保存 Promise 以便等待
-      this.initPromise = this.initializeClient(secretId, secretKey, region);
+      throw new Error(
+        `Tencent Cloud account "${credentials.accountAlias}" is missing secretId/secretKey in extra_credentials. ` +
+        `Please configure them in the Account Pool management page.`,
+      );
+    }
+
+    return {
+      credentials,
+      secretId: String(secretId),
+      secretKey: String(secretKey),
+      region: String(region || ''),
+      subAppId: Number(subAppId) || 0,
+      accountId: credentials.accountId,
+    };
+  }
+
+  /**
+   * 获取或创建 VOD 客户端（按 secretId+region 缓存）
+   */
+  private async getOrCreateClient(secretId: string, secretKey: string, region: string): Promise<any> {
+    const cacheKey = buildClientCacheKey(secretId, region);
+
+    // 已缓存的客户端直接返回
+    const cached = this.clientCache.get(cacheKey);
+    if (cached) return cached;
+
+    // 正在初始化中，等待完成
+    const pending = this.initPromises.get(cacheKey);
+    if (pending) return pending;
+
+    // 创建新客户端
+    const initPromise = this.createVodClient(secretId, secretKey, region);
+    this.initPromises.set(cacheKey, initPromise);
+
+    try {
+      const client = await initPromise;
+      this.clientCache.set(cacheKey, client);
+      return client;
+    } finally {
+      this.initPromises.delete(cacheKey);
     }
   }
 
-  private async initializeClient(secretId: string, secretKey: string, region: string): Promise<void> {
+  /**
+   * 创建腾讯云 VOD 客户端实例
+   */
+  private async createVodClient(secretId: string, secretKey: string, region: string): Promise<any> {
     try {
       // 动态导入 SDK，避免在未安装时报错
       const { vod } = await import('tencentcloud-sdk-nodejs-vod');
@@ -136,9 +207,9 @@ export class TencentAdapter implements IProviderAdapter {
         },
       };
 
-      this.vodClient = new VodClient(clientConfig);
-      this.initialized = true;
-      this.logger.log('Tencent Cloud VOD client initialized');
+      const client = new VodClient(clientConfig);
+      this.logger.log(`Tencent Cloud VOD client created for secretId=${secretId.substring(0, 6)}***`);
+      return client;
     } catch (error: any) {
       ErrorLogger.logError(
         this.logger,
@@ -150,28 +221,10 @@ export class TencentAdapter implements IProviderAdapter {
     }
   }
 
-  /**
-   * 确保客户端已初始化，如果正在初始化则等待
-   */
-  private async ensureInitialized(): Promise<void> {
-    if (this.initialized) {
-      return;
-    }
-    
-    if (this.initPromise) {
-      await this.initPromise;
-      return;
-    }
-    
-    throw new Error('Tencent Cloud VOD client not initialized and no credentials configured');
-  }
-
   async submitTask(request: NormalizedTaskRequest): Promise<SubmitResult> {
-    await this.ensureInitialized();
-    
-    if (!this.vodClient) {
-      throw new Error('Tencent Cloud VOD client not initialized');
-    }
+    // 从账号池获取凭证（密钥唯一来源：extra_credentials）
+    const { secretId, secretKey, region, subAppId, accountId } = await this.resolveCredentials();
+    const vodClient = await this.getOrCreateClient(secretId, secretKey, region);
 
     const modelConfig = TencentKlingModelMap[request.model];
     if (!modelConfig) {
@@ -194,7 +247,7 @@ export class TencentAdapter implements IProviderAdapter {
     });
 
     const requestParams: CreateAigcVideoTaskRequest = {
-      SubAppId: this.subAppId,
+      SubAppId: subAppId,
       ModelName: 'Kling',
       ModelVersion: modelConfig.version,
       FileInfos: [
@@ -211,12 +264,12 @@ export class TencentAdapter implements IProviderAdapter {
     };
 
     this.logger.log(
-      `Submit Tencent Kling: model=${request.model} version=${modelConfig.version}`,
+      `Submit Tencent Kling: model=${request.model} version=${modelConfig.version} account=${accountId}`,
       JSON.stringify(requestParams),
     );
 
     try {
-      const response: CreateAigcVideoTaskResponse = await this.vodClient.CreateAigcVideoTask(requestParams);
+      const response: CreateAigcVideoTaskResponse = await vodClient.CreateAigcVideoTask(requestParams);
 
       if (!response?.TaskId) {
         const error = new Error('CreateAigcVideoTask returned no TaskId');
@@ -231,12 +284,31 @@ export class TencentAdapter implements IProviderAdapter {
 
       this.logger.log(`Tencent task created: TaskId=${response.TaskId}`);
 
+      // 上报成功结果到账号池
+      this.accountPoolService
+        .reportResult(accountId, this.providerName, { success: true, durationMs: 0 })
+        .catch(() => {});
+
       return {
         providerTaskId: response.TaskId,
         isSync: false,
         rawResponse: response,
       };
     } catch (error: any) {
+      // 上报失败结果到账号池
+      const retryable =
+        error?.code === 'RequestLimitExceeded' ||
+        error?.code === 'InternalError' ||
+        error?.message?.includes('timeout');
+      this.accountPoolService
+        .reportResult(accountId, this.providerName, {
+          success: false,
+          durationMs: 0,
+          errorCode: error?.code || 'TENCENT_ERROR',
+          retryable,
+        })
+        .catch(() => {});
+
       ErrorLogger.logError(
         this.logger,
         error,
@@ -248,21 +320,19 @@ export class TencentAdapter implements IProviderAdapter {
   }
 
   async queryTask(providerTaskId: string, _meta?: Record<string, any>): Promise<QueryResult> {
-    await this.ensureInitialized();
-    
-    if (!this.vodClient) {
-      throw new Error('Tencent Cloud VOD client not initialized');
-    }
+    // 从账号池获取凭证（密钥唯一来源：extra_credentials）
+    const { secretId, secretKey, region, subAppId } = await this.resolveCredentials();
+    const vodClient = await this.getOrCreateClient(secretId, secretKey, region);
 
     this.logger.log(`Query Tencent task: TaskId=${providerTaskId}`);
 
     try {
       const requestParams: DescribeTaskDetailRequest = {
-        SubAppId: this.subAppId,
+        SubAppId: subAppId,
         TaskId: providerTaskId,
       };
 
-      const response: DescribeTaskDetailResponse = await this.vodClient.DescribeTaskDetail(requestParams);
+      const response: DescribeTaskDetailResponse = await vodClient.DescribeTaskDetail(requestParams);
 
       this.logger.log(`Tencent task status raw:`, JSON.stringify(response));
 
