@@ -24,6 +24,7 @@ export interface MenuGroup {
 const DEFAULT_GROUPS: Omit<MenuGroup, 'children'>[] = [
   { key: 'overview', label: '系统总览', icon: 'DashboardOutlined', sortOrder: 0 },
   { key: 'business', label: '业务管理', icon: 'AppstoreOutlined', sortOrder: 100 },
+  { key: 'billing', label: '计费管理', icon: 'WalletOutlined', sortOrder: 150 },
   { key: 'provider', label: '厂商管理', icon: 'CloudServerOutlined', sortOrder: 200 },
   { key: 'notification', label: '通知管理', icon: 'BellOutlined', sortOrder: 300 },
   { key: 'system', label: '系统配置', icon: 'SettingOutlined', sortOrder: 400 },

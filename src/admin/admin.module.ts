@@ -14,7 +14,9 @@ import { AdminModelRoutingController } from './admin-model-routing.controller';
 import { AdminProviderConfigController } from './admin-provider-config.controller';
 import { AdminAccountPoolController } from './admin-account-pool.controller';
 import { AdminAccountCostController } from './admin-account-cost.controller';
+import { AdminBillingController } from './admin-billing.controller';
 import { AdminMenuController } from './admin-menu.controller';
+import { ProviderHealthController } from './provider-health.controller';
 import { AdminJwtGuard } from './guards/admin-jwt.guard';
 import { ModelConfigService } from './model-config.service';
 import { TaskTimelineService } from '../task/task-timeline.service';
@@ -23,6 +25,7 @@ import { ApiClientModule } from '../api-client/api-client.module';
 import { RbacModule } from './rbac.module';
 import { TaskModule } from '../task/task.module';
 import { QueueModule } from '../queue/queue.module';
+import { ProviderHealthModule } from '../provider-health/provider-health.module';
 
 @Module({
   imports: [
@@ -33,6 +36,7 @@ import { QueueModule } from '../queue/queue.module';
     RbacModule,
     TaskModule,
     QueueModule,
+    ProviderHealthModule,
     BullModule.registerQueue({ name: 'callback' }),
   ],
   controllers: [
@@ -46,7 +50,9 @@ import { QueueModule } from '../queue/queue.module';
     AdminProviderConfigController,
     AdminAccountPoolController,
     AdminAccountCostController,
+    AdminBillingController,
     AdminMenuController,
+    ProviderHealthController,
   ],
   providers: [
     AdminAuthService,

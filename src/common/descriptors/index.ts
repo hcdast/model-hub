@@ -309,6 +309,14 @@ export const providerDescriptor: FeatureModuleDescriptor = {
       sortOrder: 30,
       requiredPermission: 'provider:read',
     },
+    {
+      path: '/provider-health',
+      label: 'Provider 健康',
+      icon: 'HeartOutlined',
+      parentKey: 'provider',
+      sortOrder: 40,
+      requiredPermission: 'provider:read',
+    },
   ],
 };
 
@@ -356,6 +364,41 @@ export const inAppNotificationDescriptor: FeatureModuleDescriptor = {
   ],
 };
 
+/** 计费管理模块描述符 */
+export const billingDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'billing',
+  displayName: '计费管理',
+  permissions: [
+    {
+      resource: 'billing',
+      actions: ['read', 'write'],
+      displayNames: {
+        read: '查看计费信息',
+        write: '管理计费（充值等）',
+      },
+      module: 'billing-management',
+    },
+  ],
+  menus: [
+    {
+      path: '/billing/records',
+      label: '计费记录',
+      icon: 'FileTextOutlined',
+      parentKey: 'billing',
+      sortOrder: 10,
+      requiredPermission: 'billing:read',
+    },
+    {
+      path: '/billing/wallets',
+      label: '钱包管理',
+      icon: 'WalletOutlined',
+      parentKey: 'billing',
+      sortOrder: 20,
+      requiredPermission: 'billing:read',
+    },
+  ],
+};
+
 /** All built-in module descriptors */
 export const builtInDescriptors: FeatureModuleDescriptor[] = [
   overviewDescriptor,
@@ -372,4 +415,5 @@ export const builtInDescriptors: FeatureModuleDescriptor[] = [
   notificationRuleDescriptor,
   notificationRecordDescriptor,
   inAppNotificationDescriptor,
+  billingDescriptor,
 ];
