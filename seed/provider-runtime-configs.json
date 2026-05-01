@@ -1,0 +1,40 @@
+{
+  "_comment": "npm run seed:providers:apply 写入 MongoDB provider_runtime_configs；密钥请在「账号池」页面管理，此文件仅包含非密钥全局配置",
+  "wavespeed-ai": {
+    "baseUrl": "https://api.wavespeed.ai/api/v3",
+    "maxConcurrent": 10,
+    "maxPerSecond": 5
+  },
+  "cloudwise": {
+    "baseUrl": "https://api.cloudwise.ai/api",
+    "maxConcurrent": 200,
+    "maxPerSecond": 50
+  },
+  "akool": {
+    "baseUrl": "http://internal-algorithm-queue.akool.com",
+    "maxConcurrent": 50,
+    "maxPerSecond": 20
+  },
+  "minimax": {
+    "baseUrl": "https://api.minimax.io",
+    "maxConcurrent": 20,
+    "maxPerSecond": 10
+  },
+  "seedance": {
+    "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+    "maxConcurrent": 10,
+    "maxPerSecond": 5
+  },
+  "alibaba": {
+    "baseUrl": "https://dashscope.aliyuncs.com",
+    "maxConcurrent": 20,
+    "maxPerSecond": 10
+  },
+  "tencent-cloud": {
+    "baseUrl": "https://api.cloudwise.ai/api",
+    "region": "ap-guangzhou",
+    "subAppId": "1500057761",
+    "maxConcurrent": 20,
+    "maxPerSecond": 10
+  }
+}

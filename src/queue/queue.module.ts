@@ -14,6 +14,8 @@ import { QueueRegistryService } from './queue-registry.service';
 import { QueueRouterService } from './queue-router.service';
 import { DatabaseModule } from '../database/database.module';
 import { ProviderModule } from '../provider/provider.module';
+import { ProviderHealthModule } from '../provider-health/provider-health.module';
+import { ApiClientModule } from '../api-client/api-client.module';
 import { TaskRepository } from '../task/task.repository';
 import { TaskTimelineService } from '../task/task-timeline.service';
 import { TaskTimingService } from '../task/task-timing.service';
@@ -56,6 +58,8 @@ import {
     ),
     DatabaseModule,
     ProviderModule,
+    ProviderHealthModule,
+    ApiClientModule,
   ],
   providers: [
     FeatureQueueProcessor,

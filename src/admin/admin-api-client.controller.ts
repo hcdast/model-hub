@@ -1,19 +1,26 @@
 import {
   BadRequestException,
-  Body, Controller, Get, Param, Patch, Post, Query, UseGuards,
+  Body, Controller, Get, Param, Patch, Post, Put, Query, UseGuards, UsePipes, ValidationPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { AdminJwtGuard } from './guards/admin-jwt.guard';
 import { PermissionGuard } from './guards/permission.guard';
 import { RequirePermissions } from './decorators/require-permissions.decorator';
 import { ApiClientService } from '../api-client/api-client.service';
+import { UsageTrackerService } from '../api-client/usage-tracker.service';
+import { UpdateRateLimitsDto } from './dto/update-rate-limits.dto';
+import { UpdateModelAllowlistDto } from './dto/update-model-allowlist.dto';
+import { UsageQueryDto } from './dto/usage-query.dto';
 
 @ApiTags('管理后台 - API 客户端')
 @ApiBearerAuth('AdminJwt')
 @Controller('api/v1/admin/api-clients')
 @UseGuards(AdminJwtGuard, PermissionGuard)
 export class AdminApiClientController {
-  constructor(private readonly apiClients: ApiClientService) {}
+  constructor(
+    private readonly apiClients: ApiClientService,
+    private readonly usageTracker: UsageTrackerService,
+  ) {}
 
   @Get()
   @RequirePermissions('api-client:read')
@@ -106,5 +113,82 @@ export class AdminApiClientController {
     }
     await this.apiClients.updateBillingPolicy(clientId, body.billingPolicy);
     return { code: 0, message: 'Updated' };
+  }
+
+  // ===== 新增端点：限流配置、模型白名单、用量查询 =====
+
+  @Put(':clientId/rate-limits')
+  @RequirePermissions('api-client:update')
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  @ApiOperation({ summary: '更新 API 客户端限流配置' })
+  @ApiResponse({ status: 200, description: '成功' })
+  @ApiResponse({ status: 400, description: '参数校验失败' })
+  @ApiResponse({ status: 404, description: '客户端不存在' })
+  async updateRateLimits(
+    @Param('clientId') clientId: string,
+    @Body() dto: UpdateRateLimitsDto,
+  ) {
+    this.apiClients.assertClientIdParam(clientId);
+    await this.apiClients.updateRateLimits(clientId, {
+      maxQps: dto.maxQps,
+      maxConcurrent: dto.maxConcurrent,
+      maxDailyRequests: dto.maxDailyRequests,
+    });
+    return { code: 0, message: 'Rate limits updated' };
+  }
+
+  @Put(':clientId/model-allowlist')
+  @RequirePermissions('api-client:update')
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  @ApiOperation({ summary: '更新 API 客户端模型白名单' })
+  @ApiResponse({ status: 200, description: '成功' })
+  @ApiResponse({ status: 400, description: '参数校验失败' })
+  @ApiResponse({ status: 404, description: '客户端不存在' })
+  async updateModelAllowlist(
+    @Param('clientId') clientId: string,
+    @Body() dto: UpdateModelAllowlistDto,
+  ) {
+    this.apiClients.assertClientIdParam(clientId);
+    await this.apiClients.updateModelAllowlist(clientId, dto.modelAllowlist);
+    return { code: 0, message: 'Model allowlist updated' };
+  }
+
+  @Get('usage/summary')
+  @RequirePermissions('api-client:read')
+  @ApiOperation({ summary: '查询所有客户端用量汇总' })
+  @ApiResponse({ status: 200, description: '成功' })
+  async getUsageSummary() {
+    const data = await this.usageTracker.getUsageSummary();
+    return { code: 0, data };
+  }
+
+  @Get(':clientId/usage')
+  @RequirePermissions('api-client:read')
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  @ApiOperation({ summary: '查询 API 客户端用量统计' })
+  @ApiQuery({ name: 'from', required: false, description: '起始日期（YYYYMMDD）' })
+  @ApiQuery({ name: 'to', required: false, description: '结束日期（YYYYMMDD）' })
+  @ApiResponse({ status: 200, description: '成功' })
+  @ApiResponse({ status: 404, description: '客户端不存在' })
+  async getUsage(
+    @Param('clientId') clientId: string,
+    @Query() query: UsageQueryDto,
+  ) {
+    this.apiClients.assertClientIdParam(clientId);
+    // 默认查询当天
+    const today = this.getTodayStr();
+    const from = query.from || today;
+    const to = query.to || today;
+    const data = await this.usageTracker.getUsage(clientId, { from, to });
+    return { code: 0, data };
+  }
+
+  /** 获取当天日期字符串 YYYYMMDD */
+  private getTodayStr(): string {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}${month}${day}`;
   }
 }

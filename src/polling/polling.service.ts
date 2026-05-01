@@ -20,6 +20,7 @@ import { buildTaskEvent, buildProviderEvent } from '../notification/events/event
 import { BillingAdapter } from '../billing/billing.adapter';
 import { PricingService } from '../billing/pricing.service';
 import { UsageType } from '../billing/interfaces/billing.interface';
+import { UsageTrackerService } from '../api-client/usage-tracker.service';
 
 @Injectable()
 export class PollingService {
@@ -40,6 +41,7 @@ export class PollingService {
     @InjectQueue('callback') private readonly callbackQueue: Queue,
     private readonly billingAdapter: BillingAdapter,
     private readonly pricingService: PricingService,
+    private readonly usageTracker: UsageTrackerService,
   ) {}
 
   async pollPendingTasks(): Promise<number> {
@@ -203,6 +205,11 @@ export class PollingService {
             billingErr instanceof Error ? billingErr.stack : billingErr,
           );
         }
+
+        // 异步记录 Usage 失败统计
+        this.usageTracker.recordCompletion(task.clientId, false).catch((err) => {
+          this.logger.warn(`Usage 记录失败: clientId=${task.clientId}, error=${(err as Error).message}`);
+        });
       }
       return;
     } finally {
@@ -244,6 +251,11 @@ export class PollingService {
           );
         }
 
+        // 异步记录 Usage 完成统计
+        this.usageTracker.recordCompletion(task.clientId, true).catch((err) => {
+          this.logger.warn(`Usage 记录完成失败: clientId=${task.clientId}, error=${(err as Error).message}`);
+        });
+
         if (task.callback?.url) await this.callbackQueue.add('deliver', { taskId: task.taskId, callbackUrl: task.callback.url, callbackSecret: task.callback.secret });
         break;
       }
@@ -277,6 +289,11 @@ export class PollingService {
             billingErr instanceof Error ? billingErr.stack : billingErr,
           );
         }
+
+        // 异步记录 Usage 失败统计
+        this.usageTracker.recordCompletion(task.clientId, false).catch((err) => {
+          this.logger.warn(`Usage 记录失败: clientId=${task.clientId}, error=${(err as Error).message}`);
+        });
 
         break;
       case 'processing':

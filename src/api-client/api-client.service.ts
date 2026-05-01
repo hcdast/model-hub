@@ -113,6 +113,30 @@ export class ApiClientService {
     if (res.matchedCount === 0) throw new NotFoundException(`Api client not found: ${clientId}`);
   }
 
+  /** 更新 API 客户端的限流配置 */
+  async updateRateLimits(
+    clientId: string,
+    rateLimits: { maxQps?: number; maxConcurrent?: number; maxDailyRequests?: number },
+  ): Promise<void> {
+    const updateFields: Record<string, number> = {};
+    if (rateLimits.maxQps !== undefined) updateFields['rateLimits.maxQps'] = rateLimits.maxQps;
+    if (rateLimits.maxConcurrent !== undefined) updateFields['rateLimits.maxConcurrent'] = rateLimits.maxConcurrent;
+    if (rateLimits.maxDailyRequests !== undefined) updateFields['rateLimits.maxDailyRequests'] = rateLimits.maxDailyRequests;
+
+    if (Object.keys(updateFields).length === 0) {
+      throw new BadRequestException('至少需要提供一个限流参数');
+    }
+
+    const res = await this.apiClientModel.updateOne({ clientId }, { $set: updateFields });
+    if (res.matchedCount === 0) throw new NotFoundException(`Api client not found: ${clientId}`);
+  }
+
+  /** 更新 API 客户端的模型白名单 */
+  async updateModelAllowlist(clientId: string, modelAllowlist: string[]): Promise<void> {
+    const res = await this.apiClientModel.updateOne({ clientId }, { $set: { modelAllowlist } });
+    if (res.matchedCount === 0) throw new NotFoundException(`Api client not found: ${clientId}`);
+  }
+
   assertClientIdParam(clientId: string): void {
     if (!/^mh_[0-9A-Za-z_-]+$/.test(clientId)) {
       throw new BadRequestException('Invalid clientId');

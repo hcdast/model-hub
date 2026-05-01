@@ -17,12 +17,14 @@ import { TaskService } from './task.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { TaskListQueryDto } from './dto/task-list-query.dto';
 import { ApiKeyGuard } from '../auth/guards/api-key.guard';
+import { ClientRateLimitGuard } from '../auth/guards/client-rate-limit.guard';
+import { ModelAllowlistGuard } from '../auth/guards/model-allowlist.guard';
 import { ClientId } from '../auth/decorators/client-id.decorator';
 
 @ApiTags('任务管理')
 @ApiSecurity('ApiKey')
 @Controller('v1/tasks')
-@UseGuards(ApiKeyGuard)
+@UseGuards(ApiKeyGuard, ClientRateLimitGuard, ModelAllowlistGuard)
 @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
 export class TaskController {
   constructor(private readonly taskService: TaskService) {}

@@ -1,0 +1,75 @@
+{
+  "_comment": "npm run seed:providers:apply 写入 MongoDB account_pool_entries；api_key 请在管理端填写，勿提交真实密钥",
+  "entries": [
+    {
+      "provider_name": "wavespeed-ai",
+      "account_alias": "wavespeed-ai-default",
+      "api_key": "",
+      "description": "wavespeed-ai 默认账号",
+      "extra_credentials": {},
+      "weight": 1,
+      "enabled": true
+    },
+    {
+      "provider_name": "cloudwise",
+      "account_alias": "cloudwise-default",
+      "api_key": "",
+      "description": "cloudwise 默认账号",
+      "extra_credentials": {},
+      "weight": 1,
+      "enabled": true
+    },
+    {
+      "provider_name": "akool",
+      "account_alias": "akool-default",
+      "api_key": "",
+      "description": "akool 默认账号",
+      "extra_credentials": {},
+      "weight": 1,
+      "enabled": true
+    },
+    {
+      "provider_name": "minimax",
+      "account_alias": "minimax-default",
+      "api_key": "",
+      "description": "minimax 默认账号",
+      "extra_credentials": {
+        "bizId": ""
+      },
+      "weight": 1,
+      "enabled": true
+    },
+    {
+      "provider_name": "seedance",
+      "account_alias": "seedance-default",
+      "api_key": "",
+      "description": "seedance 默认账号",
+      "extra_credentials": {},
+      "weight": 1,
+      "enabled": true
+    },
+    {
+      "provider_name": "alibaba",
+      "account_alias": "alibaba-default",
+      "api_key": "",
+      "description": "alibaba 默认账号",
+      "extra_credentials": {},
+      "weight": 1,
+      "enabled": true
+    },
+    {
+      "provider_name": "tencent-cloud",
+      "account_alias": "tencent-cloud-default",
+      "api_key": "",
+      "description": "tencent-cloud 默认账号",
+      "extra_credentials": {
+        "secretId": "",
+        "secretKey": "",
+        "region": "",
+        "subAppId": ""
+      },
+      "weight": 1,
+      "enabled": true
+    }
+  ]
+}

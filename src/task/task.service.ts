@@ -26,6 +26,7 @@ import {
 import { ProviderRoutingService } from './provider-routing.service';
 import { ErrorLogger } from '../common/utils/error-logger.util';
 import { ApiClientService } from '../api-client/api-client.service';
+import { UsageTrackerService } from '../api-client/usage-tracker.service';
 import { validateParams } from '../common/utils/param-validator';
 import { transformParams } from '../common/utils/param-transformer';
 import { ParamDefinitions } from '../common/interfaces/param-definition.interface';
@@ -49,6 +50,7 @@ export class TaskService {
     @InjectModel(ModelConfig.name)
     private readonly modelConfigModel: Model<ModelConfigDocument>,
     private readonly apiClientService: ApiClientService,
+    private readonly usageTracker: UsageTrackerService,
     private readonly billingAdapter: BillingAdapter,
   ) {}
 
@@ -252,6 +254,12 @@ export class TaskService {
     await this.timelineService.addEvent(taskId, TimelineEvent.TASK_ENQUEUED, { queueName, jobId });
 
     this.logger.log(`Task created: taskId=${taskId}, model=${dto.model}, provider=${provider}`);
+
+    // 异步记录 Usage，不阻塞任务创建
+    this.usageTracker.recordRequest(clientId).catch((err) => {
+      this.logger.warn(`Usage 记录请求失败: clientId=${clientId}, error=${(err as Error).message}`);
+    });
+
     return this.toResponse(task);
   }
 
