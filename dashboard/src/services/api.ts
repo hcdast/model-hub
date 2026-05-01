@@ -115,6 +115,20 @@ export const apiClientApi = {
   rotate: (clientId: string) => api.post(`/api-clients/${encodeURIComponent(clientId)}/rotate`),
   updateDefaultPriority: (clientId: string, defaultPriority: number) =>
     api.patch(`/api-clients/${encodeURIComponent(clientId)}/priority`, { defaultPriority }),
+  /** 修改 API 客户端计费策略 */
+  updateBillingPolicy: (clientId: string, billingPolicy: string) =>
+    api.patch(`/api-clients/${encodeURIComponent(clientId)}/billing-policy`, { billingPolicy }),
+  /** 更新限流配置 */
+  updateRateLimits: (clientId: string, rateLimits: { maxQps?: number; maxConcurrent?: number; maxDailyRequests?: number }) =>
+    api.put(`/api-clients/${encodeURIComponent(clientId)}/rate-limits`, rateLimits),
+  /** 更新模型白名单 */
+  updateModelAllowlist: (clientId: string, modelAllowlist: string[]) =>
+    api.put(`/api-clients/${encodeURIComponent(clientId)}/model-allowlist`, { modelAllowlist }),
+  /** 查询单个客户端用量统计 */
+  getUsage: (clientId: string, params: { from?: string; to?: string }) =>
+    api.get(`/api-clients/${encodeURIComponent(clientId)}/usage`, { params }),
+  /** 查询所有客户端用量汇总 */
+  getUsageSummary: () => api.get('/api-clients/usage/summary'),
 };
 
 // ---- 账号池条目类型（增强后，新增 extra_credentials 和 description） ----

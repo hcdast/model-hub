@@ -7,7 +7,7 @@ import {
   AppstoreOutlined, KeyOutlined, BranchesOutlined, ApiOutlined,
   TeamOutlined, SafetyOutlined, LockOutlined, WalletOutlined,
   ClusterOutlined, BellOutlined, FileTextOutlined, NotificationOutlined,
-  SettingOutlined, SunOutlined, MoonOutlined,
+  SettingOutlined, SunOutlined, MoonOutlined, HeartOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from './store/auth';
 import { useMenuStore, type MenuGroup, type MenuItem } from './store/menu';
@@ -35,6 +35,9 @@ import NotificationRulesPage from './pages/NotificationRules';
 import NotificationRecordsPage from './pages/NotificationRecords';
 import InAppNotificationsPage from './pages/InAppNotifications';
 import ForbiddenPage from './pages/Forbidden';
+import ProviderHealthPage from './pages/ProviderHealth';
+import BillingRecordsPage from './pages/BillingRecords';
+import WalletManagementPage from './pages/WalletManagement';
 
 const { Header, Sider, Content } = Layout;
 
@@ -60,6 +63,7 @@ const iconMap: Record<string, React.ReactNode> = {
   FileTextOutlined: <FileTextOutlined />,
   NotificationOutlined: <NotificationOutlined />,
   SettingOutlined: <SettingOutlined />,
+  HeartOutlined: <HeartOutlined />,
 };
 
 /** 解析图标名称为 React 组件，未匹配时使用默认图标 */
@@ -321,9 +325,13 @@ function AppLayout() {
             <Route path="/models/edit/:id" element={<PermissionRoute permission="model:update"><EditModelConfigPage /></PermissionRoute>} />
             <Route path="/model-routing-rules" element={<PermissionRoute permission="model:read"><ModelRoutingRulesPage /></PermissionRoute>} />
             <Route path="/provider-configs" element={<PermissionRoute permission="provider:read"><ProviderConfigsPage /></PermissionRoute>} />
+            <Route path="/provider-health" element={<PermissionRoute permission="provider:read"><ProviderHealthPage /></PermissionRoute>} />
             <Route path="/account-pool" element={<PermissionRoute permission="provider:read"><AccountPoolPage /></PermissionRoute>} />
             <Route path="/account-costs" element={<PermissionRoute permission="provider:read"><AccountCostPage /></PermissionRoute>} />
             <Route path="/api-clients" element={<PermissionRoute permission="api-client:read"><ApiClientsPage /></PermissionRoute>} />
+            {/* 计费管理路由 */}
+            <Route path="/billing/records" element={<PermissionRoute permission="billing:read"><BillingRecordsPage /></PermissionRoute>} />
+            <Route path="/billing/wallets" element={<PermissionRoute permission="billing:read"><WalletManagementPage /></PermissionRoute>} />
             <Route path="/stats" element={<PermissionRoute permission="stats:read"><StatsPage /></PermissionRoute>} />
             <Route path="/audit-logs" element={<PermissionRoute permission="audit:read"><AuditLogsPage /></PermissionRoute>} />
             <Route path="/notification-rules" element={<PermissionRoute permission="notification-rule:read"><NotificationRulesPage /></PermissionRoute>} />
