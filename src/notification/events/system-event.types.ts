@@ -7,6 +7,10 @@ export enum SystemEventType {
   PROVIDER_ERROR = 'provider_error',
   PROVIDER_RATE_LIMITED = 'provider_rate_limited',
   PROVIDER_UNAVAILABLE = 'provider_unavailable',
+  // Provider 熔断器状态转换
+  PROVIDER_CIRCUIT_OPEN = 'provider_circuit_open',
+  PROVIDER_CIRCUIT_CLOSED = 'provider_circuit_closed',
+  PROVIDER_CIRCUIT_HALF_OPEN = 'provider_circuit_half_open',
   // Queue
   QUEUE_BACKLOG_HIGH = 'queue_backlog_high',
   QUEUE_STALLED = 'queue_stalled',

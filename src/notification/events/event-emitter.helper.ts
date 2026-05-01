@@ -75,3 +75,55 @@ export function buildAccountEvent(
     payload: { accountId, ...details },
   };
 }
+
+/**
+ * 构建熔断器 CLOSED→OPEN 状态转换事件
+ * severity=CRITICAL，payload 含 provider, errorRate, consecutiveFailures, timestamp
+ */
+export function buildCircuitOpenEvent(
+  provider: string,
+  errorRate: number,
+  consecutiveFailures: number,
+  timestamp: string,
+): SystemEvent {
+  return {
+    type: SystemEventType.PROVIDER_CIRCUIT_OPEN,
+    severity: EventSeverity.CRITICAL,
+    timestamp: new Date(),
+    source: 'CircuitBreakerService',
+    payload: { provider, errorRate, consecutiveFailures, timestamp },
+  };
+}
+
+/**
+ * 构建熔断器 *→CLOSED 状态转换事件
+ * severity=INFO，payload 含 provider, recoveryTimestamp
+ */
+export function buildCircuitClosedEvent(
+  provider: string,
+  recoveryTimestamp: string,
+): SystemEvent {
+  return {
+    type: SystemEventType.PROVIDER_CIRCUIT_CLOSED,
+    severity: EventSeverity.INFO,
+    timestamp: new Date(),
+    source: 'CircuitBreakerService',
+    payload: { provider, recoveryTimestamp },
+  };
+}
+
+/**
+ * 构建熔断器 OPEN→HALF_OPEN 状态转换事件
+ * severity=WARNING，payload 含 provider
+ */
+export function buildCircuitHalfOpenEvent(
+  provider: string,
+): SystemEvent {
+  return {
+    type: SystemEventType.PROVIDER_CIRCUIT_HALF_OPEN,
+    severity: EventSeverity.WARNING,
+    timestamp: new Date(),
+    source: 'CircuitBreakerService',
+    payload: { provider },
+  };
+}

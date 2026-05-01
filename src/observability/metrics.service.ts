@@ -21,6 +21,29 @@ export class MetricsService implements OnModuleInit {
   readonly callbackTotal: Counter;
   readonly httpRequestDuration: Histogram;
 
+  // ===== 熔断器和健康指标 =====
+
+  /** 熔断器当前状态 gauge（0=CLOSED, 1=HALF_OPEN, 2=OPEN） */
+  readonly circuitBreakerState: Gauge;
+
+  /** 熔断器状态转换计数器 */
+  readonly circuitBreakerTransitionsTotal: Counter;
+
+  /** Provider 健康成功率 gauge（0-1） */
+  readonly providerHealthSuccessRate: Gauge;
+
+  /** Provider 健康错误率 gauge（0-1） */
+  readonly providerHealthErrorRate: Gauge;
+
+  /** Provider 健康平均延迟 gauge（毫秒） */
+  readonly providerHealthAvgLatencyMs: Gauge;
+
+  /** 因熔断器触发的故障转移计数器 */
+  readonly providerFailoverTotal: Counter;
+
+  /** 路由决策计数器 */
+  readonly routingDecisionTotal: Counter;
+
   constructor() {
     this.taskCreatedTotal = new Counter({
       name: 'modelhub_task_created_total',
@@ -85,6 +108,57 @@ export class MetricsService implements OnModuleInit {
       help: 'HTTP request duration in milliseconds',
       labelNames: ['method', 'path', 'status_code'] as const,
       buckets: [5, 10, 25, 50, 100, 250, 500, 1000, 2500],
+      registers: [this.registry],
+    });
+
+    // ===== 熔断器和健康指标 =====
+
+    this.circuitBreakerState = new Gauge({
+      name: 'modelhub_circuit_breaker_state',
+      help: '熔断器当前状态（0=CLOSED, 1=HALF_OPEN, 2=OPEN）',
+      labelNames: ['provider'] as const,
+      registers: [this.registry],
+    });
+
+    this.circuitBreakerTransitionsTotal = new Counter({
+      name: 'modelhub_circuit_breaker_transitions_total',
+      help: '熔断器状态转换总次数',
+      labelNames: ['provider', 'from_state', 'to_state'] as const,
+      registers: [this.registry],
+    });
+
+    this.providerHealthSuccessRate = new Gauge({
+      name: 'modelhub_provider_health_success_rate',
+      help: 'Provider 健康成功率（0-1）',
+      labelNames: ['provider'] as const,
+      registers: [this.registry],
+    });
+
+    this.providerHealthErrorRate = new Gauge({
+      name: 'modelhub_provider_health_error_rate',
+      help: 'Provider 健康错误率（0-1）',
+      labelNames: ['provider'] as const,
+      registers: [this.registry],
+    });
+
+    this.providerHealthAvgLatencyMs = new Gauge({
+      name: 'modelhub_provider_health_avg_latency_ms',
+      help: 'Provider 健康平均延迟（毫秒）',
+      labelNames: ['provider'] as const,
+      registers: [this.registry],
+    });
+
+    this.providerFailoverTotal = new Counter({
+      name: 'modelhub_provider_failover_total',
+      help: '因熔断器触发的故障转移总次数',
+      labelNames: ['provider', 'fallback_provider', 'model'] as const,
+      registers: [this.registry],
+    });
+
+    this.routingDecisionTotal = new Counter({
+      name: 'modelhub_routing_decision_total',
+      help: '路由决策计数器',
+      labelNames: ['strategy_type', 'provider', 'model'] as const,
       registers: [this.registry],
     });
   }

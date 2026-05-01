@@ -9,6 +9,8 @@ import { notificationRuleApi } from '../services/api';
 const EVENT_TYPES = [
   'task_success', 'task_failed', 'task_timeout',
   'provider_error', 'provider_rate_limited', 'provider_unavailable',
+  // 熔断器状态转换事件
+  'provider_circuit_open', 'provider_circuit_closed', 'provider_circuit_half_open',
   'queue_backlog_high', 'queue_stalled',
   'account_balance_low', 'account_disabled',
 ];
