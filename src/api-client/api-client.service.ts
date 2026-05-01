@@ -36,7 +36,14 @@ export class ApiClientService {
     return doc;
   }
 
-  async createClient(name?: string): Promise<{ clientId: string; plainKey: string; name?: string }> {
+  async createClient(
+    name?: string,
+    billingPolicy?: string,
+  ): Promise<{ clientId: string; plainKey: string; name?: string; billingPolicy: string }> {
+    /** 校验 billingPolicy 合法性，不合法则使用默认值 */
+    const validPolicies = ['internal', 'external', 'exempt'];
+    const policy = billingPolicy && validPolicies.includes(billingPolicy) ? billingPolicy : 'internal';
+
     const clientId = `mh_${ulid()}`;
     const secret = randomBytes(24).toString('base64url');
     const plainKey = `${clientId}.${secret}`;
@@ -46,8 +53,9 @@ export class ApiClientService {
       secretHash,
       name: name?.trim() || undefined,
       enabled: true,
+      billingPolicy: policy,
     });
-    return { clientId, plainKey, name: name?.trim() || undefined };
+    return { clientId, plainKey, name: name?.trim() || undefined, billingPolicy: policy };
   }
 
   async list(page: number, pageSize: number) {
@@ -56,7 +64,7 @@ export class ApiClientService {
     const [items, total] = await Promise.all([
       this.apiClientModel
         .find()
-        .select('clientId name enabled defaultPriority createdAt updatedAt')
+        .select('clientId name enabled defaultPriority billingPolicy createdAt updatedAt')
         .sort({ createdAt: -1 })
         .skip((p - 1) * ps)
         .limit(ps)
@@ -93,6 +101,16 @@ export class ApiClientService {
     const doc = await this.apiClientModel.findOne({ clientId }).select('defaultPriority').lean();
     if (!doc) throw new NotFoundException(`Api client not found: ${clientId}`);
     return doc.defaultPriority ?? 50;
+  }
+
+  /** 更新 API 客户端的计费策略 */
+  async updateBillingPolicy(clientId: string, billingPolicy: string): Promise<void> {
+    const validPolicies = ['internal', 'external', 'exempt'];
+    if (!validPolicies.includes(billingPolicy)) {
+      throw new BadRequestException(`billingPolicy must be one of: ${validPolicies.join(', ')}`);
+    }
+    const res = await this.apiClientModel.updateOne({ clientId }, { $set: { billingPolicy } });
+    if (res.matchedCount === 0) throw new NotFoundException(`Api client not found: ${clientId}`);
   }
 
   assertClientIdParam(clientId: string): void {

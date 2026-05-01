@@ -55,4 +55,14 @@ export interface AppConfig {
       from: string;
     };
   };
+  /** 计费模块配置（可选，向后兼容） */
+  billing?: {
+    /** 定价缓存 TTL（毫秒），默认 60000 */
+    pricingCacheTtlMs?: number;
+    /** 钱包相关配置 */
+    wallet?: {
+      /** 低余额告警阈值，余额低于此值时触发 wallet.low_balance 事件 */
+      lowBalanceThreshold?: number;
+    };
+  };
 }

@@ -1,5 +1,6 @@
 import {
   Injectable, Logger, Inject, BadRequestException, NotFoundException, ConflictException,
+  HttpException, HttpStatus,
 } from '@nestjs/common';
 import { ulid } from 'ulid';
 import { TaskRepository } from './task.repository';
@@ -28,6 +29,8 @@ import { ApiClientService } from '../api-client/api-client.service';
 import { validateParams } from '../common/utils/param-validator';
 import { transformParams } from '../common/utils/param-transformer';
 import { ParamDefinitions } from '../common/interfaces/param-definition.interface';
+import { BillingAdapter } from '../billing/billing.adapter';
+import { InsufficientBalanceException } from '../billing/exceptions/insufficient-balance.exception';
 
 @Injectable()
 export class TaskService {
@@ -46,6 +49,7 @@ export class TaskService {
     @InjectModel(ModelConfig.name)
     private readonly modelConfigModel: Model<ModelConfigDocument>,
     private readonly apiClientService: ApiClientService,
+    private readonly billingAdapter: BillingAdapter,
   ) {}
 
   async createTask(clientId: string, dto: CreateTaskDto, idempotencyKey?: string) {
@@ -67,6 +71,7 @@ export class TaskService {
     let routeId: string | undefined;
     let routingSource: 'routing_rule' | 'model_config_service' | 'model_path';
     let providerModel: string | undefined; // 实际发送给提供商的模型标识
+    let routingMetrics: Record<string, any> | undefined; // latency/cost 策略的路由决策指标
 
     // 先计算 featureType，用于后续查询 model_configs
     featureType = this.resolveTaskFeatureType(dto.model, dto.options);
@@ -98,6 +103,7 @@ export class TaskService {
       provider = ruleHit.provider;
       routeId = ruleHit.routeId || undefined;
       routingSource = 'routing_rule';
+      routingMetrics = ruleHit.routingMetrics;
       this.logger.log(
         `Provider from model_routing_rules routeId=${routeId} → ${provider}, model=${dto.model}`,
       );
@@ -159,6 +165,45 @@ export class TaskService {
     // 优先级解析：显式指定 > ApiClient defaultPriority > 50
     const resolvedPriority = await this.resolvePriority(dto.priority, clientId);
 
+    // === 计费初始化：在任务入库之前调用，确保余额充足 ===
+    try {
+      await this.billingAdapter.initBilling({
+        taskId,
+        clientId,
+        model: dto.model,
+        provider,
+        featureType,
+        input: dto.input,
+        options: dto.options,
+      });
+    } catch (err) {
+      if (err instanceof InsufficientBalanceException) {
+        // 余额不足 → 返回 HTTP 402 + INSUFFICIENT_BALANCE 错误码
+        throw new HttpException(
+          {
+            success: false,
+            code: InsufficientBalanceException.ERROR_CODE,
+            message: err.message,
+          },
+          HttpStatus.PAYMENT_REQUIRED,
+        );
+      }
+      // 其他计费异常 → 记录 error 日志 + 返回 500
+      this.logger.error(
+        `计费初始化失败：taskId=${taskId}, clientId=${clientId}, model=${dto.model}`,
+        err instanceof Error ? err.stack : err,
+      );
+      throw new HttpException(
+        {
+          success: false,
+          code: 'BILLING_INIT_FAILED',
+          message: 'Billing initialization failed',
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+
+    // 计费成功后才入库入队
     const task = await this.taskRepo.create({
       taskId, clientId, model: dto.model, provider, featureType,
       providerModel, // 保存 provider_model_name
@@ -184,6 +229,7 @@ export class TaskService {
     await this.timingService.recordTiming(taskId, 'receivedAt', receivedAt);
     await this.timelineService.addEvent(taskId, TimelineEvent.TASK_CREATED, {
       model: dto.model, provider, featureType, routingSource, routeId,
+      ...(routingMetrics ? { routingMetrics } : {}),
     });
 
     if (idempotencyKey) {

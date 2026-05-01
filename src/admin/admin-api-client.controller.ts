@@ -35,13 +35,14 @@ export class AdminApiClientController {
   @RequirePermissions('api-client:create')
   @ApiOperation({ summary: '创建 API 客户端（明文密钥仅返回一次）' })
   @ApiResponse({ status: 200, description: '成功' })
-  async create(@Body() body: { name?: string }) {
+  async create(@Body() body: { name?: string; billingPolicy?: string }) {
     const name = typeof body?.name === 'string' ? body.name.trim().slice(0, 200) : undefined;
-    const { clientId, plainKey, name: n } = await this.apiClients.createClient(name);
+    const billingPolicy = typeof body?.billingPolicy === 'string' ? body.billingPolicy : undefined;
+    const { clientId, plainKey, name: n, billingPolicy: bp } = await this.apiClients.createClient(name, billingPolicy);
     return {
       code: 0,
       message: 'Save the apiKey now; it will not be shown again.',
-      data: { clientId, name: n, apiKey: plainKey },
+      data: { clientId, name: n, apiKey: plainKey, billingPolicy: bp },
     };
   }
 
@@ -88,6 +89,22 @@ export class AdminApiClientController {
       throw new BadRequestException('defaultPriority must be a number');
     }
     await this.apiClients.updateDefaultPriority(clientId, body.defaultPriority);
+    return { code: 0, message: 'Updated' };
+  }
+
+  @Patch(':clientId/billing-policy')
+  @RequirePermissions('api-client:update')
+  @ApiOperation({ summary: '修改 API 客户端计费策略' })
+  @ApiResponse({ status: 200, description: '成功' })
+  async updateBillingPolicy(
+    @Param('clientId') clientId: string,
+    @Body() body: { billingPolicy?: string },
+  ) {
+    this.apiClients.assertClientIdParam(clientId);
+    if (!body?.billingPolicy || typeof body.billingPolicy !== 'string') {
+      throw new BadRequestException('billingPolicy must be a string');
+    }
+    await this.apiClients.updateBillingPolicy(clientId, body.billingPolicy);
     return { code: 0, message: 'Updated' };
   }
 }

@@ -15,10 +15,13 @@ import { AdminModule } from './admin/admin.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { NotificationModule } from './notification/notification.module';
 import { FeatureRegistryModule } from './common/feature-registry.module';
+import { ProviderHealthModule } from './provider-health/provider-health.module';
+import { BillingModule } from './billing/billing.module';
 
 const processType = process.env.PROCESS_TYPE || 'api';
 
 function getProcessModules() {
+  // 所有进程共享的模块（api, worker, scheduler, admin-server 均加载）
   const shared = [
     AppConfigModule,
     DatabaseModule,
@@ -27,17 +30,18 @@ function getProcessModules() {
     ProviderModule,
     ObservabilityModule,
     FeatureRegistryModule,
+    BillingModule, // 计费模块（@Global），提供 BillingAdapter / PricingService / BillingService / WalletService
   ];
 
   switch (processType) {
     case 'api':
-      return [...shared, AuthModule, TaskModule, HealthModule, NotificationModule];
+      return [...shared, AuthModule, TaskModule, HealthModule, NotificationModule, ProviderHealthModule];
 
     case 'worker':
-      return [...shared, CallbackModule, NotificationModule];
+      return [...shared, CallbackModule, NotificationModule, ProviderHealthModule];
 
     case 'scheduler':
-      return [...shared, PollingModule, StatsModule, NotificationModule];
+      return [...shared, PollingModule, StatsModule, NotificationModule, ProviderHealthModule];
 
     case 'admin-server':
       return [...shared, AdminModule, StatsModule, DashboardModule, HealthModule, NotificationModule];
@@ -53,6 +57,7 @@ function getProcessModules() {
         AdminModule,
         HealthModule,
         NotificationModule,
+        ProviderHealthModule,
       ];
   }
 }

@@ -8,6 +8,8 @@ import { TaskTimelineService, TimelineEvent } from '../task/task-timeline.servic
 import { TaskTimingService } from '../task/task-timing.service';
 import { RateLimiterService } from '../redis/rate-limiter.service';
 import { MetricsService } from '../observability/metrics.service';
+import { HealthMetricsCollector } from '../provider-health/health-metrics-collector.service';
+import { CircuitBreakerService } from '../provider-health/circuit-breaker.service';
 import { TaskStatus } from '../common/constants/task-status';
 import { APP_CONFIG } from '../config/config.module';
 import { AppConfig } from '../config/interfaces/config.interface';
@@ -16,6 +18,9 @@ import { TaskSubmitJobData } from './task-submit.processor';
 import { Processor, Process } from '@nestjs/bull';
 import { ErrorLogger } from '../common/utils/error-logger.util';
 import { buildTaskEvent, buildProviderEvent } from '../notification/events/event-emitter.helper';
+import { BillingAdapter } from '../billing/billing.adapter';
+import { PricingService } from '../billing/pricing.service';
+import { UsageType } from '../billing/interfaces/billing.interface';
 
 @Injectable()
 export class FeatureQueueProcessor {
@@ -28,10 +33,14 @@ export class FeatureQueueProcessor {
     private readonly timingService: TaskTimingService,
     private readonly rateLimiter: RateLimiterService,
     private readonly metrics: MetricsService,
+    private readonly healthMetricsCollector: HealthMetricsCollector,
+    private readonly circuitBreaker: CircuitBreakerService,
     private readonly eventEmitter: EventEmitter2,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     @InjectQueue('callback') private readonly callbackQueue: Queue,
     private readonly queueRegistry: QueueRegistryService,
+    private readonly billingAdapter: BillingAdapter,
+    private readonly pricingService: PricingService,
   ) {}
 
   async processJob(job: Job<TaskSubmitJobData>): Promise<void> {
@@ -131,10 +140,15 @@ export class FeatureQueueProcessor {
         options: task.requestPayload?.options,
       });
 
+      const latencyMs = Date.now() - providerStart;
+
       this.metrics.providerRequestDuration.observe(
         { provider: providerName, operation: 'submit' },
-        Date.now() - providerStart,
+        latencyMs,
       );
+
+      // 异步采集健康指标，不阻塞任务处理
+      this.collectHealthMetrics(providerName, true, latencyMs, undefined);
 
       await this.timelineService.addEvent(taskId, TimelineEvent.PROVIDER_SUBMIT_OK, {
         providerTaskId: result.providerTaskId, isSync: result.isSync,
@@ -156,6 +170,21 @@ export class FeatureQueueProcessor {
         await this.timelineService.addEvent(taskId, TimelineEvent.TASK_SUCCESS, { totalE2eMs: e2eMs });
         this.eventEmitter.emit('system.task_success', buildTaskEvent(taskId, task.model, providerName, 'success', e2eMs));
 
+        // 计费结算：同步任务完成，从供应商结果中提取实际用量并结算
+        try {
+          const actualUsage = await this.extractActualUsage(task.model, result.result);
+          await this.billingAdapter.settle({
+            taskId,
+            actualUsage,
+            resultPayload: result.result,
+          });
+        } catch (billingErr: any) {
+          this.logger.error(
+            `计费结算失败（同步任务）：taskId=${taskId}`,
+            billingErr instanceof Error ? billingErr.stack : billingErr,
+          );
+        }
+
         if (task.callback?.url) {
           await this.callbackQueue.add('deliver', { taskId, callbackUrl: task.callback.url, callbackSecret: task.callback.secret });
         }
@@ -166,12 +195,17 @@ export class FeatureQueueProcessor {
         } as any);
       }
     } catch (err: any) {
+      const latencyMs = Date.now() - providerStart;
+
       this.metrics.providerRequestDuration.observe(
         { provider: providerName, operation: 'submit' },
-        Date.now() - providerStart,
+        latencyMs,
       );
 
       const mapped = adapter.mapError(err);
+
+      // 异步采集健康指标，不阻塞任务处理
+      this.collectHealthMetrics(providerName, false, latencyMs, mapped.code);
       
       // 使用统一的错误日志工具
       ErrorLogger.logError(
@@ -192,6 +226,17 @@ export class FeatureQueueProcessor {
         this.metrics.taskFailedTotal.inc({ feature_type: featureType, provider: providerName, error_code: mapped.code });
         this.eventEmitter.emit('system.task_failed', buildTaskEvent(taskId, task.model, providerName, 'failed', Date.now() - (task as any).createdAt.getTime()));
         this.eventEmitter.emit('system.provider_error', buildProviderEvent(providerName, mapped.code, mapped.message));
+
+        // 计费退款：不可重试的提交失败，退还预扣费用
+        try {
+          await this.billingAdapter.refund({ taskId, reason: 'provider_submit_failed' });
+        } catch (billingErr: any) {
+          this.logger.error(
+            `计费退款失败（提交失败）：taskId=${taskId}`,
+            billingErr instanceof Error ? billingErr.stack : billingErr,
+          );
+        }
+
         return;
       }
       throw err;
@@ -200,6 +245,86 @@ export class FeatureQueueProcessor {
         await this.rateLimiter.releaseConcurrent(`provider:${providerName}:concurrent`, concToken);
       }
     }
+  }
+
+  /**
+   * 从供应商返回结果中提取实际用量
+   *
+   * 根据模型的 usageType 从 result 中提取对应的用量值：
+   * - token：提取 usage.total_tokens 或 input_tokens + output_tokens
+   * - count：提取 batch_quantity 或默认 1
+   * - duration：提取 duration（秒）或默认 1
+   */
+  private async extractActualUsage(
+    model: string,
+    result?: Record<string, any>,
+  ): Promise<{ usageType: UsageType; usageValue: number }> {
+    const { usageType } = await this.pricingService.getUnitPrice(model);
+
+    let usageValue: number;
+
+    switch (usageType) {
+      case UsageType.TOKEN: {
+        // LLM 类型：从 usage 字段提取 token 数
+        const usage = result?.usage;
+        if (usage?.total_tokens && typeof usage.total_tokens === 'number') {
+          usageValue = usage.total_tokens;
+        } else if (usage?.input_tokens || usage?.output_tokens) {
+          usageValue = (Number(usage.input_tokens) || 0) + (Number(usage.output_tokens) || 0);
+        } else if (usage?.prompt_tokens || usage?.completion_tokens) {
+          // 兼容 OpenAI 格式
+          usageValue = (Number(usage.prompt_tokens) || 0) + (Number(usage.completion_tokens) || 0);
+        } else {
+          usageValue = 1;
+        }
+        break;
+      }
+      case UsageType.COUNT:
+        // 图像类型：从结果中提取数量
+        usageValue = Number(result?.batch_quantity) || Number(result?.image_count) || 1;
+        break;
+      case UsageType.DURATION:
+        // 视频类型：从结果中提取时长（秒）
+        usageValue = Number(result?.duration) || Number(result?.video_duration) || 1;
+        break;
+      default:
+        usageValue = 1;
+    }
+
+    return { usageType, usageValue };
+  }
+
+  /**
+   * 异步采集健康指标并触发熔断器评估
+   * fire-and-forget 模式，不阻塞任务处理
+   */
+  private collectHealthMetrics(
+    provider: string,
+    success: boolean,
+    latencyMs: number,
+    errorCode?: string,
+  ): void {
+    // recordOutcome 内部已是 fire-and-forget，不阻塞
+    this.healthMetricsCollector.recordOutcome({
+      provider,
+      success,
+      latencyMs,
+      errorCode,
+      path: 'submit',
+    });
+
+    // 异步更新连续失败计数并触发熔断器状态评估
+    Promise.resolve().then(async () => {
+      try {
+        await this.circuitBreaker.recordResult(provider, success);
+        const metrics = await this.healthMetricsCollector.getMetrics(provider);
+        await this.circuitBreaker.evaluate(provider, metrics);
+      } catch (err) {
+        this.logger.warn(
+          `Provider ${provider} 健康指标采集或熔断器评估失败: ${(err as Error).message}`,
+        );
+      }
+    });
   }
 
   private featureToQueue(featureType: string): string {
