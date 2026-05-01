@@ -31,6 +31,15 @@ import {
 import { Permission, PermissionSchema } from './schemas/permission.schema';
 import { Role, RoleSchema } from './schemas/role.schema';
 import { MenuConfig, MenuConfigSchema } from './schemas/menu-config.schema';
+import {
+  BillingRecord,
+  BillingRecordSchema,
+} from './schemas/billing-record.schema';
+import { Wallet, WalletSchema } from './schemas/wallet.schema';
+import {
+  WalletTransaction,
+  WalletTransactionSchema,
+} from './schemas/wallet-transaction.schema';
 
 @Module({
   imports: [
@@ -62,6 +71,9 @@ import { MenuConfig, MenuConfigSchema } from './schemas/menu-config.schema';
       { name: Permission.name, schema: PermissionSchema },
       { name: Role.name, schema: RoleSchema },
       { name: MenuConfig.name, schema: MenuConfigSchema },
+      { name: BillingRecord.name, schema: BillingRecordSchema },
+      { name: Wallet.name, schema: WalletSchema },
+      { name: WalletTransaction.name, schema: WalletTransactionSchema },
     ]),
   ],
   exports: [MongooseModule],
