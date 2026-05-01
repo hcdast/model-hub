@@ -27,7 +27,7 @@ import { AdminJwtGuard } from './guards/admin-jwt.guard';
 import { PermissionGuard } from './guards/permission.guard';
 import { RequirePermissions } from './decorators/require-permissions.decorator';
 
-const STRATEGIES = new Set(['fixed', 'weighted', 'primary_fallback']);
+const STRATEGIES = new Set(['fixed', 'weighted', 'primary_fallback', 'latency', 'cost']);
 
 @ApiTags('管理后台 - 模型路由规则')
 @ApiBearerAuth('AdminJwt')
@@ -90,6 +90,8 @@ export class AdminModelRoutingController {
       fallback_provider: body.fallback_provider != null ? String(body.fallback_provider).trim() : undefined,
       primary_weight: parseOptionalNonNegNumber(body.primary_weight),
       fallback_weight: parseOptionalNonNegNumber(body.fallback_weight),
+      latency_targets: Array.isArray(body.latency_targets) ? body.latency_targets : [],
+      cost_targets: Array.isArray(body.cost_targets) ? body.cost_targets : [],
       note: body.note != null ? String(body.note) : undefined,
     });
     return { code: 0, data: doc.toObject() };
@@ -128,6 +130,8 @@ export class AdminModelRoutingController {
     if (body.fallback_provider !== undefined) $set.fallback_provider = body.fallback_provider;
     if (body.primary_weight !== undefined) $set.primary_weight = parseOptionalNonNegNumber(body.primary_weight);
     if (body.fallback_weight !== undefined) $set.fallback_weight = parseOptionalNonNegNumber(body.fallback_weight);
+    if (body.latency_targets !== undefined) $set.latency_targets = body.latency_targets;
+    if (body.cost_targets !== undefined) $set.cost_targets = body.cost_targets;
     if (body.note !== undefined) $set.note = body.note;
 
     const doc = await this.ruleModel.findByIdAndUpdate(id, { $set }, { new: true }).lean();
@@ -166,6 +170,10 @@ export class AdminModelRoutingController {
       this.validateWeightedTargets(body.weighted_targets);
     } else if (body.primary_provider !== undefined || body.fallback_provider !== undefined) {
       this.validatePrimaryFallbackFields(body);
+    } else if (body.latency_targets !== undefined) {
+      this.validateLatencyTargets(body.latency_targets);
+    } else if (body.cost_targets !== undefined) {
+      this.validateCostTargets(body.cost_targets);
     }
   }
 
@@ -189,6 +197,16 @@ export class AdminModelRoutingController {
         }
       }
       this.validatePrimaryFallbackFields(body);
+    }
+    if (st === 'latency') {
+      if (isCreate || body.latency_targets !== undefined) {
+        this.validateLatencyTargets(body.latency_targets);
+      }
+    }
+    if (st === 'cost') {
+      if (isCreate || body.cost_targets !== undefined) {
+        this.validateCostTargets(body.cost_targets);
+      }
     }
   }
 
@@ -218,6 +236,37 @@ export class AdminModelRoutingController {
     }
     if (pw + fw <= 0) {
       throw new BadRequestException('primary_weight + fallback_weight must be > 0 when fallback_provider is set');
+    }
+  }
+
+  private validateLatencyTargets(raw: unknown) {
+    if (!Array.isArray(raw) || raw.length < 2) {
+      throw new BadRequestException('latency_targets must be an array with at least 2 providers');
+    }
+    for (const item of raw) {
+      if (typeof item !== 'string' || item.trim() === '') {
+        throw new BadRequestException('latency_targets: each item must be a non-empty provider name string');
+      }
+    }
+  }
+
+  private validateCostTargets(raw: unknown) {
+    if (!Array.isArray(raw) || raw.length === 0) {
+      throw new BadRequestException('cost_targets must be a non-empty array');
+    }
+    for (const item of raw) {
+      if (!item || typeof item !== 'object') {
+        throw new BadRequestException('cost_targets: each item must be { provider, costPerUnit }');
+      }
+      const o = item as { provider?: unknown; costPerUnit?: unknown };
+      const provider = o.provider != null ? String(o.provider).trim() : '';
+      if (!provider) {
+        throw new BadRequestException('cost_targets: provider is required');
+      }
+      const cost = Number(o.costPerUnit);
+      if (!Number.isFinite(cost) || cost < 0) {
+        throw new BadRequestException(`cost_targets: costPerUnit must be a non-negative number for ${provider}`);
+      }
     }
   }
 }

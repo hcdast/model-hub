@@ -6,6 +6,7 @@ import {
   Put,
   Req,
   UseGuards,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -164,5 +165,68 @@ export class AdminProviderConfigController {
     );
 
     return { code: 0, data: { provider_name: name, revision: updated.revision } };
+  }
+
+  @Put(':providerName/cost-config')
+  @RequirePermissions('provider:update')
+  @ApiOperation({ summary: '更新厂商成本配置（用于 cost-based 路由策略）' })
+  @ApiResponse({ status: 200, description: '成功' })
+  async updateCostConfig(
+    @Param('providerName') providerName: string,
+    @Body()
+    body: {
+      cost_per_unit?: number;
+      cost_unit?: string;
+    },
+    @Req() req: Request,
+  ) {
+    const name = decodeURIComponent(providerName);
+    if (!REGISTERED_PROVIDER_NAMES.includes(name as any)) {
+      return { code: 1001, message: 'Unknown provider_name' };
+    }
+
+    // 校验 cost_per_unit
+    if (body.cost_per_unit !== undefined) {
+      const cost = Number(body.cost_per_unit);
+      if (!Number.isFinite(cost) || cost < 0) {
+        throw new BadRequestException('cost_per_unit must be a non-negative number');
+      }
+    }
+
+    // 校验 cost_unit
+    const validCostUnits = ['per_call', 'per_token', 'per_second'];
+    if (body.cost_unit !== undefined) {
+      if (!validCostUnits.includes(body.cost_unit)) {
+        throw new BadRequestException(`cost_unit must be one of: ${validCostUnits.join(', ')}`);
+      }
+    }
+
+    const costConfig: Record<string, unknown> = {};
+    if (body.cost_per_unit !== undefined) costConfig.cost_per_unit = Number(body.cost_per_unit);
+    if (body.cost_unit !== undefined) costConfig.cost_unit = body.cost_unit;
+
+    const updated = await this.runtimeModel.findOneAndUpdate(
+      { provider_name: name },
+      { $set: { cost_config: costConfig }, $inc: { revision: 1 } },
+      { upsert: true, new: true },
+    );
+
+    await this.providerConfig.invalidateAndRefresh();
+
+    const admin = (req as any).adminUser as { username?: string };
+    const operator = admin?.username || 'unknown';
+
+    await this.auditLog.log(
+      'provider_runtime_config.update_cost_config',
+      operator,
+      {
+        provider_name: name,
+        cost_config: costConfig,
+        revision: updated.revision,
+      },
+      req.ip,
+    );
+
+    return { code: 0, data: { provider_name: name, cost_config: costConfig, revision: updated.revision } };
   }
 }

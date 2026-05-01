@@ -11,6 +11,7 @@ import { DatabaseModule } from '../database/database.module';
 import { QueueModule } from '../queue/queue.module';
 import { AuthModule } from '../auth/auth.module';
 import { ApiClientModule } from '../api-client/api-client.module';
+import { ProviderHealthModule } from '../provider-health/provider-health.module';
 import { ProviderRoutingService } from './provider-routing.service';
 
 @Module({
@@ -19,6 +20,7 @@ import { ProviderRoutingService } from './provider-routing.service';
     ApiClientModule,
     AuthModule,
     ProviderModule,
+    ProviderHealthModule,
     QueueModule,
   ],
   controllers: [TaskController, ModelConfigController],

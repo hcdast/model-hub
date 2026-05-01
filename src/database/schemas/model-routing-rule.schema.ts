@@ -8,6 +8,8 @@ export type ModelRoutingRuleDocument = HydratedDocument<ModelRoutingRule>;
  * - fixed：固定 provider
  * - weighted：按 weighted_targets 权重比例分流（同 client+模型+规则下稳定）
  * - primary_fallback：主备 + 可选 primary_weight / fallback_weight 比例分流
+ * - latency：基于实时延迟选择最快的 provider
+ * - cost：基于单价选择最便宜的 provider
  */
 @Schema({ timestamps: true, collection: 'model_routing_rules' })
 export class ModelRoutingRule {
@@ -33,9 +35,9 @@ export class ModelRoutingRule {
 
   @Prop({
     required: true,
-    enum: ['fixed', 'weighted', 'primary_fallback'],
+    enum: ['fixed', 'weighted', 'primary_fallback', 'latency', 'cost'],
   })
-  strategy_type!: 'fixed' | 'weighted' | 'primary_fallback';
+  strategy_type!: 'fixed' | 'weighted' | 'primary_fallback' | 'latency' | 'cost';
 
   @Prop()
   fixed_provider?: string;
@@ -56,6 +58,14 @@ export class ModelRoutingRule {
   /** primary_fallback：备权重，默认 0（为 0 时仅走主，除非未配置 fallback） */
   @Prop()
   fallback_weight?: number;
+
+  /** latency 策略：候选 provider 名称列表 */
+  @Prop({ type: [String], default: [] })
+  latency_targets?: string[];
+
+  /** cost 策略：候选 provider 及其单价 */
+  @Prop({ type: [MongooseSchema.Types.Mixed], default: [] })
+  cost_targets?: { provider: string; costPerUnit: number }[];
 
   @Prop()
   note?: string;

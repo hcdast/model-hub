@@ -5,12 +5,28 @@ import {
   ModelRoutingRule,
   ModelRoutingRuleDocument,
 } from '../database/schemas/model-routing-rule.schema';
+import {
+  ProviderRuntimeConfig,
+  ProviderRuntimeConfigDocument,
+} from '../database/schemas/provider-runtime-config.schema';
+import { CircuitBreakerService } from '../provider-health/circuit-breaker.service';
+import { HealthMetricsCollector } from '../provider-health/health-metrics-collector.service';
+import { MetricsService } from '../observability/metrics.service';
+import { CircuitState } from '../provider-health/interfaces/circuit-breaker-state.interface';
 
 export interface RoutingRuleHit {
   provider: string;
   /** Mongo _id，写入 task.routeId */
   routeId: string;
   strategy_type: string;
+  /** 熔断触发的故障转移原因 */
+  failoverReason?: string;
+  /** 路由决策指标，latency/cost 策略解析时填充 */
+  routingMetrics?: {
+    selectedLatencyMs?: number;
+    selectedCostPerUnit?: number;
+    candidates?: { provider: string; latencyMs?: number; costPerUnit?: number }[];
+  };
 }
 
 type LeanRule = ModelRoutingRule & { _id?: { toString: () => string } };
@@ -19,9 +35,20 @@ type LeanRule = ModelRoutingRule & { _id?: { toString: () => string } };
 export class ProviderRoutingService {
   private readonly logger = new Logger(ProviderRoutingService.name);
 
+  /** UNKNOWN 状态 Provider 的默认延迟（毫秒），可通过配置覆盖 */
+  private readonly defaultUnknownLatencyMs = 5000;
+
+  /** 未配置 costPerUnit 时的默认高成本值，降低选择优先级 */
+  private readonly defaultHighCost = 999999;
+
   constructor(
     @InjectModel(ModelRoutingRule.name)
     private readonly ruleModel: Model<ModelRoutingRuleDocument>,
+    @InjectModel(ProviderRuntimeConfig.name)
+    private readonly providerRuntimeConfigModel: Model<ProviderRuntimeConfigDocument>,
+    private readonly circuitBreakerService: CircuitBreakerService,
+    private readonly healthMetricsCollector: HealthMetricsCollector,
+    private readonly metricsService: MetricsService,
   ) {}
 
   /**
@@ -37,7 +64,7 @@ export class ProviderRoutingService {
       .find({
         model_name: modelName,
         enabled: true,
-        strategy_type: { $in: ['fixed', 'weighted', 'primary_fallback'] },
+        strategy_type: { $in: ['fixed', 'weighted', 'primary_fallback', 'latency', 'cost'] },
       })
       .lean()
       .exec()) as LeanRule[];
@@ -61,39 +88,324 @@ export class ProviderRoutingService {
     const routeId = top._id ? top._id.toString() : '';
     const seed = `${clientId}\u001c${modelName}\u001c${routeId}`;
 
-    const provider = this.resolveProviderForRule(top, seed);
-    if (!provider) return null;
+    const result = await this.resolveProviderForRule(top, seed);
+    if (!result) return null;
 
     this.logger.debug(
-      `Routing rule hit: model=${modelName} client=${clientId} strategy=${top.strategy_type} → provider=${provider} routeId=${routeId}`,
+      `Routing rule hit: model=${modelName} client=${clientId} strategy=${top.strategy_type} → provider=${result.provider} routeId=${routeId}${result.failoverReason ? ` failoverReason=${result.failoverReason}` : ''}`,
     );
 
+    // 当发生熔断故障转移时，递增 failover 计数器
+    if (result.failoverReason) {
+      const primaryProvider = top.primary_provider?.trim() || '';
+      this.metricsService.providerFailoverTotal
+        .labels(primaryProvider, result.provider, modelName)
+        .inc();
+    }
+
+    // 递增路由决策计数器
+    this.metricsService.routingDecisionTotal
+      .labels(top.strategy_type, result.provider, modelName)
+      .inc();
+
     return {
-      provider,
+      provider: result.provider,
       routeId,
       strategy_type: top.strategy_type,
+      failoverReason: result.failoverReason,
+      routingMetrics: result.routingMetrics,
     };
   }
 
-  private resolveProviderForRule(r: LeanRule, seed: string): string | null {
+  private async resolveProviderForRule(
+    r: LeanRule,
+    seed: string,
+  ): Promise<{ provider: string; failoverReason?: string; routingMetrics?: RoutingRuleHit['routingMetrics'] } | null> {
     switch (r.strategy_type) {
       case 'fixed': {
         const p = r.fixed_provider?.trim();
-        return p || null;
+        return p ? { provider: p } : null;
       }
       case 'weighted': {
         const targets = this.normalizeWeightedTargets(r.weighted_targets);
         if (!targets.length) return null;
-        return this.pickWeighted(targets, seed);
+
+        // 过滤掉熔断状态为 OPEN 的 Provider
+        const stateChecks = await Promise.all(
+          targets.map(async (t) => ({
+            ...t,
+            state: await this.circuitBreakerService.getState(t.provider),
+          })),
+        );
+        const available = stateChecks.filter(
+          (t) => t.state !== CircuitState.OPEN,
+        );
+
+        // 所有 Provider 均为 OPEN 时返回 null
+        if (!available.length) {
+          this.logger.warn(
+            `weighted 策略所有 Provider 均熔断 OPEN，无可用 Provider`,
+          );
+          return null;
+        }
+
+        // 在剩余 Provider 之间按原始权重分配
+        const remainingTargets = available.map(({ provider, weight }) => ({
+          provider,
+          weight,
+        }));
+        return { provider: this.pickWeighted(remainingTargets, seed) };
       }
       case 'primary_fallback': {
-        const targets = this.buildPrimaryFallbackTargets(r);
-        if (!targets.length) return null;
-        return this.pickWeighted(targets, seed);
+        return this.resolvePrimaryFallbackWithCircuitBreaker(r, seed);
+      }
+      case 'latency': {
+        return this.resolveLatencyStrategy(r, seed);
+      }
+      case 'cost': {
+        return this.resolveCostStrategy(r, seed);
       }
       default:
         return null;
     }
+  }
+
+  /**
+   * primary_fallback 策略的熔断感知路由解析
+   * - CLOSED 状态：正常走 primary
+   * - OPEN 状态：直接选择 fallback，设置 failoverReason
+   * - HALF_OPEN 状态：调用 allowRequest 判断是否允许探针
+   */
+  private async resolvePrimaryFallbackWithCircuitBreaker(
+    r: LeanRule,
+    seed: string,
+  ): Promise<{ provider: string; failoverReason?: string } | null> {
+    const primary = r.primary_provider?.trim();
+    if (!primary) return null;
+
+    const fallback = r.fallback_provider?.trim();
+
+    // 检查 primary provider 的熔断状态
+    const state = await this.circuitBreakerService.getState(primary);
+
+    switch (state) {
+      case CircuitState.OPEN: {
+        // 熔断打开：直接选择 fallback
+        if (fallback) {
+          this.logger.warn(
+            `Provider ${primary} 熔断器 OPEN，故障转移到 fallback: ${fallback}`,
+          );
+          return {
+            provider: fallback,
+            failoverReason: 'circuit_breaker_open',
+          };
+        }
+        // 无 fallback 可用，返回 null
+        this.logger.warn(
+          `Provider ${primary} 熔断器 OPEN，但无 fallback 可用`,
+        );
+        return null;
+      }
+
+      case CircuitState.HALF_OPEN: {
+        // 半开状态：调用 allowRequest 判断是否允许探针请求
+        const allowed = await this.circuitBreakerService.allowRequest(primary);
+        if (allowed) {
+          // 允许探针请求到达 primary
+          this.logger.debug(
+            `Provider ${primary} 熔断器 HALF_OPEN，允许探针请求`,
+          );
+          return { provider: primary };
+        }
+        // 探针配额已满，走 fallback
+        if (fallback) {
+          this.logger.debug(
+            `Provider ${primary} 熔断器 HALF_OPEN 探针配额已满，故障转移到 fallback: ${fallback}`,
+          );
+          return {
+            provider: fallback,
+            failoverReason: 'circuit_breaker_open',
+          };
+        }
+        return null;
+      }
+
+      case CircuitState.CLOSED:
+      default: {
+        // 正常状态：走原有的 primary_fallback 权重逻辑
+        const targets = this.buildPrimaryFallbackTargets(r);
+        if (!targets.length) return null;
+        return { provider: this.pickWeighted(targets, seed) };
+      }
+    }
+  }
+
+  /**
+   * latency 策略解析：
+   * 1. 获取所有 latency_targets 的健康指标
+   * 2. 排除 CircuitState.OPEN 的 Provider
+   * 3. UNKNOWN 状态（样本不足）赋予默认延迟 5000ms
+   * 4. 选择 avgLatencyMs 最低的 Provider
+   * 5. 所有延迟相等时 round-robin（基于 seed hash）
+   * 6. 填充 routingMetrics 字段
+   */
+  private async resolveLatencyStrategy(
+    r: LeanRule,
+    seed: string,
+  ): Promise<{ provider: string; routingMetrics?: RoutingRuleHit['routingMetrics'] } | null> {
+    const targets = (r.latency_targets ?? []).map(t => t.trim()).filter(Boolean);
+    if (targets.length < 2) return null;
+
+    // 并行获取所有 target 的熔断状态和健康指标
+    const candidateData = await Promise.all(
+      targets.map(async (provider) => {
+        const [state, metrics] = await Promise.all([
+          this.circuitBreakerService.getState(provider),
+          this.healthMetricsCollector.getMetrics(provider),
+        ]);
+        return { provider, state, metrics };
+      }),
+    );
+
+    // 排除 CircuitState.OPEN 的 Provider
+    const available = candidateData.filter(c => c.state !== CircuitState.OPEN);
+
+    if (!available.length) {
+      this.logger.warn('latency 策略所有 Provider 均熔断 OPEN，无可用 Provider');
+      return null;
+    }
+
+    // 计算有效延迟：样本不足（UNKNOWN）时赋予默认延迟
+    const withLatency = available.map(c => {
+      const isUnknown = c.metrics.sampleCount < 10; // defaultMinSampleCount
+      const latencyMs = isUnknown ? this.defaultUnknownLatencyMs : c.metrics.avgLatencyMs;
+      return { provider: c.provider, latencyMs };
+    });
+
+    // 找到最低延迟值
+    const minLatency = Math.min(...withLatency.map(c => c.latencyMs));
+
+    // 筛选出延迟等于最低值的候选者
+    const lowestCandidates = withLatency.filter(c => c.latencyMs === minLatency);
+
+    let selectedProvider: string;
+    if (lowestCandidates.length === 1) {
+      selectedProvider = lowestCandidates[0].provider;
+    } else {
+      // 所有延迟相等时 round-robin（基于 seed hash）
+      const idx = this.stableBucket(seed, lowestCandidates.length);
+      selectedProvider = lowestCandidates[idx].provider;
+    }
+
+    const selectedLatencyMs = withLatency.find(c => c.provider === selectedProvider)!.latencyMs;
+
+    // 构建 routingMetrics
+    const routingMetrics: RoutingRuleHit['routingMetrics'] = {
+      selectedLatencyMs,
+      candidates: withLatency.map(c => ({
+        provider: c.provider,
+        latencyMs: c.latencyMs,
+      })),
+    };
+
+    return { provider: selectedProvider, routingMetrics };
+  }
+
+  /**
+   * cost 策略解析：
+   * 1. 获取所有 cost_targets 的 costPerUnit（缺失时回退到 provider_runtime_configs.cost_config）
+   * 2. 排除 CircuitState.OPEN 的 Provider
+   * 3. 选择 costPerUnit 最低的 Provider
+   * 4. 成本相同时用 avgLatencyMs 作为 tiebreaker（选延迟更低的）
+   * 5. 填充 routingMetrics 字段
+   */
+  private async resolveCostStrategy(
+    r: LeanRule,
+    seed: string,
+  ): Promise<{ provider: string; routingMetrics?: RoutingRuleHit['routingMetrics'] } | null> {
+    const costTargets = (r.cost_targets ?? []).filter(t => t?.provider?.trim());
+    if (!costTargets.length) return null;
+
+    // 并行获取所有 target 的熔断状态和健康指标
+    const candidateData = await Promise.all(
+      costTargets.map(async (target) => {
+        const provider = target.provider.trim();
+        const [state, metrics] = await Promise.all([
+          this.circuitBreakerService.getState(provider),
+          this.healthMetricsCollector.getMetrics(provider),
+        ]);
+        return { provider, costPerUnit: target.costPerUnit, state, metrics };
+      }),
+    );
+
+    // 排除 CircuitState.OPEN 的 Provider
+    const available = candidateData.filter(c => c.state !== CircuitState.OPEN);
+
+    if (!available.length) {
+      this.logger.warn('cost 策略所有 Provider 均熔断 OPEN，无可用 Provider');
+      return null;
+    }
+
+    // 解析有效 costPerUnit：缺失时回退到 provider_runtime_configs.cost_config
+    const withCost = await Promise.all(
+      available.map(async (c) => {
+        let effectiveCost = c.costPerUnit;
+
+        // costPerUnit 缺失或非有效数字时，回退到 provider_runtime_configs
+        if (effectiveCost == null || !Number.isFinite(effectiveCost)) {
+          const runtimeConfig = await this.providerRuntimeConfigModel
+            .findOne({ provider_name: c.provider })
+            .lean()
+            .exec();
+          const fallbackCost = runtimeConfig?.cost_config?.cost_per_unit;
+          effectiveCost = (fallbackCost != null && Number.isFinite(fallbackCost))
+            ? fallbackCost
+            : this.defaultHighCost;
+        }
+
+        // 计算有效延迟用于 tiebreaker
+        const isUnknown = c.metrics.sampleCount < 10;
+        const latencyMs = isUnknown ? this.defaultUnknownLatencyMs : c.metrics.avgLatencyMs;
+
+        return { provider: c.provider, costPerUnit: effectiveCost, latencyMs };
+      }),
+    );
+
+    // 找到最低成本值
+    const minCost = Math.min(...withCost.map(c => c.costPerUnit));
+
+    // 筛选出成本等于最低值的候选者
+    const lowestCostCandidates = withCost.filter(c => c.costPerUnit === minCost);
+
+    let selectedProvider: string;
+    if (lowestCostCandidates.length === 1) {
+      selectedProvider = lowestCostCandidates[0].provider;
+    } else {
+      // 成本相同时用 avgLatencyMs 作为 tiebreaker（选延迟更低的）
+      const minLatency = Math.min(...lowestCostCandidates.map(c => c.latencyMs));
+      const lowestLatencyCandidates = lowestCostCandidates.filter(c => c.latencyMs === minLatency);
+
+      if (lowestLatencyCandidates.length === 1) {
+        selectedProvider = lowestLatencyCandidates[0].provider;
+      } else {
+        // 成本和延迟都相同时 round-robin（基于 seed hash）
+        const idx = this.stableBucket(seed, lowestLatencyCandidates.length);
+        selectedProvider = lowestLatencyCandidates[idx].provider;
+      }
+    }
+
+    const selected = withCost.find(c => c.provider === selectedProvider)!;
+
+    // 构建 routingMetrics
+    const routingMetrics: RoutingRuleHit['routingMetrics'] = {
+      selectedCostPerUnit: selected.costPerUnit,
+      candidates: withCost.map(c => ({
+        provider: c.provider,
+        costPerUnit: c.costPerUnit,
+      })),
+    };
+
+    return { provider: selectedProvider, routingMetrics };
   }
 
   /** 规则是否具备解析所需字段 */
@@ -107,6 +419,10 @@ export class ProviderRoutingService {
       }
       case 'primary_fallback':
         return this.buildPrimaryFallbackTargets(r).length > 0;
+      case 'latency':
+        return Array.isArray(r.latency_targets) && r.latency_targets.filter(t => t.trim()).length >= 2;
+      case 'cost':
+        return Array.isArray(r.cost_targets) && r.cost_targets.filter(t => t?.provider?.trim()).length >= 1;
       default:
         return false;
     }

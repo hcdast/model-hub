@@ -2,14 +2,19 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Table, Card, Button, Space, Typography, Input, message, Tag, Modal, Form, Select, Switch,
-  InputNumber, DatePicker, Popconfirm,
+  InputNumber, DatePicker, Popconfirm, Tooltip,
 } from 'antd';
-import { ReloadOutlined, SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined, MinusCircleOutlined } from '@ant-design/icons';
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
 import { modelRoutingApi, providerConfigApi } from '../services/api';
 
-type Strategy = 'fixed' | 'weighted' | 'primary_fallback';
+type Strategy = 'fixed' | 'weighted' | 'primary_fallback' | 'latency' | 'cost';
+
+interface CostTarget {
+  provider: string;
+  costPerUnit: number;
+}
 
 interface RuleRow {
   _id: string;
@@ -26,6 +31,8 @@ interface RuleRow {
   fallback_provider?: string;
   primary_weight?: number;
   fallback_weight?: number;
+  latency_targets?: string[];
+  cost_targets?: CostTarget[];
   note?: string;
 }
 
@@ -35,6 +42,17 @@ function strategySummary(r: RuleRow): string {
     const t = r.weighted_targets || [];
     return t.map((x) => `${x.provider}:${x.weight}`).join(' / ') || '—';
   }
+  if (r.strategy_type === 'latency') {
+    const targets = r.latency_targets || [];
+    return targets.length > 0 ? targets.join(' / ') : '—';
+  }
+  if (r.strategy_type === 'cost') {
+    const targets = r.cost_targets || [];
+    return targets.length > 0
+      ? targets.map((x) => `${x.provider}:¥${x.costPerUnit}`).join(' / ')
+      : '—';
+  }
+  // primary_fallback
   const p = r.primary_provider || '';
   const f = r.fallback_provider || '';
   if (!f) return `${p}（仅主）`;
@@ -51,6 +69,8 @@ function getCreateFormDefaults(modelName = '') {
     weighted_targets: [{ provider: '', weight: 100 }],
     primary_weight: 100,
     fallback_weight: 0,
+    latency_targets: ['', ''],
+    cost_targets: [{ provider: '', costPerUnit: 0 }],
   };
 }
 
@@ -141,6 +161,8 @@ export default function ModelRoutingRulesPage() {
       fallback_provider: r.fallback_provider,
       primary_weight: r.primary_weight ?? 100,
       fallback_weight: r.fallback_weight ?? 0,
+      latency_targets: r.latency_targets?.length ? r.latency_targets : ['', ''],
+      cost_targets: r.cost_targets?.length ? r.cost_targets : [{ provider: '', costPerUnit: 0 }],
       note: r.note,
     });
     setModalOpen(true);
@@ -172,6 +194,16 @@ export default function ModelRoutingRulesPage() {
       payload.fallback_provider = v.fallback_provider ? String(v.fallback_provider).trim() : undefined;
       payload.primary_weight = v.primary_weight != null ? Number(v.primary_weight) : 100;
       payload.fallback_weight = v.fallback_weight != null ? Number(v.fallback_weight) : 0;
+    }
+    if (strategy === 'latency') {
+      const targets = (v.latency_targets as string[]) || [];
+      payload.latency_targets = targets.filter((t) => t?.trim()).map((t) => String(t).trim());
+    }
+    if (strategy === 'cost') {
+      const targets = (v.cost_targets as CostTarget[]) || [];
+      payload.cost_targets = targets
+        .filter((t) => t.provider?.trim())
+        .map((t) => ({ provider: String(t.provider).trim(), costPerUnit: Number(t.costPerUnit) || 0 }));
     }
     return payload;
   };
@@ -210,6 +242,38 @@ export default function ModelRoutingRulesPage() {
     fixed: 'blue',
     weighted: 'purple',
     primary_fallback: 'cyan',
+    latency: 'green',
+    cost: 'orange',
+  };
+
+  /** 渲染 latency 规则的实时延迟数据 */
+  const renderLatencyData = (r: RuleRow) => {
+    const targets = r.latency_targets || [];
+    if (targets.length === 0) return '—';
+    return (
+      <Space size={[4, 4]} wrap>
+        {targets.map((provider) => (
+          <Tooltip key={provider} title={`延迟优先候选: ${provider}`}>
+            <Tag color="green">{provider}</Tag>
+          </Tooltip>
+        ))}
+      </Space>
+    );
+  };
+
+  /** 渲染 cost 规则的成本数据 */
+  const renderCostData = (r: RuleRow) => {
+    const targets = r.cost_targets || [];
+    if (targets.length === 0) return '—';
+    return (
+      <Space size={[4, 4]} wrap>
+        {targets.map((t) => (
+          <Tooltip key={t.provider} title={`${t.provider}: ¥${t.costPerUnit}/单位`}>
+            <Tag color="orange">{t.provider}: ¥{t.costPerUnit}</Tag>
+          </Tooltip>
+        ))}
+      </Space>
+    );
   };
 
   const columns = [
@@ -226,9 +290,18 @@ export default function ModelRoutingRulesPage() {
       dataIndex: 'strategy_type',
       key: 'strategy_type',
       width: 130,
-      render: (t: Strategy) => <Tag color={strategyColors[t]}>{t}</Tag>,
+      render: (t: Strategy) => <Tag color={strategyColors[t] || 'default'}>{t}</Tag>,
     },
-    { title: '目标 / 权重', key: 'sum', ellipsis: true, render: (_: unknown, r: RuleRow) => strategySummary(r) },
+    {
+      title: '目标 / 权重',
+      key: 'sum',
+      ellipsis: true,
+      render: (_: unknown, r: RuleRow) => {
+        if (r.strategy_type === 'latency') return renderLatencyData(r);
+        if (r.strategy_type === 'cost') return renderCostData(r);
+        return strategySummary(r);
+      },
+    },
     { title: '优先级', dataIndex: 'priority', key: 'priority', width: 72 },
     {
       title: '状态',
@@ -258,7 +331,7 @@ export default function ModelRoutingRulesPage() {
     <div>
       <Space style={{ marginBottom: 16 }} wrap align="center">
         <Typography.Title level={4} style={{ margin: 0 }}>路由规则</Typography.Title>
-        <Typography.Text type="secondary">覆盖 model_configs.service；支持固定 / 权重分流 / 主备比例</Typography.Text>
+        <Typography.Text type="secondary">覆盖 model_configs.service；支持固定 / 权重分流 / 主备比例 / 延迟优先 / 成本优先</Typography.Text>
       </Space>
       <Space style={{ marginBottom: 16 }} wrap>
         <Input
@@ -332,6 +405,8 @@ export default function ModelRoutingRulesPage() {
                 { value: 'fixed', label: 'fixed — 固定单一厂商' },
                 { value: 'weighted', label: 'weighted — 多厂商按权重' },
                 { value: 'primary_fallback', label: 'primary_fallback — 主备比例' },
+                { value: 'latency', label: 'latency — 延迟优先（自动选最快）' },
+                { value: 'cost', label: 'cost — 成本优先（自动选最便宜）' },
               ]}
             />
           </Form.Item>
@@ -411,6 +486,122 @@ export default function ModelRoutingRulesPage() {
                         <InputNumber min={0} />
                       </Form.Item>
                     </Space>
+                  </>
+                );
+              }
+              if (st === 'latency') {
+                return (
+                  <>
+                    <Typography.Text type="secondary">
+                      延迟优先策略：系统自动选择延迟最低的 Provider（至少 2 个候选）
+                    </Typography.Text>
+                    <Form.List
+                      name="latency_targets"
+                      rules={[
+                        {
+                          validator: async (_, targets) => {
+                            const valid = (targets || []).filter((t: string) => t?.trim());
+                            if (valid.length < 2) {
+                              return Promise.reject(new Error('至少需要 2 个 Provider'));
+                            }
+                          },
+                        },
+                      ]}
+                    >
+                      {(fields, { add, remove }, { errors }) => (
+                        <>
+                          {fields.map(({ key, name, ...rest }) => (
+                            <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
+                              <Form.Item
+                                {...rest}
+                                name={name}
+                                rules={[{ required: true, message: '请选择 Provider' }]}
+                              >
+                                <Select
+                                  placeholder="选择厂商"
+                                  showSearch
+                                  allowClear
+                                  style={{ width: 280 }}
+                                  options={providers.map((p) => ({ label: p, value: p }))}
+                                />
+                              </Form.Item>
+                              {fields.length > 2 && (
+                                <Button
+                                  type="link"
+                                  danger
+                                  icon={<MinusCircleOutlined />}
+                                  onClick={() => remove(name)}
+                                >
+                                  删除
+                                </Button>
+                              )}
+                            </Space>
+                          ))}
+                          <Form.Item>
+                            <Button type="dashed" onClick={() => add('')} block>
+                              添加 Provider
+                            </Button>
+                            <Form.ErrorList errors={errors} />
+                          </Form.Item>
+                        </>
+                      )}
+                    </Form.List>
+                  </>
+                );
+              }
+              if (st === 'cost') {
+                return (
+                  <>
+                    <Typography.Text type="secondary">
+                      成本优先策略：系统自动选择单价最低的 Provider（至少 1 个候选）
+                    </Typography.Text>
+                    <Form.List name="cost_targets">
+                      {(fields, { add, remove }) => (
+                        <>
+                          {fields.map(({ key, name, ...rest }) => (
+                            <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
+                              <Form.Item
+                                {...rest}
+                                name={[name, 'provider']}
+                                rules={[{ required: true, message: '请选择 Provider' }]}
+                              >
+                                <Select
+                                  placeholder="选择厂商"
+                                  showSearch
+                                  allowClear
+                                  style={{ width: 200 }}
+                                  options={providers.map((p) => ({ label: p, value: p }))}
+                                />
+                              </Form.Item>
+                              <Form.Item
+                                {...rest}
+                                name={[name, 'costPerUnit']}
+                                rules={[{ required: true, message: '请输入单价' }]}
+                              >
+                                <InputNumber
+                                  min={0}
+                                  step={0.01}
+                                  placeholder="单价 (costPerUnit)"
+                                  style={{ width: 180 }}
+                                  addonAfter="¥/单位"
+                                />
+                              </Form.Item>
+                              <Button
+                                type="link"
+                                danger
+                                icon={<MinusCircleOutlined />}
+                                onClick={() => remove(name)}
+                              >
+                                删除
+                              </Button>
+                            </Space>
+                          ))}
+                          <Button type="dashed" onClick={() => add({ provider: '', costPerUnit: 0 })} block>
+                            添加 Provider
+                          </Button>
+                        </>
+                      )}
+                    </Form.List>
                   </>
                 );
               }
