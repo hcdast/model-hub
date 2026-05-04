@@ -146,6 +146,10 @@ export class TaskService {
     // 参数校验与转换：根据 ModelConfig.params 定义校验请求参数并转换第三方字段名
     if (cfg?.params && Object.keys(cfg.params).length > 0) {
       const definitions = cfg.params as ParamDefinitions;
+
+      // 归一化 image/images：根据 config 期望的字段转换客户端输入
+      this.normalizeImageFields(dto.input, definitions);
+
       const validationResult = validateParams(dto.input, definitions);
       if (!validationResult.valid) {
         throw new BadRequestException({
@@ -412,6 +416,25 @@ export class TaskService {
     );
 
     return { taskId, oldPriority, newPriority };
+  }
+
+  /**
+   * 归一化 image/images：根据 model config 期望的字段转换客户端输入。
+   * config 期望 image(string) 但客户端传了 images(array) → 取 images[0] 作为 image
+   * config 期望 images(array) 但客户端传了 image(string) → 包装为 [image] 作为 images
+   */
+  private normalizeImageFields(input: Record<string, any>, definitions: ParamDefinitions): void {
+    const expectsImage = 'image' in definitions && definitions.image.type === 'string';
+    const expectsImages = 'images' in definitions && definitions.images.type === 'array';
+
+    const hasImage = input.image != null;
+    const hasImages = Array.isArray(input.images) && input.images.length > 0;
+
+    if (expectsImage && !expectsImages && !hasImage && hasImages) {
+      input.image = input.images[0];
+    } else if (expectsImages && !expectsImage && !hasImages && hasImage) {
+      input.images = [input.image];
+    }
   }
 
   /**
