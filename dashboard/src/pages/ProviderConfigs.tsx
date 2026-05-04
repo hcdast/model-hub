@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Card, Table, Button, Space, Typography, message, Modal, Form, Input, InputNumber, Switch, Avatar, Alert } from 'antd';
-import { ReloadOutlined, EditOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { ReloadOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
 import { providerConfigApi } from '../services/api';
 import type { ProviderConfigItem } from '../services/api';
 
@@ -32,6 +32,7 @@ export default function ProviderConfigsPage() {
       const detail: any = await providerConfigApi.get(r.provider_name);
       const detailData = detail.data || {};
       form.setFieldsValue({
+        provider_name: r.provider_name,
         enabled: detailData.enabled ?? r.enabled,
         icon_url: detailData.icon_url ?? r.icon_url ?? '',
         base_url: detailData.base_url ?? r.base_url,
@@ -43,6 +44,7 @@ export default function ProviderConfigsPage() {
       });
     } catch {
       form.setFieldsValue({
+        provider_name: r.provider_name,
         enabled: r.enabled,
         icon_url: r.icon_url || '',
         base_url: r.base_url,
@@ -56,10 +58,21 @@ export default function ProviderConfigsPage() {
     setModalOpen(true);
   };
 
+  const openAdd = () => {
+    setEditing(null);
+    form.resetFields();
+    form.setFieldsValue({ enabled: true });
+    setModalOpen(true);
+  };
+
   const submit = async () => {
-    if (!editing) return;
     try {
       const v = await form.validateFields();
+      const providerName = v.provider_name?.trim();
+      if (!providerName) {
+        message.warning('请输入厂商名称');
+        return;
+      }
       const limits: Record<string, number> = {};
       if (v.max_concurrent != null) limits.max_concurrent = v.max_concurrent;
       if (v.max_per_second != null) limits.max_per_second = v.max_per_second;
@@ -68,15 +81,14 @@ export default function ProviderConfigsPage() {
       if (v.poll_max_per_second != null) poll_limits.max_per_second = v.poll_max_per_second;
       if (v.poll_max_concurrent != null) poll_limits.max_concurrent = v.poll_max_concurrent;
 
-      // 密钥已统一在账号池管理，不再提交 api_key 和密钥相关的 extra 字段
-      await providerConfigApi.upsert(editing.provider_name, {
+      await providerConfigApi.upsert(providerName, {
         enabled: v.enabled,
         icon_url: v.icon_url?.trim() || '',
         base_url: v.base_url,
         limits: Object.keys(limits).length ? limits : undefined,
         poll_limits: Object.keys(poll_limits).length ? poll_limits : undefined,
       });
-      message.success('已保存');
+      message.success(editing ? '已保存' : '已添加');
       setModalOpen(false);
       void fetchData();
     } catch (e: any) {
@@ -91,23 +103,16 @@ export default function ProviderConfigsPage() {
         <Typography.Title level={4} style={{ margin: 0 }}>厂商运行时配置</Typography.Title>
       }
       extra={(
-        <Button icon={<ReloadOutlined />} onClick={() => void fetchData()} loading={loading}>
-          刷新
-        </Button>
+        <Space>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>
+            添加厂商
+          </Button>
+          <Button icon={<ReloadOutlined />} onClick={() => void fetchData()} loading={loading}>
+            刷新
+          </Button>
+        </Space>
       )}
     >
-      {/* 密钥统一管理提示 */}
-      <Alert
-        message="API 密钥已统一在「账号池」页面管理"
-        description="所有厂商的 API 密钥、Secret ID/Key 等认证信息已迁移至账号池统一管理。此页面仅用于配置厂商的 Base URL、限流参数和启用状态等全局设置。"
-        type="info"
-        showIcon
-        icon={<InfoCircleOutlined />}
-        style={{ marginBottom: 16 }}
-      />
-      <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
-        厂商连接信息与限流均来自 MongoDB 集合 <code>provider_runtime_configs</code>。未落库前使用服务内建默认 base_url 与限流。
-      </Typography.Paragraph>
       <Table<ProviderConfigItem>
         rowKey="provider_name"
         loading={loading}
@@ -158,7 +163,7 @@ export default function ProviderConfigsPage() {
       />
 
       <Modal
-        title={`编辑 — ${editing?.provider_name || ''}`}
+        title={editing ? `编辑 — ${editing.provider_name}` : '添加厂商配置'}
         open={modalOpen}
         onOk={() => void submit()}
         onCancel={() => setModalOpen(false)}
@@ -166,13 +171,23 @@ export default function ProviderConfigsPage() {
         width={560}
       >
         <Form form={form} layout="vertical">
+          <Form.Item
+            name="provider_name"
+            label="厂商名称"
+            rules={[{ required: true, message: '请输入厂商名称' }]}
+          >
+            <Input
+              placeholder="例如：wavespeed-ai、openai"
+              disabled={!!editing}
+            />
+          </Form.Item>
           <Alert
             message="密钥请在「账号池」页面管理"
             type="warning"
             showIcon
             style={{ marginBottom: 16 }}
           />
-          <Form.Item name="enabled" label="启用（DB 行）" valuePropName="checked">
+          <Form.Item name="enabled" label="启用" valuePropName="checked">
             <Switch />
           </Form.Item>
           <Form.Item name="icon_url" label="厂商图标 URL">

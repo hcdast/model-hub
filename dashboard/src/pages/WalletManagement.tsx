@@ -1,19 +1,19 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   Card, Input, Button, Space, Typography, Table, Tag, Modal,
-  Form, InputNumber, Statistic, Row, Col, message,
+  Form, InputNumber, Row, Col, Statistic, message, Tooltip,
 } from 'antd';
 import {
-  SearchOutlined, ReloadOutlined, PlusOutlined,
+  SearchOutlined, ReloadOutlined, PlusOutlined, EyeOutlined,
   WalletOutlined, LockOutlined, DollarOutlined,
 } from '@ant-design/icons';
 import {
   billingApi,
+  type WalletListItem,
   type TransactionQuery,
   type TransactionItem,
   type WalletBalance,
 } from '../services/billing';
-import { useRequest } from '../hooks/useRequest';
 import { formatDateTime } from '../utils/format-helpers';
 
 /** 交易类型 → 中文标签映射 */
@@ -32,94 +32,126 @@ const txTypeColorMap: Record<string, string> = {
   unfreeze: 'blue',
 };
 
+/** 计费策略标签 */
+const policyLabelMap: Record<string, string> = {
+  internal: '内部计费',
+  external: '外部计费',
+  exempt: '免计费',
+};
+
 export default function WalletManagementPage() {
-  // 当前查询的 clientId
-  const [clientId, setClientId] = useState('');
-  // 搜索框输入值（未提交）
-  const [searchInput, setSearchInput] = useState('');
-  // 充值弹窗可见状态
+  // 钱包列表
+  const [wallets, setWallets] = useState<WalletListItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [keyword, setKeyword] = useState('');
+
+  // 详情视图：选中的 clientId
+  const [selectedClientId, setSelectedClientId] = useState('');
+  const [wallet, setWallet] = useState<WalletBalance | null>(null);
+  const [walletLoading, setWalletLoading] = useState(false);
+  const [txData, setTxData] = useState<{ items: TransactionItem[]; total: number }>({ items: [], total: 0 });
+  const [txLoading, setTxLoading] = useState(false);
+  const [txParams, setTxParams] = useState<TransactionQuery>({ page: 1, pageSize: 10 });
+
+  // 充值弹窗
   const [creditModalOpen, setCreditModalOpen] = useState(false);
-  // 充值表单实例
+  const [creditTarget, setCreditTarget] = useState('');
   const [creditForm] = Form.useForm();
-  // 充值请求 loading
   const [creditLoading, setCreditLoading] = useState(false);
 
-  // 交易记录分页参数
-  const [txParams, setTxParams] = useState<TransactionQuery>({
-    page: 1,
-    pageSize: 20,
-  });
-
-  // 查询钱包余额（手动触发）
-  const {
-    data: wallet,
-    loading: walletLoading,
-    refresh: refreshWallet,
-  } = useRequest<WalletBalance>(
-    () => billingApi.getWallet(clientId).then((res: any) => res.data),
-    { manual: true },
-  );
-
-  // 查询交易记录（手动触发）
-  const {
-    data: txData,
-    loading: txLoading,
-    refresh: refreshTx,
-  } = useRequest<{ items: TransactionItem[]; total: number }>(
-    () =>
-      billingApi
-        .getWalletTransactions(clientId, txParams)
-        .then((res: any) => res.data || { items: [], total: 0 }),
-    { manual: true },
-  );
-
-  /** 执行查询：获取钱包余额和交易记录 */
-  const handleSearch = useCallback(() => {
-    const trimmed = searchInput.trim();
-    if (!trimmed) {
-      message.warning('请输入 Client ID');
-      return;
+  /** 加载钱包列表 */
+  const fetchWallets = useCallback(async (p = page, ps = pageSize, kw = keyword) => {
+    setLoading(true);
+    try {
+      const res: any = await billingApi.listWallets({ keyword: kw || undefined, page: p, pageSize: ps });
+      setWallets(res?.data?.items || []);
+      setTotal(res?.data?.total || 0);
+    } catch {
+      message.error('加载钱包列表失败');
+    } finally {
+      setLoading(false);
     }
-    setClientId(trimmed);
-    setTxParams((prev) => ({ ...prev, page: 1 }));
-    // 延迟一帧确保 clientId 状态已更新
-    setTimeout(() => {
-      refreshWallet();
-      refreshTx();
-    }, 0);
-  }, [searchInput, refreshWallet, refreshTx]);
+  }, [page, pageSize, keyword]);
 
-  /** 刷新当前数据 */
-  const handleRefresh = useCallback(() => {
-    if (!clientId) return;
-    refreshWallet();
-    refreshTx();
-  }, [clientId, refreshWallet, refreshTx]);
+  /** 初始加载 */
+  useEffect(() => {
+    fetchWallets(1, 20, '');
+  }, []);
 
-  /** 翻页时重新查询交易记录 */
-  const handlePageChange = useCallback(
-    (page: number, pageSize: number) => {
-      setTxParams((prev) => ({ ...prev, page, pageSize }));
-      setTimeout(() => refreshTx(), 0);
-    },
-    [refreshTx],
-  );
+  /** 搜索 */
+  const handleSearch = useCallback(() => {
+    setPage(1);
+    fetchWallets(1, pageSize, keyword);
+  }, [keyword, pageSize, fetchWallets]);
+
+  /** 分页 */
+  const handlePageChange = useCallback((p: number, ps: number) => {
+    setPage(p);
+    setPageSize(ps);
+    fetchWallets(p, ps, keyword);
+  }, [keyword, fetchWallets]);
+
+  /** 加载单个钱包详情 */
+  const loadWalletDetail = useCallback(async (cid: string) => {
+    setSelectedClientId(cid);
+    setWalletLoading(true);
+    setTxLoading(true);
+    try {
+      const [balRes, txRes]: any[] = await Promise.all([
+        billingApi.getWallet(cid),
+        billingApi.getWalletTransactions(cid, { page: 1, pageSize: 10 }),
+      ]);
+      setWallet(balRes?.data || null);
+      setTxData(txRes?.data || { items: [], total: 0 });
+      setTxParams({ page: 1, pageSize: 10 });
+    } catch {
+      message.error('加载钱包详情失败');
+    } finally {
+      setWalletLoading(false);
+      setTxLoading(false);
+    }
+  }, []);
+
+  /** 详情翻页 */
+  const handleTxPageChange = useCallback(async (p: number, ps: number) => {
+    if (!selectedClientId) return;
+    setTxLoading(true);
+    setTxParams({ page: p, pageSize: ps });
+    try {
+      const res: any = await billingApi.getWalletTransactions(selectedClientId, { page: p, pageSize: ps });
+      setTxData(res?.data || { items: [], total: 0 });
+    } catch {
+      message.error('加载交易记录失败');
+    } finally {
+      setTxLoading(false);
+    }
+  }, [selectedClientId]);
+
+  /** 打开充值弹窗 */
+  const openCredit = useCallback((cid: string) => {
+    setCreditTarget(cid);
+    setCreditModalOpen(true);
+  }, []);
 
   /** 提交充值 */
   const handleCredit = useCallback(async () => {
     try {
       const values = await creditForm.validateFields();
       setCreditLoading(true);
-      await billingApi.creditWallet(clientId, {
+      await billingApi.creditWallet(creditTarget, {
         amount: values.amount,
         reason: values.reason,
       });
       message.success('充值成功');
       creditForm.resetFields();
       setCreditModalOpen(false);
-      // 刷新余额和交易记录
-      refreshWallet();
-      refreshTx();
+      fetchWallets();
+      if (selectedClientId === creditTarget) {
+        loadWalletDetail(creditTarget);
+      }
     } catch (err: any) {
       if (err?.response?.data?.message) {
         message.error(err.response.data.message);
@@ -129,7 +161,100 @@ export default function WalletManagementPage() {
     } finally {
       setCreditLoading(false);
     }
-  }, [clientId, creditForm, refreshWallet, refreshTx]);
+  }, [creditTarget, creditForm, selectedClientId, fetchWallets, loadWalletDetail]);
+
+  /** 钱包列表表格列定义 */
+  const columns = [
+    {
+      title: 'Client ID',
+      dataIndex: 'clientId',
+      key: 'clientId',
+      ellipsis: true,
+      width: 260,
+    },
+    {
+      title: '名称',
+      dataIndex: 'clientName',
+      key: 'clientName',
+      width: 150,
+      render: (v: string) => v || '-',
+    },
+    {
+      title: '余额',
+      dataIndex: 'balance',
+      key: 'balance',
+      width: 130,
+      align: 'right' as const,
+      render: (v: number) => (v != null ? v.toFixed(4) : '0.0000'),
+    },
+    {
+      title: '冻结',
+      dataIndex: 'frozenAmount',
+      key: 'frozenAmount',
+      width: 130,
+      align: 'right' as const,
+      render: (v: number) => (v != null ? v.toFixed(4) : '0.0000'),
+    },
+    {
+      title: '可用',
+      dataIndex: 'available',
+      key: 'available',
+      width: 130,
+      align: 'right' as const,
+      render: (v: number) => (
+        <span style={{ color: v > 0 ? '#52c41a' : '#ff4d4f', fontWeight: 500 }}>
+          {v != null ? v.toFixed(4) : '0.0000'}
+        </span>
+      ),
+    },
+    {
+      title: '计费策略',
+      dataIndex: 'billingPolicy',
+      key: 'billingPolicy',
+      width: 100,
+      render: (v: string) => (
+        <Tag color={v === 'internal' ? 'blue' : v === 'exempt' ? 'green' : 'default'}>
+          {policyLabelMap[v] || v}
+        </Tag>
+      ),
+    },
+    {
+      title: '状态',
+      dataIndex: 'enabled',
+      key: 'enabled',
+      width: 80,
+      render: (v: boolean) => (
+        <Tag color={v !== false ? 'success' : 'error'}>
+          {v !== false ? '启用' : '禁用'}
+        </Tag>
+      ),
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 140,
+      render: (_: any, record: WalletListItem) => (
+        <Space size="small">
+          <Tooltip title="查看详情">
+            <Button
+              type="link"
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => loadWalletDetail(record.clientId)}
+            />
+          </Tooltip>
+          <Tooltip title="充值">
+            <Button
+              type="link"
+              size="small"
+              icon={<PlusOutlined />}
+              onClick={() => openCredit(record.clientId)}
+            />
+          </Tooltip>
+        </Space>
+      ),
+    },
+  ];
 
   /** 交易记录表格列定义 */
   const txColumns = [
@@ -137,7 +262,7 @@ export default function WalletManagementPage() {
       title: '类型',
       dataIndex: 'type',
       key: 'type',
-      width: 100,
+      width: 80,
       render: (v: string) => (
         <Tag color={txTypeColorMap[v] || 'default'}>
           {txTypeLabelMap[v] || v}
@@ -148,23 +273,23 @@ export default function WalletManagementPage() {
       title: '金额',
       dataIndex: 'amount',
       key: 'amount',
-      width: 120,
+      width: 100,
       align: 'right' as const,
       render: (v: number) => (v != null ? v.toFixed(4) : '-'),
     },
     {
-      title: '变更前余额',
+      title: '变更前',
       dataIndex: 'balanceBefore',
       key: 'balanceBefore',
-      width: 130,
+      width: 100,
       align: 'right' as const,
       render: (v: number) => (v != null ? v.toFixed(4) : '-'),
     },
     {
-      title: '变更后余额',
+      title: '变更后',
       dataIndex: 'balanceAfter',
       key: 'balanceAfter',
-      width: 130,
+      width: 100,
       align: 'right' as const,
       render: (v: number) => (v != null ? v.toFixed(4) : '-'),
     },
@@ -172,7 +297,7 @@ export default function WalletManagementPage() {
       title: '关联任务',
       dataIndex: 'relatedTaskId',
       key: 'relatedTaskId',
-      width: 200,
+      width: 180,
       ellipsis: true,
       render: (v: string) => v || '-',
     },
@@ -180,15 +305,15 @@ export default function WalletManagementPage() {
       title: '原因',
       dataIndex: 'reason',
       key: 'reason',
-      width: 200,
+      width: 160,
       ellipsis: true,
       render: (v: string) => v || '-',
     },
     {
-      title: '创建时间',
+      title: '时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
-      width: 180,
+      width: 160,
       render: (t: string) => formatDateTime(t),
     },
   ];
@@ -197,99 +322,120 @@ export default function WalletManagementPage() {
     <div>
       <Typography.Title level={4}>钱包管理</Typography.Title>
 
-      {/* 搜索区域 */}
+      {/* 搜索栏 */}
       <Card style={{ marginBottom: 16 }}>
         <Space>
           <Input
-            placeholder="请输入 Client ID"
+            placeholder="搜索 Client ID"
             prefix={<SearchOutlined />}
             allowClear
-            style={{ width: 320 }}
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
+            style={{ width: 300 }}
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
             onPressEnter={handleSearch}
           />
           <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
-            查询
+            搜索
           </Button>
-          <Button icon={<ReloadOutlined />} onClick={handleRefresh} disabled={!clientId}>
+          <Button icon={<ReloadOutlined />} onClick={() => { setKeyword(''); setPage(1); fetchWallets(1, pageSize, ''); }}>
             刷新
           </Button>
         </Space>
       </Card>
 
-      {/* 余额卡片区域 — 仅在查询到钱包数据后显示 */}
-      {clientId && (
-        <Row gutter={16} style={{ marginBottom: 16 }}>
-          <Col span={8}>
-            <Card loading={walletLoading}>
-              <Statistic
-                title="总余额"
-                value={wallet?.balance ?? 0}
-                precision={4}
-                prefix={<WalletOutlined />}
-                suffix="credits"
-              />
-            </Card>
-          </Col>
-          <Col span={8}>
-            <Card loading={walletLoading}>
-              <Statistic
-                title="冻结金额"
-                value={wallet?.frozenAmount ?? 0}
-                precision={4}
-                prefix={<LockOutlined />}
-                suffix="credits"
-                valueStyle={{ color: '#faad14' }}
-              />
-            </Card>
-          </Col>
-          <Col span={8}>
-            <Card loading={walletLoading}>
-              <Statistic
-                title="可用余额"
-                value={wallet?.available ?? 0}
-                precision={4}
-                prefix={<DollarOutlined />}
-                suffix="credits"
-                valueStyle={{ color: '#52c41a' }}
-              />
-            </Card>
-          </Col>
-        </Row>
-      )}
+      {/* 钱包列表 */}
+      <Card style={{ marginBottom: 16 }}>
+        <Table
+          columns={columns}
+          dataSource={wallets}
+          rowKey="clientId"
+          loading={loading}
+          size="small"
+          scroll={{ x: 1100 }}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            showTotal: (t) => `共 ${t} 个钱包`,
+            onChange: handlePageChange,
+          }}
+          rowClassName={(record) => record.clientId === selectedClientId ? 'ant-table-row-selected' : ''}
+        />
+      </Card>
 
-      {/* 充值按钮 + 交易记录表格 */}
-      {clientId && (
-        <Card
-          title="交易记录"
-          extra={
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => setCreditModalOpen(true)}
-            >
-              充值
-            </Button>
-          }
-        >
-          <Table
-            columns={txColumns}
-            dataSource={txData?.items || []}
-            rowKey="_id"
-            loading={txLoading}
-            size="small"
-            scroll={{ x: 1060 }}
-            pagination={{
-              current: txParams.page,
-              pageSize: txParams.pageSize,
-              total: txData?.total || 0,
-              showSizeChanger: true,
-              showTotal: (t) => `共 ${t} 条`,
-              onChange: handlePageChange,
-            }}
-          />
-        </Card>
+      {/* 选中钱包的详情区域 */}
+      {selectedClientId && (
+        <>
+          <Row gutter={16} style={{ marginBottom: 16 }}>
+            <Col span={6}>
+              <Card loading={walletLoading} size="small">
+                <Statistic
+                  title="总余额"
+                  value={wallet?.balance ?? 0}
+                  precision={4}
+                  prefix={<WalletOutlined />}
+                />
+              </Card>
+            </Col>
+            <Col span={6}>
+              <Card loading={walletLoading} size="small">
+                <Statistic
+                  title="冻结金额"
+                  value={wallet?.frozenAmount ?? 0}
+                  precision={4}
+                  prefix={<LockOutlined />}
+                  valueStyle={{ color: '#faad14' }}
+                />
+              </Card>
+            </Col>
+            <Col span={6}>
+              <Card loading={walletLoading} size="small">
+                <Statistic
+                  title="可用余额"
+                  value={wallet?.available ?? 0}
+                  precision={4}
+                  prefix={<DollarOutlined />}
+                  valueStyle={{ color: '#52c41a' }}
+                />
+              </Card>
+            </Col>
+            <Col span={6}>
+              <Card size="small" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                <Space>
+                  <Typography.Text type="secondary">{selectedClientId}</Typography.Text>
+                  <Button
+                    type="primary"
+                    size="small"
+                    icon={<PlusOutlined />}
+                    onClick={() => openCredit(selectedClientId)}
+                  >
+                    充值
+                  </Button>
+                </Space>
+              </Card>
+            </Col>
+          </Row>
+
+          <Card title={`交易记录 — ${selectedClientId}`}>
+            <Table
+              columns={txColumns}
+              dataSource={txData.items}
+              rowKey="_id"
+              loading={txLoading}
+              size="small"
+              scroll={{ x: 880 }}
+              pagination={{
+                current: txParams.page,
+                pageSize: txParams.pageSize,
+                total: txData.total,
+                showSizeChanger: true,
+                showTotal: (t) => `共 ${t} 条`,
+                onChange: handleTxPageChange,
+              }}
+            />
+          </Card>
+        </>
       )}
 
       {/* 充值弹窗 */}
@@ -306,7 +452,7 @@ export default function WalletManagementPage() {
       >
         <Form form={creditForm} layout="vertical" preserve={false}>
           <Form.Item label="Client ID">
-            <Input value={clientId} disabled />
+            <Input value={creditTarget} disabled />
           </Form.Item>
           <Form.Item
             name="amount"

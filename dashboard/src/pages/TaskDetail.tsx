@@ -1,10 +1,33 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Descriptions, Steps, Button, Space, Typography, Spin, message, Tag, Divider, Popconfirm } from 'antd';
-import { ArrowLeftOutlined, RedoOutlined, StopOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, RedoOutlined, StopOutlined, DollarOutlined } from '@ant-design/icons';
 import StatusTag from '../components/StatusTag';
 import { taskApi } from '../services/api';
 import { priorityToLabel, formatDateTime } from '../utils/format-helpers';
+
+/** 计费状态中文映射 */
+const BILLING_STATUS_MAP: Record<string, { label: string; color: string }> = {
+  estimated: { label: '已预估', color: 'blue' },
+  pre_deducted: { label: '已预扣', color: 'orange' },
+  settled: { label: '已结算', color: 'green' },
+  refunded: { label: '已退款', color: 'default' },
+  failed: { label: '扣费失败', color: 'red' },
+};
+
+/** 计费策略中文映射 */
+const BILLING_POLICY_MAP: Record<string, { label: string; color: string }> = {
+  internal: { label: '内部计费', color: 'blue' },
+  external: { label: '外部记录', color: 'green' },
+  exempt: { label: '免计费', color: 'default' },
+};
+
+/** 用量类型中文映射 */
+const USAGE_TYPE_MAP: Record<string, string> = {
+  token: 'Token',
+  count: '按次',
+  duration: '按时长',
+};
 
 export default function TaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>();
@@ -98,6 +121,48 @@ export default function TaskDetailPage() {
             <Descriptions.Item label="厂商处理">{formatMs(timing.providerProcessMs)}</Descriptions.Item>
             <Descriptions.Item label="端到端总时长">{formatMs(timing.totalE2eMs)}</Descriptions.Item>
             <Descriptions.Item label="回调延迟">{formatMs(timing.callbackDelayMs)}</Descriptions.Item>
+          </Descriptions>
+        </Card>
+      )}
+
+      {task.billing && (
+        <Card title={<><DollarOutlined /> 计费信息</>} style={{ marginBottom: 16 }}>
+          <Descriptions column={{ xs: 1, sm: 2, lg: 3 }} bordered size="small">
+            <Descriptions.Item label="计费状态">
+              <Tag color={BILLING_STATUS_MAP[task.billing.status]?.color || 'default'}>
+                {BILLING_STATUS_MAP[task.billing.status]?.label || task.billing.status}
+              </Tag>
+            </Descriptions.Item>
+            <Descriptions.Item label="计费策略">
+              <Tag color={BILLING_POLICY_MAP[task.billing.billingPolicy]?.color || 'default'}>
+                {BILLING_POLICY_MAP[task.billing.billingPolicy]?.label || task.billing.billingPolicy}
+              </Tag>
+            </Descriptions.Item>
+            <Descriptions.Item label="用量类型">
+              {USAGE_TYPE_MAP[task.billing.usageType] || task.billing.usageType}
+            </Descriptions.Item>
+            <Descriptions.Item label="单价">{task.billing.unitPrice} {task.billing.currency}</Descriptions.Item>
+            <Descriptions.Item label="预估用量">{task.billing.estimatedUsage}</Descriptions.Item>
+            <Descriptions.Item label="预估费用">{task.billing.estimatedCost} {task.billing.currency}</Descriptions.Item>
+            {task.billing.actualUsage !== undefined && task.billing.actualUsage !== null && (
+              <Descriptions.Item label="实际用量">{task.billing.actualUsage}</Descriptions.Item>
+            )}
+            {task.billing.actualCost !== undefined && task.billing.actualCost !== null && (
+              <Descriptions.Item label="实际费用">
+                <Typography.Text strong>{task.billing.actualCost} {task.billing.currency}</Typography.Text>
+              </Descriptions.Item>
+            )}
+            {task.billing.settledAt && (
+              <Descriptions.Item label="结算时间">{formatDateTime(task.billing.settledAt)}</Descriptions.Item>
+            )}
+            {task.billing.refundedAt && (
+              <Descriptions.Item label="退款时间">{formatDateTime(task.billing.refundedAt)}</Descriptions.Item>
+            )}
+            {task.billing.failReason && (
+              <Descriptions.Item label="失败原因">
+                <Typography.Text type="danger">{task.billing.failReason}</Typography.Text>
+              </Descriptions.Item>
+            )}
           </Descriptions>
         </Card>
       )}

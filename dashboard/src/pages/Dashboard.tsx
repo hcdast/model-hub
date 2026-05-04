@@ -6,6 +6,7 @@ import {
   CloudServerOutlined, ThunderboltOutlined,
   ClockCircleOutlined, StopOutlined,
   ReloadOutlined,
+  DollarOutlined, StarOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import ReactEChartsCore from 'echarts-for-react';
@@ -28,6 +29,7 @@ export default function DashboardPage() {
   const [recentFailures, setRecentFailures] = useState<any[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [costData, setCostData] = useState<any>(null);
 
   const fetchData = async () => {
     // 获取总览数据
@@ -35,6 +37,12 @@ export default function DashboardPage() {
       const res: any = await overviewApi.getOverview();
       setData(res.data);
     } catch { /* ignore */ }
+
+    // 获取成本观测数据（独立 try-catch）
+    try {
+      const costRes: any = await overviewApi.getCostOverview();
+      setCostData(costRes.data);
+    } catch { /* 成本数据获取失败不影响页面其他模块 */ }
 
     // 获取近 7 天趋势数据（独立 try-catch，不影响总览数据）
     try {
@@ -148,6 +156,44 @@ export default function DashboardPage() {
             title="当前处理中"
             value={queues.totalActive || 0}
             prefix={<CloudServerOutlined />}
+          />
+        </Col>
+      </Row>
+
+      {/* 成本观测 */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24} sm={12} lg={6}>
+          <StatCard
+            title="模型消耗"
+            value={costData?.totalSpend?.toFixed(4) || '0.0000'}
+            prefix={<DollarOutlined />}
+            suffix="credits"
+          />
+        </Col>
+        <Col xs={24} sm={12} lg={6}>
+          <StatCard
+            title="路由成本"
+            value="0.0000"
+            prefix={<DollarOutlined />}
+            suffix="credits"
+            valueStyle={{ color: '#8c8c8c' }}
+          />
+        </Col>
+        <Col xs={24} sm={12} lg={6}>
+          <StatCard
+            title="缓存节省"
+            value="0.0000"
+            prefix={<DollarOutlined />}
+            suffix="credits"
+            valueStyle={{ color: '#52c41a' }}
+          />
+        </Col>
+        <Col xs={24} sm={12} lg={6}>
+          <StatCard
+            title="热门模型"
+            value={costData?.topModel?.model || '--'}
+            prefix={<StarOutlined />}
+            suffix={costData?.topModel ? `(${costData.topModel.requestCount}次)` : undefined}
           />
         </Col>
       </Row>

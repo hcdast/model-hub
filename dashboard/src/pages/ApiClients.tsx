@@ -15,6 +15,16 @@ const BILLING_POLICY_COLOR: Record<string, string> = {
   exempt: 'default',
 };
 
+/** 功能类型映射（featureType -> model_type） */
+const FEATURE_TYPE_OPTIONS = [
+  { label: '文生图 (textToImage)', value: 'textToImage', modelType: 40001 },
+  { label: '图生图 (imageToImage)', value: 'imageToImage', modelType: 40002 },
+  { label: '文生视频 (textToVideo)', value: 'textToVideo', modelType: 1502 },
+  { label: '图生视频 (imageToVideo)', value: 'imageToVideo', modelType: 1501 },
+  { label: '角色换装 (characterFaceswap)', value: 'characterFaceswap', modelType: 40004 },
+  { label: '视频超分 (videoUpscale)', value: 'videoUpscale', modelType: 40005 },
+];
+
 /** 计费策略中文标签 */
 const BILLING_POLICY_LABEL: Record<string, string> = {
   internal: '内部计费',
@@ -160,6 +170,8 @@ export default function ApiClientsPage() {
   const [allowlistOpen, setAllowlistOpen] = useState(false);
   const [allowlistClient, setAllowlistClient] = useState<any>(null);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [selectedFeatureType, setSelectedFeatureType] = useState<string | null>(null);
+  const [loadingModels, setLoadingModels] = useState(false);
 
   // 用量图表弹窗状态
   const [usageChartOpen, setUsageChartOpen] = useState(false);
@@ -198,15 +210,21 @@ export default function ApiClientsPage() {
   };
 
   /** 获取可用模型列表（用于白名单自动补全） */
-  const fetchAvailableModels = async () => {
+  const fetchAvailableModels = async (modelType?: number) => {
+    setLoadingModels(true);
     try {
-      const res: any = await modelApi.list({ page: 1, pageSize: 200 });
+      const params: Record<string, any> = { page: 1, pageSize: 200 };
+      if (modelType) {
+        params.model_type = modelType;
+      }
+      const res: any = await modelApi.list(params);
       const modelItems: any[] = res.data?.items || [];
       const names = modelItems.map((m: any) => m.model_name || m.name).filter(Boolean);
       setAvailableModels(names);
     } catch {
       // 静默处理
     }
+    setLoadingModels(false);
   };
 
   useEffect(() => {
@@ -221,7 +239,22 @@ export default function ApiClientsPage() {
     if (!values) return;
     setCreating(true);
     try {
-      const res: any = await apiClientApi.create({ name: values.name || undefined });
+      const createData: Record<string, any> = {
+        name: values.name || undefined,
+        billingPolicy: values.billingPolicy || 'internal',
+        defaultPriority: values.defaultPriority ?? 50,
+      };
+
+      // 限流配置
+      if (values.maxQps || values.maxConcurrent || values.maxDailyRequests) {
+        createData.rateLimits = {
+          maxQps: values.maxQps ?? 10,
+          maxConcurrent: values.maxConcurrent ?? 50,
+          maxDailyRequests: values.maxDailyRequests ?? 10000,
+        };
+      }
+
+      const res: any = await apiClientApi.create(createData);
       const key = res.data?.apiKey;
       Modal.success({
         title: '请立即保存 API Key',
@@ -354,7 +387,23 @@ export default function ApiClientsPage() {
     allowlistForm.setFieldsValue({
       modelAllowlist: record.modelAllowlist || [],
     });
+    setSelectedFeatureType(null);
     setAllowlistOpen(true);
+    // 初始加载所有模型
+    fetchAvailableModels();
+  };
+
+  /** 功能类型变更时重新拉取模型 */
+  const onFeatureTypeChange = (value: string | null) => {
+    setSelectedFeatureType(value);
+    if (value) {
+      const option = FEATURE_TYPE_OPTIONS.find((o) => o.value === value);
+      if (option) {
+        fetchAvailableModels(option.modelType);
+      }
+    } else {
+      fetchAvailableModels();
+    }
   };
 
   /** 保存模型白名单 */
@@ -536,10 +585,37 @@ export default function ApiClientsPage() {
         onOk={onCreate}
         confirmLoading={creating}
         destroyOnClose
+        width={600}
       >
-        <Form form={form} layout="vertical">
+        <Form form={form} layout="vertical" initialValues={{ billingPolicy: 'internal', defaultPriority: 50 }}>
           <Form.Item name="name" label="显示名称（可选）">
             <Input placeholder="例如：AGI-Content 生产" maxLength={200} />
+          </Form.Item>
+          <Form.Item
+            name="billingPolicy"
+            label="计费策略"
+            rules={[{ required: true, message: '请选择计费策略' }]}
+          >
+            <Select options={BILLING_POLICY_OPTIONS} placeholder="请选择计费策略" />
+          </Form.Item>
+          <Form.Item
+            name="defaultPriority"
+            label="默认优先级（0=最高, 100=最低）"
+            rules={[{ required: true, message: '请输入优先级' }]}
+          >
+            <InputNumber min={0} max={100} precision={0} style={{ width: '100%' }} />
+          </Form.Item>
+          <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+            限流配置（可选，留空使用默认值）
+          </Typography.Text>
+          <Form.Item name="maxQps" label="每秒最大请求数 (QPS)">
+            <InputNumber min={1} max={10000} precision={0} style={{ width: '100%' }} placeholder="默认 10" />
+          </Form.Item>
+          <Form.Item name="maxConcurrent" label="最大并发任务数">
+            <InputNumber min={1} max={10000} precision={0} style={{ width: '100%' }} placeholder="默认 50" />
+          </Form.Item>
+          <Form.Item name="maxDailyRequests" label="每日最大请求数">
+            <InputNumber min={1} max={10000000} precision={0} style={{ width: '100%' }} placeholder="默认 10000" />
           </Form.Item>
         </Form>
       </Modal>
@@ -622,12 +698,22 @@ export default function ApiClientsPage() {
       <Modal
         title={`编辑模型白名单 - ${allowlistClient?.name || allowlistClient?.clientId || ''}`}
         open={allowlistOpen}
-        onCancel={() => { setAllowlistOpen(false); setAllowlistClient(null); }}
+        onCancel={() => { setAllowlistOpen(false); setAllowlistClient(null); setSelectedFeatureType(null); }}
         onOk={onSaveAllowlist}
         destroyOnClose
         width={600}
       >
         <Form form={allowlistForm} layout="vertical">
+          <Form.Item label="功能类型筛选">
+            <Select
+              allowClear
+              placeholder="选择功能类型筛选模型（留空显示所有）"
+              options={FEATURE_TYPE_OPTIONS}
+              value={selectedFeatureType}
+              onChange={onFeatureTypeChange}
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
           <Form.Item
             name="modelAllowlist"
             label="模型白名单"
@@ -637,6 +723,7 @@ export default function ApiClientsPage() {
               mode="tags"
               placeholder="输入模型名称或通配符模式，按回车添加"
               style={{ width: '100%' }}
+              loading={loadingModels}
               options={availableModels.map((m) => ({ label: m, value: m }))}
               filterOption={(input, option) =>
                 (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ?? false

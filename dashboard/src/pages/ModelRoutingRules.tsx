@@ -7,7 +7,7 @@ import {
 import { ReloadOutlined, SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined, MinusCircleOutlined } from '@ant-design/icons';
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
-import { modelRoutingApi, providerConfigApi } from '../services/api';
+import { modelRoutingApi, providerConfigApi, modelApi } from '../services/api';
 
 type Strategy = 'fixed' | 'weighted' | 'primary_fallback' | 'latency' | 'cost';
 
@@ -89,6 +89,7 @@ export default function ModelRoutingRulesPage() {
   const [editing, setEditing] = useState<RuleRow | null>(null);
   const [form] = Form.useForm();
   const [providers, setProviders] = useState<string[]>([]);
+  const [loadingProviderPricing, setLoadingProviderPricing] = useState(false);
 
   const fetchData = useCallback(async (p = page, ps = pageSize) => {
     setLoading(true);
@@ -552,9 +553,45 @@ export default function ModelRoutingRulesPage() {
               if (st === 'cost') {
                 return (
                   <>
-                    <Typography.Text type="secondary">
-                      成本优先策略：系统自动选择单价最低的 Provider（至少 1 个候选）
-                    </Typography.Text>
+                    <Space style={{ width: '100%', marginBottom: 8 }} align="center">
+                      <Typography.Text type="secondary">
+                        成本优先策略：系统自动选择单价最低的 Provider（至少 1 个候选）
+                      </Typography.Text>
+                      <Button
+                        type="link"
+                        loading={loadingProviderPricing}
+                        onClick={async () => {
+                          const modelName = form.getFieldValue('model_name');
+                          if (!modelName?.trim()) {
+                            message.warning('请先填写 model_name');
+                            return;
+                          }
+                          setLoadingProviderPricing(true);
+                          try {
+                            const res: any = await modelApi.getProviderPricing(modelName.trim());
+                            const pricingData = res.data || [];
+                            if (pricingData.length === 0) {
+                              message.info('该模型暂无厂商定价数据');
+                              return;
+                            }
+                            // 自动填充 cost_targets
+                            form.setFieldsValue({
+                              cost_targets: pricingData.map((item: { provider: string; costPerUnit: number }) => ({
+                                provider: item.provider,
+                                costPerUnit: item.costPerUnit,
+                              })),
+                            });
+                            message.success(`已加载 ${pricingData.length} 个厂商的定价信息`);
+                          } catch {
+                            message.error('加载厂商定价失败');
+                          } finally {
+                            setLoadingProviderPricing(false);
+                          }
+                        }}
+                      >
+                        自动加载厂商定价
+                      </Button>
+                    </Space>
                     <Form.List name="cost_targets">
                       {(fields, { add, remove }) => (
                         <>
