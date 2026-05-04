@@ -7,6 +7,7 @@ import {
   WalletTransaction,
   WalletTransactionDocument,
 } from '../database/schemas/wallet-transaction.schema';
+import { ApiClient } from '../database/schemas/api-client.schema';
 import { APP_CONFIG } from '../config/config.module';
 import { AppConfig } from '../config/interfaces/config.interface';
 import { TransactionType, WalletBalance } from './interfaces/wallet.interface';
@@ -30,6 +31,8 @@ export class WalletService {
     private readonly walletModel: Model<WalletDocument>,
     @InjectModel(WalletTransaction.name)
     private readonly txModel: Model<WalletTransactionDocument>,
+    @InjectModel(ApiClient.name)
+    private readonly apiClientModel: Model<ApiClient>,
     private readonly eventEmitter: EventEmitter2,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
@@ -64,6 +67,57 @@ export class WalletService {
       frozenAmount: wallet.frozenAmount,
       available: wallet.balance - wallet.frozenAmount,
     };
+  }
+
+  /**
+   * 分页查询钱包列表（关联 api_clients 获取客户端名称）
+   */
+  async listWallets(query: {
+    keyword?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<{ items: any[]; total: number }> {
+    const { keyword, page = 1, pageSize = 20 } = query;
+    const skip = (page - 1) * pageSize;
+
+    const match: Record<string, any> = {};
+    if (keyword) {
+      const regex = new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      match.$or = [{ clientId: regex }];
+    }
+
+    const [items, total] = await Promise.all([
+      this.walletModel.aggregate([
+        ...(Object.keys(match).length ? [{ $match: match }] : []),
+        {
+          $lookup: {
+            from: 'api_clients',
+            localField: 'clientId',
+            foreignField: 'clientId',
+            as: 'client',
+          },
+        },
+        { $unwind: { path: '$client', preserveNullAndEmptyArrays: true } },
+        {
+          $project: {
+            clientId: 1,
+            balance: 1,
+            frozenAmount: 1,
+            available: { $subtract: ['$balance', '$frozenAmount'] },
+            clientName: '$client.name',
+            billingPolicy: '$client.billingPolicy',
+            enabled: '$client.enabled',
+            updatedAt: 1,
+          },
+        },
+        { $sort: { updatedAt: -1 } },
+        { $skip: skip },
+        { $limit: pageSize },
+      ]),
+      this.walletModel.countDocuments(match),
+    ]);
+
+    return { items, total };
   }
 
   /**

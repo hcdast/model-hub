@@ -207,7 +207,7 @@ export class BillingAdapter {
             `actualCost=${actualCost}`,
           );
           await this.billingService.markFailed(context.taskId, 'debit_failed');
-          return;
+          throw new Error(`Debit failed for taskId=${context.taskId}`);
         }
       } else {
         // 后扣费任务（token 类型，状态为 estimated）：直接扣费
@@ -223,7 +223,7 @@ export class BillingAdapter {
             `actualCost=${actualCost}`,
           );
           await this.billingService.markFailed(context.taskId, 'debit_failed');
-          return;
+          throw new Error(`Debit failed for taskId=${context.taskId}`);
         }
       }
     }

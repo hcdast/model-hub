@@ -152,19 +152,32 @@ export class PricingService {
 
   /**
    * 根据 model_type 推断用量类型
-   * - model_type=1（图像）→ count
-   * - model_type=2（视频）→ duration
-   * - 其他 → token
+   * - 40001~40099（图像生成/编辑）→ count
+   * - 1500~1599（视频生成/编辑）→ duration
+   * - 2100~2199（动作控制）→ count
+   * - 50001（音乐）→ duration
+   * - 50002（TTS）→ duration
+   * - 其他（LLM 等）→ token
    */
   private inferUsageType(modelType: number): UsageType {
-    switch (modelType) {
-      case 1:
-        return UsageType.COUNT;
-      case 2:
-        return UsageType.DURATION;
-      default:
-        return UsageType.TOKEN;
+    // 图像类：40001(text-to-image), 40002(image-to-image), 40004(character_swap), 40005(video_upscale)
+    if (modelType >= 40001 && modelType <= 40099) {
+      return UsageType.COUNT;
     }
+    // 视频类：1501(image-to-video), 1502(text-to-video), 1504(video-to-video), 1505, 1506(reference-to-video)
+    if (modelType >= 1500 && modelType <= 1599) {
+      return UsageType.DURATION;
+    }
+    // 动作控制类
+    if (modelType >= 2100 && modelType <= 2199) {
+      return UsageType.COUNT;
+    }
+    // 音乐/语音合成类
+    if (modelType >= 50001 && modelType <= 50099) {
+      return UsageType.DURATION;
+    }
+    // 其他（LLM 等）→ token
+    return UsageType.TOKEN;
   }
 
   /**

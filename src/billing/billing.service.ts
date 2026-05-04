@@ -341,4 +341,58 @@ export class BillingService {
     const results = await this.billingModel.aggregate(pipeline).exec();
     return results as BillingSummaryItem[];
   }
+
+  /**
+   * 今日成本总览 —— Dashboard 成本观测面板数据源
+   *
+   * 使用 $facet 在一次聚合中同时计算：
+   * - 今日总消耗（settled + pre_deducted 的 actualCost 求和）
+   * - 热门模型（按请求数排序取 Top 1）
+   */
+  async getTodayCostOverview(): Promise<{
+    totalSpend: number;
+    topModel: { model: string; requestCount: number; totalCost: number } | null;
+  }> {
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000 - 1);
+
+    const results = await this.billingModel.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startOfDay, $lte: endOfDay },
+          status: { $in: [BillingStatus.SETTLED, BillingStatus.PRE_DEDUCTED] },
+        },
+      },
+      {
+        $facet: {
+          totalSpend: [
+            { $group: { _id: null, total: { $sum: '$actualCost' } } },
+          ],
+          byModel: [
+            {
+              $group: {
+                _id: '$model',
+                requestCount: { $sum: 1 },
+                totalCost: { $sum: '$actualCost' },
+              },
+            },
+            { $sort: { requestCount: -1 } },
+            { $limit: 1 },
+          ],
+        },
+      },
+    ]).exec();
+
+    const facet = results[0] || { totalSpend: [], byModel: [] };
+    const totalSpend = facet.totalSpend[0]?.total || 0;
+    const topDoc = facet.byModel[0] || null;
+
+    return {
+      totalSpend,
+      topModel: topDoc
+        ? { model: topDoc._id, requestCount: topDoc.requestCount, totalCost: topDoc.totalCost }
+        : null,
+    };
+  }
 }
