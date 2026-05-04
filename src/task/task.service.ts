@@ -31,6 +31,7 @@ import { validateParams } from '../common/utils/param-validator';
 import { transformParams } from '../common/utils/param-transformer';
 import { ParamDefinitions } from '../common/interfaces/param-definition.interface';
 import { BillingAdapter } from '../billing/billing.adapter';
+import { BillingService } from '../billing/billing.service';
 import { InsufficientBalanceException } from '../billing/exceptions/insufficient-balance.exception';
 
 @Injectable()
@@ -52,6 +53,7 @@ export class TaskService {
     private readonly apiClientService: ApiClientService,
     private readonly usageTracker: UsageTrackerService,
     private readonly billingAdapter: BillingAdapter,
+    private readonly billingService: BillingService,
   ) {}
 
   async createTask(clientId: string, dto: CreateTaskDto, idempotencyKey?: string) {
@@ -277,7 +279,11 @@ export class TaskService {
       );
       throw new NotFoundException(`Task not found: ${taskId}`);
     }
-    return this.toResponse(task);
+
+    // 查询计费记录
+    const billingRecord = await this.billingService.getRecord(taskId);
+
+    return this.toResponse(task, billingRecord);
   }
 
   async listTasks(clientId: string, query: TaskListQueryDto) {
@@ -431,8 +437,10 @@ export class TaskService {
     const hasImages = Array.isArray(input.images) && input.images.length > 0;
 
     if (expectsImage && !expectsImages && !hasImage && hasImages) {
+      // config 要 image，客户端传了 images → 取第一张
       input.image = input.images[0];
     } else if (expectsImages && !expectsImage && !hasImages && hasImage) {
+      // config 要 images，客户端传了 image → 包装为数组
       input.images = [input.image];
     }
   }
@@ -478,7 +486,7 @@ export class TaskService {
     if (typeof opt === 'string' && opt.length > 0) {
       const camelToInternal: Record<string, string> = {
         textToImage: 'image_generate',
-        imageToImage: 'image_generate',
+        imageToImage: 'image_to_image',
         textToVideo: 'text_to_video',
         imageToVideo: 'image_to_video',
         videoToVideo: 'image_to_video',
@@ -486,7 +494,7 @@ export class TaskService {
         videoUpscale: 'video_upscale',
       };
       if (camelToInternal[opt]) return camelToInternal[opt];
-      if (/^(image_generate|text_to_video|image_to_video|character_swap|video_upscale|unknown)$/.test(opt)) {
+      if (/^(image_generate|image_to_image|text_to_video|image_to_video|character_swap|video_upscale|unknown)$/.test(opt)) {
         return opt;
       }
     }
@@ -507,9 +515,9 @@ export class TaskService {
   private inferFeatureType(lastSegment: string): string {
     const map: Record<string, string> = {
       'text-to-image': 'image_generate',
-      'image-to-image': 'image_generate',
-      edit: 'image_generate',
-      'edit-sequential': 'image_generate',
+      'image-to-image': 'image_to_image',
+      edit: 'image_to_image',
+      'edit-sequential': 'image_to_image',
       'text-to-video': 'text_to_video',
       'image-to-video': 'image_to_video',
       'reference-to-video': 'image_to_video',
@@ -523,21 +531,41 @@ export class TaskService {
     return map[lastSegment] || 'unknown';
   }
 
-  private toResponse(task: TaskDocument) {
-    return {
-      taskId: task.taskId, 
-      clientId: task.clientId, 
-      status: task.status, 
-      model: task.model, 
+  private toResponse(task: TaskDocument, billingRecord?: any) {
+    const response: Record<string, any> = {
+      taskId: task.taskId,
+      clientId: task.clientId,
+      status: task.status,
+      model: task.model,
       provider: task.provider,
-      providerModel: task.providerModel, 
-      featureType: task.featureType, 
+      providerModel: task.providerModel,
+      featureType: task.featureType,
       routeId: task.routeId,
       routingSource: task.metadata?.routingSource,
-      result: task.resultPayload || undefined, 
+      result: task.resultPayload || undefined,
       error: task.error || undefined,
-      createdAt: (task as any).createdAt, 
+      createdAt: (task as any).createdAt,
       updatedAt: (task as any).updatedAt,
     };
+
+    // 添加计费信息
+    if (billingRecord) {
+      response.billing = {
+        status: billingRecord.status,
+        billingPolicy: billingRecord.billingPolicy,
+        usageType: billingRecord.usageType,
+        estimatedUsage: billingRecord.estimatedUsage,
+        estimatedCost: billingRecord.estimatedCost,
+        actualUsage: billingRecord.actualUsage,
+        actualCost: billingRecord.actualCost,
+        unitPrice: billingRecord.unitPrice,
+        currency: billingRecord.currency,
+        settledAt: billingRecord.settledAt,
+        refundedAt: billingRecord.refundedAt,
+        failReason: billingRecord.failReason,
+      };
+    }
+
+    return response;
   }
 }

@@ -39,6 +39,9 @@ export class ApiClientService {
   async createClient(
     name?: string,
     billingPolicy?: string,
+    defaultPriority?: number,
+    rateLimits?: { maxQps?: number; maxConcurrent?: number; maxDailyRequests?: number },
+    modelAllowlist?: string[],
   ): Promise<{ clientId: string; plainKey: string; name?: string; billingPolicy: string }> {
     /** 校验 billingPolicy 合法性，不合法则使用默认值 */
     const validPolicies = ['internal', 'external', 'exempt'];
@@ -48,13 +51,31 @@ export class ApiClientService {
     const secret = randomBytes(24).toString('base64url');
     const plainKey = `${clientId}.${secret}`;
     const secretHash = await bcrypt.hash(secret, BCRYPT_ROUNDS);
-    await this.apiClientModel.create({
+
+    const doc: Record<string, any> = {
       clientId,
       secretHash,
       name: name?.trim() || undefined,
       enabled: true,
       billingPolicy: policy,
-    });
+    };
+
+    if (defaultPriority !== undefined && Number.isInteger(defaultPriority) && defaultPriority >= 0 && defaultPriority <= 100) {
+      doc.defaultPriority = defaultPriority;
+    }
+
+    if (rateLimits) {
+      doc.rateLimits = {};
+      if (rateLimits.maxQps !== undefined) doc.rateLimits.maxQps = rateLimits.maxQps;
+      if (rateLimits.maxConcurrent !== undefined) doc.rateLimits.maxConcurrent = rateLimits.maxConcurrent;
+      if (rateLimits.maxDailyRequests !== undefined) doc.rateLimits.maxDailyRequests = rateLimits.maxDailyRequests;
+    }
+
+    if (modelAllowlist && Array.isArray(modelAllowlist)) {
+      doc.modelAllowlist = modelAllowlist;
+    }
+
+    await this.apiClientModel.create(doc);
     return { clientId, plainKey, name: name?.trim() || undefined, billingPolicy: policy };
   }
 
@@ -64,7 +85,7 @@ export class ApiClientService {
     const [items, total] = await Promise.all([
       this.apiClientModel
         .find()
-        .select('clientId name enabled defaultPriority billingPolicy createdAt updatedAt')
+        .select('clientId name enabled defaultPriority billingPolicy rateLimits modelAllowlist createdAt updatedAt')
         .sort({ createdAt: -1 })
         .skip((p - 1) * ps)
         .limit(ps)

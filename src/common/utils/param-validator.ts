@@ -31,16 +31,12 @@ export function validateParams(
       continue;
     }
 
-    // 1. required 检查
-    if (def.required && !provided) {
-      errors.push({ field, message: `${field} 是必填参数` });
-      continue; // 缺失必填参数，跳过后续校验
-    }
-
-    // 如果未提供且非必填，填充默认值或跳过
+    // 如果未提供，优先填充默认值；无默认值且必填时才报错
     if (!provided) {
       if (def.default !== undefined) {
         sanitized[field] = def.default;
+      } else if (def.required) {
+        errors.push({ field, message: `${field} 是必填参数` });
       }
       continue;
     }

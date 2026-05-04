@@ -229,14 +229,10 @@ export class PollingService {
         await this.timingService.recordTiming(task.taskId, 'providerCompletedAt', completedAt);
         await this.timingService.recordTiming(task.taskId, 'completedAt', completedAt);
         await this.timingService.calculateAndSave(task.taskId);
-        await this.taskRepo.updateStatus(task.taskId, [TaskStatus.SUBMITTED, TaskStatus.PROCESSING], TaskStatus.SUCCESS, { resultPayload: queryResult.result });
-        const e2eMs = completedAt.getTime() - (task as any).createdAt.getTime();
-        this.metrics.taskCompletedTotal.inc({ feature_type: task.featureType, provider: task.provider, status: 'SUCCESS' });
-        this.metrics.taskDuration.observe({ feature_type: task.featureType, provider: task.provider }, e2eMs);
-        await this.timelineService.addEvent(task.taskId, TimelineEvent.TASK_SUCCESS, { totalE2eMs: e2eMs });
-        this.eventEmitter.emit('system.task_success', buildTaskEvent(task.taskId, task.model, task.provider, 'success', e2eMs));
 
-        // 计费结算：从供应商结果中提取实际用量并结算
+        // 计费结算：必须在任务状态更新为 SUCCESS 之前完成
+        // 如果扣费失败，任务保持 PROCESSING 状态，下次轮询会重试
+        let billingSettled = false;
         try {
           const actualUsage = await this.extractActualUsage(task.model, queryResult.result);
           await this.billingAdapter.settle({
@@ -244,12 +240,23 @@ export class PollingService {
             actualUsage,
             resultPayload: queryResult.result,
           });
+          billingSettled = true;
         } catch (billingErr: any) {
           this.logger.error(
-            `计费结算失败：taskId=${task.taskId}`,
+            `计费结算失败，任务保持 PROCESSING 状态等待重试：taskId=${task.taskId}`,
             billingErr instanceof Error ? billingErr.stack : billingErr,
           );
+          // 计费失败，不更新任务状态，下次轮询会重试
+          return;
         }
+
+        // 计费成功后才更新任务状态为 SUCCESS
+        await this.taskRepo.updateStatus(task.taskId, [TaskStatus.SUBMITTED, TaskStatus.PROCESSING], TaskStatus.SUCCESS, { resultPayload: queryResult.result });
+        const e2eMs = completedAt.getTime() - (task as any).createdAt.getTime();
+        this.metrics.taskCompletedTotal.inc({ feature_type: task.featureType, provider: task.provider, status: 'SUCCESS' });
+        this.metrics.taskDuration.observe({ feature_type: task.featureType, provider: task.provider }, e2eMs);
+        await this.timelineService.addEvent(task.taskId, TimelineEvent.TASK_SUCCESS, { totalE2eMs: e2eMs });
+        this.eventEmitter.emit('system.task_success', buildTaskEvent(task.taskId, task.model, task.provider, 'success', e2eMs));
 
         // 异步记录 Usage 完成统计
         this.usageTracker.recordCompletion(task.clientId, true).catch((err) => {

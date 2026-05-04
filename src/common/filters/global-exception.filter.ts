@@ -60,6 +60,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         message = message.join('; ');
       }
 
+      // 保留 errors 字段（如参数校验错误详情）
+      if (typeof exResponse === 'object' && exResponse !== null && 'errors' in exResponse) {
+        (context as any).errors = (exResponse as any).errors;
+      }
+
       // 记录 HTTP 异常（4xx 用 warn，5xx 用 error）
       if (status >= 500) {
         ErrorLogger.logError(
@@ -91,13 +96,17 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       );
     }
 
-    response.status(status).json({
+    const body: Record<string, any> = {
       statusCode: status,
       code,
       message,
       timestamp: new Date().toISOString(),
       path: request.url,
-    });
+    };
+    if ((context as any).errors) {
+      body.errors = (context as any).errors;
+    }
+    response.status(status).json(body);
   }
 
   private mapHttpStatusToCode(status: number): ErrorCode {
