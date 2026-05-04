@@ -6,6 +6,7 @@ import { Model } from 'mongoose';
 import { Queue } from 'bull';
 import { Task, TaskDocument } from '../database/schemas/task.schema';
 import { ApiClient, ApiClientDocument } from '../database/schemas/api-client.schema';
+import { BillingRecord, BillingRecordDocument } from '../database/schemas/billing-record.schema';
 import { AdminJwtGuard } from './guards/admin-jwt.guard';
 import { PermissionGuard } from './guards/permission.guard';
 import { RequirePermissions } from './decorators/require-permissions.decorator';
@@ -23,6 +24,7 @@ export class AdminTaskController {
   constructor(
     @InjectModel(Task.name) private readonly taskModel: Model<TaskDocument>,
     @InjectModel(ApiClient.name) private readonly apiClientModel: Model<ApiClientDocument>,
+    @InjectModel(BillingRecord.name) private readonly billingModel: Model<BillingRecordDocument>,
     @InjectQueue('callback') private readonly callbackQueue: Queue,
     private readonly auditLogService: AuditLogService,
     private readonly timelineService: TaskTimelineService,
@@ -74,8 +76,32 @@ export class AdminTaskController {
   async getTask(@Param('taskId') taskId: string) {
     const task = await this.taskModel.findOne({ taskId }).lean();
     if (!task) return { code: 3001, message: 'Task not found' };
+
+    // 查询计费记录
+    const billingRecord = await this.billingModel.findOne({ taskId }).lean();
+
     const [enriched] = await this.attachClientDisplayNames([task]);
-    return { code: 0, data: enriched };
+
+    // 附加计费信息
+    const data: Record<string, any> = { ...enriched };
+    if (billingRecord) {
+      data.billing = {
+        status: billingRecord.status,
+        billingPolicy: billingRecord.billingPolicy,
+        usageType: billingRecord.usageType,
+        estimatedUsage: billingRecord.estimatedUsage,
+        estimatedCost: billingRecord.estimatedCost,
+        actualUsage: billingRecord.actualUsage,
+        actualCost: billingRecord.actualCost,
+        unitPrice: billingRecord.unitPrice,
+        currency: billingRecord.currency,
+        settledAt: billingRecord.settledAt,
+        refundedAt: billingRecord.refundedAt,
+        failReason: billingRecord.failReason,
+      };
+    }
+
+    return { code: 0, data };
   }
 
   @Get(':taskId/timeline')

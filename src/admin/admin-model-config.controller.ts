@@ -221,6 +221,53 @@ export class AdminModelConfigController {
     return { code: 0, data: result, message: '定价更新成功' };
   }
 
+  @Get('provider-pricing')
+  @RequirePermissions('model:read')
+  @ApiOperation({ summary: '获取模型在各厂商的定价信息（用于成本优先路由规则）' })
+  @ApiQuery({ name: 'model_name', required: true, description: '模型名称' })
+  @ApiResponse({ status: 200, description: '查询成功' })
+  async getProviderPricing(@Query('model_name') modelName?: string) {
+    if (!modelName) return { code: 1001, message: 'model_name is required' };
+    const decoded = decodeURIComponent(modelName);
+
+    // 查询该模型名下所有厂商的配置
+    const configs = await this.modelConfigModel
+      .find({ model_name: decoded, disabled: { $ne: true } })
+      .select('provider unit_price_map unit_credit_map')
+      .lean();
+
+    if (!configs.length) return { code: 0, data: [] };
+
+    // 提取各厂商的定价信息
+    const providerPricing = configs.map((config) => {
+      const unitPriceMap = config.unit_price_map || {};
+      const unitCreditMap = config.unit_credit_map || {};
+
+      // 从 unit_price_map 中提取单价，优先取 default
+      let costPerUnit = 0;
+      if (unitPriceMap.default !== undefined && typeof unitPriceMap.default === 'number') {
+        costPerUnit = unitPriceMap.default;
+      } else if (unitCreditMap.default !== undefined && typeof unitCreditMap.default === 'number') {
+        costPerUnit = unitCreditMap.default;
+      } else {
+        // 取第一个数值类型的值
+        for (const value of Object.values({ ...unitPriceMap, ...unitCreditMap })) {
+          if (typeof value === 'number' && value > 0) {
+            costPerUnit = value;
+            break;
+          }
+        }
+      }
+
+      return {
+        provider: config.provider,
+        costPerUnit,
+      };
+    });
+
+    return { code: 0, data: providerPricing };
+  }
+
   @Put(':id')
   @RequirePermissions('model:update')
   @ApiOperation({ summary: '更新模型配置' })

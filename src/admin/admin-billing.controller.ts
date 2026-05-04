@@ -112,6 +112,27 @@ export class AdminBillingController {
   }
 
   /**
+   * 查询钱包列表（分页 + 搜索）
+   */
+  @Get('wallets')
+  @RequirePermissions('billing:read')
+  @ApiOperation({ summary: '查询钱包列表' })
+  @ApiQuery({ name: 'keyword', required: false, description: '搜索关键字（clientId）' })
+  @ApiQuery({ name: 'page', required: false, description: '页码' })
+  @ApiQuery({ name: 'pageSize', required: false, description: '每页数量' })
+  @ApiResponse({ status: 200, description: '成功' })
+  async listWallets(
+    @Query('keyword') keyword?: string,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '20',
+  ) {
+    const p = Math.max(1, parseInt(page, 10) || 1);
+    const ps = Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20));
+    const data = await this.walletService.listWallets({ keyword, page: p, pageSize: ps });
+    return { code: 0, data };
+  }
+
+  /**
    * 查询指定 API Client 的钱包余额
    */
   @Get('wallets/:clientId')

@@ -42,14 +42,24 @@ export class AdminApiClientController {
   @RequirePermissions('api-client:create')
   @ApiOperation({ summary: '创建 API 客户端（明文密钥仅返回一次）' })
   @ApiResponse({ status: 200, description: '成功' })
-  async create(@Body() body: { name?: string; billingPolicy?: string }) {
+  async create(@Body() body: {
+    name?: string;
+    billingPolicy?: string;
+    defaultPriority?: number;
+    rateLimits?: { maxQps?: number; maxConcurrent?: number; maxDailyRequests?: number };
+    modelAllowlist?: string[];
+  }) {
     const name = typeof body?.name === 'string' ? body.name.trim().slice(0, 200) : undefined;
     const billingPolicy = typeof body?.billingPolicy === 'string' ? body.billingPolicy : undefined;
-    const { clientId, plainKey, name: n, billingPolicy: bp } = await this.apiClients.createClient(name, billingPolicy);
+    const defaultPriority = typeof body?.defaultPriority === 'number' ? body.defaultPriority : undefined;
+    const rateLimits = body?.rateLimits && typeof body.rateLimits === 'object' ? body.rateLimits : undefined;
+    const modelAllowlist = Array.isArray(body?.modelAllowlist) ? body.modelAllowlist : undefined;
+
+    const result = await this.apiClients.createClient(name, billingPolicy, defaultPriority, rateLimits, modelAllowlist);
     return {
       code: 0,
       message: 'Save the apiKey now; it will not be shown again.',
-      data: { clientId, name: n, apiKey: plainKey, billingPolicy: bp },
+      data: result,
     };
   }
 

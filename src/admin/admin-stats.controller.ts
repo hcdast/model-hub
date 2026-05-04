@@ -9,6 +9,7 @@ import { ApiClient, ApiClientDocument } from '../database/schemas/api-client.sch
 import { AdminJwtGuard } from './guards/admin-jwt.guard';
 import { PermissionGuard } from './guards/permission.guard';
 import { RequirePermissions } from './decorators/require-permissions.decorator';
+import { BillingService } from '../billing/billing.service';
 
 @ApiTags('管理后台 - 统计监控')
 @ApiBearerAuth('AdminJwt')
@@ -19,6 +20,7 @@ export class AdminStatsController {
     private readonly statsService: StatsService,
     private readonly queueStatsCollector: QueueStatsCollectorService,
     private readonly queueRegistry: QueueRegistryService,
+    private readonly billingService: BillingService,
     @InjectModel(ApiClient.name) private readonly apiClientModel: Model<ApiClientDocument>,
   ) {}
 
@@ -94,6 +96,15 @@ export class AdminStatsController {
         snapshotAt: new Date(),
       },
     };
+  }
+
+  @Get('cost-overview')
+  @RequirePermissions('stats:read')
+  @ApiOperation({ summary: '成本观测总览', description: '今日成本核心指标：模型消耗、热门模型' })
+  @ApiResponse({ status: 200, description: '查询成功' })
+  async getCostOverview() {
+    const costData = await this.billingService.getTodayCostOverview();
+    return { code: 0, data: costData };
   }
 
   @Get('queues/:queueName/jobs')
