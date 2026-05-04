@@ -34,6 +34,7 @@ export const menuApi = {
 
 export const overviewApi = {
   getOverview: () => api.get('/overview'),
+  getCostOverview: () => api.get('/cost-overview'),
 };
 
 export const taskApi = {
@@ -67,6 +68,9 @@ export const modelApi = {
   list: (params: Record<string, any>) => api.get('/models', { params }),
   getDetail: (modelName: string) =>
     api.get('/models/detail', { params: { model_name: modelName } }),
+  /** 获取模型在各厂商的定价信息（用于成本优先路由规则） */
+  getProviderPricing: (modelName: string) =>
+    api.get('/models/provider-pricing', { params: { model_name: modelName } }),
   toggle: (model_name: string, disabled: boolean) =>
     api.put('/models/toggle', { model_name, disabled }),
   getTemplates: () => api.get('/models/templates'),

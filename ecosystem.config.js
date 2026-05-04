@@ -1,9 +1,9 @@
 /*
  * @Author: huchen huchen@akool.com
  * @Date: 2026-04-06 17:59:25
- * @LastEditors: huchen huchen@akool.com
- * @LastEditTime: 2026-04-16 10:10:11
- * @FilePath: \akool-workspace\model-hub\ecosystem.config.js
+ * @LastEditors: huchen
+ * @LastEditTime: 2026-05-04 14:42:42
+ * @FilePath: \model-hub\ecosystem.config.js
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 module.exports = {
@@ -22,7 +22,7 @@ module.exports = {
       name: 'model-hub-worker',
       script: 'dist/main.js',
       instances: 1,
-      exec_mode: 'cluster',
+      exec_mode: 'fork',
       env: {
         PROCESS_TYPE: 'worker',
         PORT: 7001,

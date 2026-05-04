@@ -92,9 +92,32 @@ export interface CreditWalletData {
   reason: string;
 }
 
+/** 钱包列表查询参数 */
+export interface WalletListQuery {
+  keyword?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+/** 钱包列表条目 */
+export interface WalletListItem {
+  clientId: string;
+  balance: number;
+  frozenAmount: number;
+  available: number;
+  clientName?: string;
+  billingPolicy?: string;
+  enabled?: boolean;
+  updatedAt: string;
+}
+
 // ---- 计费管理 API ----
 
 export const billingApi = {
+  /** 查询钱包列表 */
+  listWallets: (params: WalletListQuery) =>
+    api.get('/billing/wallets', { params }),
+
   /** 查询计费记录列表 */
   getRecords: (params: BillingRecordQuery) =>
     api.get('/billing/records', { params }),
