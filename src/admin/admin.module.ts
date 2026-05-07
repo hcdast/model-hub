@@ -26,6 +26,8 @@ import { RbacModule } from './rbac.module';
 import { TaskModule } from '../task/task.module';
 import { QueueModule } from '../queue/queue.module';
 import { ProviderHealthModule } from '../provider-health/provider-health.module';
+import { AdminLinkConversionConfigController } from './admin-link-conversion-config.controller';
+import { LinkConversionConfigModule } from './link-conversion-config.module';
 
 @Module({
   imports: [
@@ -34,6 +36,7 @@ import { ProviderHealthModule } from '../provider-health/provider-health.module'
     ProviderModule,
     StatsModule,
     RbacModule,
+    LinkConversionConfigModule,
     TaskModule,
     QueueModule,
     ProviderHealthModule,
@@ -53,6 +56,7 @@ import { ProviderHealthModule } from '../provider-health/provider-health.module'
     AdminBillingController,
     AdminMenuController,
     ProviderHealthController,
+    AdminLinkConversionConfigController,
   ],
   providers: [
     AdminAuthService,
@@ -61,6 +65,6 @@ import { ProviderHealthModule } from '../provider-health/provider-health.module'
     TaskTimelineService,
     TaskTimingService,
   ],
-  exports: [],
+  exports: [LinkConversionConfigModule],
 })
 export class AdminModule {}

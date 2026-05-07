@@ -40,6 +40,10 @@ import {
   WalletTransaction,
   WalletTransactionSchema,
 } from './schemas/wallet-transaction.schema';
+import {
+  LinkConversionSettings,
+  LinkConversionSettingsSchema,
+} from './schemas/link-conversion-settings.schema';
 
 @Module({
   imports: [
@@ -74,6 +78,7 @@ import {
       { name: BillingRecord.name, schema: BillingRecordSchema },
       { name: Wallet.name, schema: WalletSchema },
       { name: WalletTransaction.name, schema: WalletTransactionSchema },
+      { name: LinkConversionSettings.name, schema: LinkConversionSettingsSchema },
     ]),
   ],
   exports: [MongooseModule],

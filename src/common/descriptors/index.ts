@@ -364,6 +364,33 @@ export const inAppNotificationDescriptor: FeatureModuleDescriptor = {
   ],
 };
 
+/** 第三方链接转换配置（管理后台） */
+export const linkConversionDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'link-conversion',
+  displayName: '链接转换配置',
+  permissions: [
+    {
+      resource: 'link-conversion',
+      actions: ['read', 'update'],
+      displayNames: {
+        read: '查看链接转换配置',
+        update: '更新链接转换配置',
+      },
+      module: 'link-conversion-management',
+    },
+  ],
+  menus: [
+    {
+      path: '/link-conversion-config',
+      label: '链接转换配置',
+      icon: 'LinkOutlined',
+      parentKey: 'system',
+      sortOrder: 25,
+      requiredPermission: 'link-conversion:read',
+    },
+  ],
+};
+
 /** 计费管理模块描述符 */
 export const billingDescriptor: FeatureModuleDescriptor = {
   moduleKey: 'billing',
@@ -416,4 +443,5 @@ export const builtInDescriptors: FeatureModuleDescriptor[] = [
   notificationRecordDescriptor,
   inAppNotificationDescriptor,
   billingDescriptor,
+  linkConversionDescriptor,
 ];
