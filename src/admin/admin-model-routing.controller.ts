@@ -23,6 +23,7 @@ import {
   ModelRoutingRule,
   ModelRoutingRuleDocument,
 } from '../database/schemas/model-routing-rule.schema';
+import { RoutingPreviewService } from '../task/routing-preview.service';
 import { AdminJwtGuard } from './guards/admin-jwt.guard';
 import { PermissionGuard } from './guards/permission.guard';
 import { RequirePermissions } from './decorators/require-permissions.decorator';
@@ -37,7 +38,51 @@ export class AdminModelRoutingController {
   constructor(
     @InjectModel(ModelRoutingRule.name)
     private readonly ruleModel: Model<ModelRoutingRuleDocument>,
+    private readonly routingPreview: RoutingPreviewService,
   ) {}
+
+  @Post('simulate')
+  @RequirePermissions('model:read')
+  @ApiOperation({
+    summary: '路由仿真 / 调试',
+    description:
+      '输入 model_name、client_id（及可选 featureType、生效时间），返回规则命中详情与 model_configs 兜底解析，不写指标、不入队。',
+  })
+  @ApiResponse({ status: 200, description: '成功' })
+  async simulate(
+    @Body()
+    body: {
+      model_name?: string;
+      client_id?: string;
+      featureType?: string;
+      options?: Record<string, unknown>;
+      at?: string;
+    },
+  ) {
+    const modelName = body.model_name != null ? String(body.model_name).trim() : '';
+    const clientId = body.client_id != null ? String(body.client_id).trim() : '';
+    if (!modelName) {
+      throw new BadRequestException('model_name is required');
+    }
+    if (!clientId) {
+      throw new BadRequestException('client_id is required');
+    }
+    let at: Date | undefined;
+    if (body.at != null && String(body.at).trim() !== '') {
+      at = new Date(String(body.at));
+      if (Number.isNaN(at.getTime())) {
+        throw new BadRequestException('at must be a valid ISO date string');
+      }
+    }
+    const data = await this.routingPreview.preview({
+      model: modelName,
+      clientId,
+      featureType: body.featureType,
+      options: body.options,
+      at,
+    });
+    return { code: 0, data };
+  }
 
   @Get()
   @RequirePermissions('model:read')

@@ -13,7 +13,7 @@ import { AuthModule } from '../auth/auth.module';
 import { ApiClientModule } from '../api-client/api-client.module';
 import { ProviderHealthModule } from '../provider-health/provider-health.module';
 import { ProviderRoutingService } from './provider-routing.service';
-
+import { RoutingPreviewService } from './routing-preview.service';
 @Module({
   imports: [
     DatabaseModule,
@@ -26,12 +26,20 @@ import { ProviderRoutingService } from './provider-routing.service';
   controllers: [TaskController, ModelConfigController],
   providers: [
     ProviderRoutingService,
+    RoutingPreviewService,
     TaskService,
     TaskRepository,
     IdempotencyService,
     TaskTimelineService,
     TaskTimingService,
   ],
-  exports: [TaskService, TaskRepository, TaskTimelineService, TaskTimingService],
+  exports: [
+    TaskService,
+    TaskRepository,
+    TaskTimelineService,
+    TaskTimingService,
+    ProviderRoutingService,
+    RoutingPreviewService,
+  ],
 })
 export class TaskModule {}

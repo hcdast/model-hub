@@ -29,6 +29,29 @@ export interface RoutingRuleHit {
   };
 }
 
+/** 单条规则在仿真中的评估结果（含未命中原因） */
+export interface RoutingRuleEvaluationRow {
+  ruleId: string;
+  model_name: string;
+  client_id: string;
+  enabled: boolean;
+  priority: number;
+  strategy_type: string;
+  skipReasons: string[];
+  isCandidate: boolean;
+}
+
+/** 路由规则仿真输出（不写 Prometheus 指标） */
+export interface RoutingRuleSimulationResult {
+  evaluations: RoutingRuleEvaluationRow[];
+  candidateRuleIds: string[];
+  winnerRuleId: string | null;
+  hit: RoutingRuleHit | null;
+  resolutionDebug: Record<string, unknown> | null;
+}
+
+const ROUTING_STRATEGIES = new Set(['fixed', 'weighted', 'primary_fallback', 'latency', 'cost']);
+
 type LeanRule = ModelRoutingRule & { _id?: { toString: () => string } };
 
 @Injectable()
@@ -88,7 +111,7 @@ export class ProviderRoutingService {
     const routeId = top._id ? top._id.toString() : '';
     const seed = `${clientId}\u001c${modelName}\u001c${routeId}`;
 
-    const result = await this.resolveProviderForRule(top, seed);
+    const result = await this.resolveProviderForRule(top, seed, undefined);
     if (!result) return null;
 
     this.logger.debug(
@@ -117,13 +140,117 @@ export class ProviderRoutingService {
     };
   }
 
+  /**
+   * 路由规则仿真：返回每条规则的命中/跳过原因、候选排序、与生产一致的解析结果；不递增业务指标。
+   */
+  async simulateFromRules(
+    modelName: string,
+    clientId: string,
+    at: Date = new Date(),
+  ): Promise<RoutingRuleSimulationResult> {
+    const rules = (await this.ruleModel
+      .find({ model_name: modelName })
+      .sort({ model_name: 1, priority: -1, client_id: 1 })
+      .lean()
+      .exec()) as LeanRule[];
+
+    const evaluations: RoutingRuleEvaluationRow[] = [];
+    for (const r of rules) {
+      const ruleId = r._id ? r._id.toString() : '';
+      const skipReasons: string[] = [];
+      if (!ROUTING_STRATEGIES.has(String(r.strategy_type))) {
+        skipReasons.push(`不支持的策略类型: ${r.strategy_type}`);
+      }
+      if (r.enabled === false) {
+        skipReasons.push('规则已停用');
+      }
+      if (!this.isEffective(r, at)) {
+        skipReasons.push('当前时间不在生效时间窗内');
+      }
+      if (!this.clientMatches(r, clientId)) {
+        skipReasons.push('client_id 限定不匹配（规则仅对指定 Key 生效）');
+      }
+      if (skipReasons.length === 0 && !this.canResolveRule(r)) {
+        skipReasons.push('策略参数不完整，无法解析厂商');
+      }
+      const isCandidate =
+        ROUTING_STRATEGIES.has(String(r.strategy_type)) &&
+        r.enabled !== false &&
+        this.isEffective(r, at) &&
+        this.clientMatches(r, clientId) &&
+        this.canResolveRule(r);
+
+      evaluations.push({
+        ruleId,
+        model_name: r.model_name,
+        client_id: (r.client_id ?? '').trim(),
+        enabled: r.enabled !== false,
+        priority: r.priority ?? 0,
+        strategy_type: String(r.strategy_type),
+        skipReasons,
+        isCandidate,
+      });
+    }
+
+    const candidates = rules.filter((r) => {
+      if (!ROUTING_STRATEGIES.has(String(r.strategy_type))) return false;
+      if (r.enabled === false) return false;
+      if (!this.isEffective(r, at)) return false;
+      if (!this.clientMatches(r, clientId)) return false;
+      return this.canResolveRule(r);
+    });
+
+    candidates.sort((a, b) => {
+      const spec = this.specificityScore(b, clientId) - this.specificityScore(a, clientId);
+      if (spec !== 0) return spec;
+      return (b.priority ?? 0) - (a.priority ?? 0);
+    });
+
+    const candidateRuleIds = candidates.map((c) => (c._id ? c._id.toString() : '')).filter(Boolean);
+    let winnerRuleId: string | null = null;
+    let hit: RoutingRuleHit | null = null;
+    let resolutionDebug: Record<string, unknown> | null = null;
+
+    if (candidates.length) {
+      const top = candidates[0];
+      winnerRuleId = top._id ? top._id.toString() : null;
+      const routeId = winnerRuleId || '';
+      const seed = `${clientId}\u001c${modelName}\u001c${routeId}`;
+      const detail: Record<string, unknown> = { seed, modelName, clientId };
+      const result = await this.resolveProviderForRule(top, seed, detail);
+      resolutionDebug = detail;
+      if (result) {
+        hit = {
+          provider: result.provider,
+          routeId,
+          strategy_type: top.strategy_type,
+          failoverReason: result.failoverReason,
+          routingMetrics: result.routingMetrics,
+        };
+      }
+    }
+
+    return {
+      evaluations,
+      candidateRuleIds,
+      winnerRuleId,
+      hit,
+      resolutionDebug,
+    };
+  }
+
   private async resolveProviderForRule(
     r: LeanRule,
     seed: string,
+    detail: Record<string, unknown> | undefined,
   ): Promise<{ provider: string; failoverReason?: string; routingMetrics?: RoutingRuleHit['routingMetrics'] } | null> {
     switch (r.strategy_type) {
       case 'fixed': {
         const p = r.fixed_provider?.trim();
+        if (detail) {
+          detail.strategy = 'fixed';
+          detail.fixed_provider = p;
+        }
         return p ? { provider: p } : null;
       }
       case 'weighted': {
@@ -137,6 +264,13 @@ export class ProviderRoutingService {
             state: await this.circuitBreakerService.getState(t.provider),
           })),
         );
+        if (detail) {
+          detail.strategy = 'weighted';
+          detail.targets = targets;
+          detail.circuitByProvider = Object.fromEntries(
+            stateChecks.map((t) => [t.provider, t.state]),
+          );
+        }
         const available = stateChecks.filter(
           (t) => t.state !== CircuitState.OPEN,
         );
@@ -146,6 +280,9 @@ export class ProviderRoutingService {
           this.logger.warn(
             `weighted 策略所有 Provider 均熔断 OPEN，无可用 Provider`,
           );
+          if (detail) {
+            detail.outcome = 'all_open';
+          }
           return null;
         }
 
@@ -154,16 +291,27 @@ export class ProviderRoutingService {
           provider,
           weight,
         }));
-        return { provider: this.pickWeighted(remainingTargets, seed) };
+        const picked = this.pickWeighted(remainingTargets, seed);
+        if (detail) {
+          detail.remainingTargets = remainingTargets;
+          detail.weightSum = remainingTargets.reduce((s, t) => s + t.weight, 0);
+          detail.stableBucketModulo = detail.weightSum;
+          detail.stableBucketValue =
+            typeof detail.weightSum === 'number' && detail.weightSum > 0
+              ? this.stableBucket(seed, detail.weightSum as number)
+              : undefined;
+          detail.pickedProvider = picked;
+        }
+        return { provider: picked };
       }
       case 'primary_fallback': {
-        return this.resolvePrimaryFallbackWithCircuitBreaker(r, seed);
+        return this.resolvePrimaryFallbackWithCircuitBreaker(r, seed, detail);
       }
       case 'latency': {
-        return this.resolveLatencyStrategy(r, seed);
+        return this.resolveLatencyStrategy(r, seed, detail);
       }
       case 'cost': {
-        return this.resolveCostStrategy(r, seed);
+        return this.resolveCostStrategy(r, seed, detail);
       }
       default:
         return null;
@@ -179,6 +327,7 @@ export class ProviderRoutingService {
   private async resolvePrimaryFallbackWithCircuitBreaker(
     r: LeanRule,
     seed: string,
+    detail: Record<string, unknown> | undefined,
   ): Promise<{ provider: string; failoverReason?: string } | null> {
     const primary = r.primary_provider?.trim();
     if (!primary) return null;
@@ -187,6 +336,12 @@ export class ProviderRoutingService {
 
     // 检查 primary provider 的熔断状态
     const state = await this.circuitBreakerService.getState(primary);
+    if (detail) {
+      detail.strategy = 'primary_fallback';
+      detail.primary = primary;
+      detail.fallback = fallback || null;
+      detail.primaryCircuitState = state;
+    }
 
     switch (state) {
       case CircuitState.OPEN: {
@@ -195,6 +350,7 @@ export class ProviderRoutingService {
           this.logger.warn(
             `Provider ${primary} 熔断器 OPEN，故障转移到 fallback: ${fallback}`,
           );
+          if (detail) detail.branch = 'failover_open';
           return {
             provider: fallback,
             failoverReason: 'circuit_breaker_open',
@@ -204,17 +360,20 @@ export class ProviderRoutingService {
         this.logger.warn(
           `Provider ${primary} 熔断器 OPEN，但无 fallback 可用`,
         );
+        if (detail) detail.branch = 'open_no_fallback';
         return null;
       }
 
       case CircuitState.HALF_OPEN: {
         // 半开状态：调用 allowRequest 判断是否允许探针请求
         const allowed = await this.circuitBreakerService.allowRequest(primary);
+        if (detail) detail.halfOpenAllowRequest = allowed;
         if (allowed) {
           // 允许探针请求到达 primary
           this.logger.debug(
             `Provider ${primary} 熔断器 HALF_OPEN，允许探针请求`,
           );
+          if (detail) detail.branch = 'half_open_primary';
           return { provider: primary };
         }
         // 探针配额已满，走 fallback
@@ -222,11 +381,13 @@ export class ProviderRoutingService {
           this.logger.debug(
             `Provider ${primary} 熔断器 HALF_OPEN 探针配额已满，故障转移到 fallback: ${fallback}`,
           );
+          if (detail) detail.branch = 'half_open_failover';
           return {
             provider: fallback,
             failoverReason: 'circuit_breaker_open',
           };
         }
+        if (detail) detail.branch = 'half_open_no_fallback';
         return null;
       }
 
@@ -235,7 +396,16 @@ export class ProviderRoutingService {
         // 正常状态：走原有的 primary_fallback 权重逻辑
         const targets = this.buildPrimaryFallbackTargets(r);
         if (!targets.length) return null;
-        return { provider: this.pickWeighted(targets, seed) };
+        const picked = this.pickWeighted(targets, seed);
+        if (detail) {
+          detail.branch = 'weighted_split';
+          detail.weightTargets = targets;
+          detail.weightSum = targets.reduce((s, t) => s + t.weight, 0);
+          const sum = detail.weightSum as number;
+          detail.stableBucketValue = sum > 0 ? this.stableBucket(seed, sum) : undefined;
+          detail.pickedProvider = picked;
+        }
+        return { provider: picked };
       }
     }
   }
@@ -252,6 +422,7 @@ export class ProviderRoutingService {
   private async resolveLatencyStrategy(
     r: LeanRule,
     seed: string,
+    detail: Record<string, unknown> | undefined,
   ): Promise<{ provider: string; routingMetrics?: RoutingRuleHit['routingMetrics'] } | null> {
     const targets = (r.latency_targets ?? []).map(t => t.trim()).filter(Boolean);
     if (targets.length < 2) return null;
@@ -267,11 +438,23 @@ export class ProviderRoutingService {
       }),
     );
 
+    if (detail) {
+      detail.strategy = 'latency';
+      detail.rawTargets = targets;
+      detail.circuitByProvider = Object.fromEntries(candidateData.map((c) => [c.provider, c.state]));
+      detail.metricsSample = candidateData.map((c) => ({
+        provider: c.provider,
+        sampleCount: c.metrics.sampleCount,
+        avgLatencyMs: c.metrics.avgLatencyMs,
+      }));
+    }
+
     // 排除 CircuitState.OPEN 的 Provider
     const available = candidateData.filter(c => c.state !== CircuitState.OPEN);
 
     if (!available.length) {
       this.logger.warn('latency 策略所有 Provider 均熔断 OPEN，无可用 Provider');
+      if (detail) detail.outcome = 'all_open';
       return null;
     }
 
@@ -279,7 +462,7 @@ export class ProviderRoutingService {
     const withLatency = available.map(c => {
       const isUnknown = c.metrics.sampleCount < 10; // defaultMinSampleCount
       const latencyMs = isUnknown ? this.defaultUnknownLatencyMs : c.metrics.avgLatencyMs;
-      return { provider: c.provider, latencyMs };
+      return { provider: c.provider, latencyMs, usedDefaultLatency: isUnknown };
     });
 
     // 找到最低延迟值
@@ -289,15 +472,24 @@ export class ProviderRoutingService {
     const lowestCandidates = withLatency.filter(c => c.latencyMs === minLatency);
 
     let selectedProvider: string;
+    let tieBreakIdx: number | undefined;
     if (lowestCandidates.length === 1) {
       selectedProvider = lowestCandidates[0].provider;
     } else {
       // 所有延迟相等时 round-robin（基于 seed hash）
-      const idx = this.stableBucket(seed, lowestCandidates.length);
-      selectedProvider = lowestCandidates[idx].provider;
+      tieBreakIdx = this.stableBucket(seed, lowestCandidates.length);
+      selectedProvider = lowestCandidates[tieBreakIdx].provider;
     }
 
     const selectedLatencyMs = withLatency.find(c => c.provider === selectedProvider)!.latencyMs;
+
+    if (detail) {
+      detail.effectiveLatencies = withLatency;
+      detail.minLatencyMs = minLatency;
+      detail.tieBreakPool = lowestCandidates.map((c) => c.provider);
+      detail.tieBreakIndex = tieBreakIdx;
+      detail.pickedProvider = selectedProvider;
+    }
 
     // 构建 routingMetrics
     const routingMetrics: RoutingRuleHit['routingMetrics'] = {
@@ -322,6 +514,7 @@ export class ProviderRoutingService {
   private async resolveCostStrategy(
     r: LeanRule,
     seed: string,
+    detail: Record<string, unknown> | undefined,
   ): Promise<{ provider: string; routingMetrics?: RoutingRuleHit['routingMetrics'] } | null> {
     const costTargets = (r.cost_targets ?? []).filter(t => t?.provider?.trim());
     if (!costTargets.length) return null;
@@ -338,11 +531,17 @@ export class ProviderRoutingService {
       }),
     );
 
+    if (detail) {
+      detail.strategy = 'cost';
+      detail.circuitByProvider = Object.fromEntries(candidateData.map((c) => [c.provider, c.state]));
+    }
+
     // 排除 CircuitState.OPEN 的 Provider
     const available = candidateData.filter(c => c.state !== CircuitState.OPEN);
 
     if (!available.length) {
       this.logger.warn('cost 策略所有 Provider 均熔断 OPEN，无可用 Provider');
+      if (detail) detail.outcome = 'all_open';
       return null;
     }
 
@@ -350,6 +549,7 @@ export class ProviderRoutingService {
     const withCost = await Promise.all(
       available.map(async (c) => {
         let effectiveCost = c.costPerUnit;
+        let costFromRuntime = false;
 
         // costPerUnit 缺失或非有效数字时，回退到 provider_runtime_configs
         if (effectiveCost == null || !Number.isFinite(effectiveCost)) {
@@ -361,15 +561,25 @@ export class ProviderRoutingService {
           effectiveCost = (fallbackCost != null && Number.isFinite(fallbackCost))
             ? fallbackCost
             : this.defaultHighCost;
+          costFromRuntime = true;
         }
 
         // 计算有效延迟用于 tiebreaker
         const isUnknown = c.metrics.sampleCount < 10;
         const latencyMs = isUnknown ? this.defaultUnknownLatencyMs : c.metrics.avgLatencyMs;
 
-        return { provider: c.provider, costPerUnit: effectiveCost, latencyMs };
+        return { provider: c.provider, costPerUnit: effectiveCost, latencyMs, costFromRuntime };
       }),
     );
+
+    if (detail) {
+      detail.effectiveCosts = withCost.map((c) => ({
+        provider: c.provider,
+        costPerUnit: c.costPerUnit,
+        latencyMs: c.latencyMs,
+        costFromRuntimeConfig: c.costFromRuntime,
+      }));
+    }
 
     // 找到最低成本值
     const minCost = Math.min(...withCost.map(c => c.costPerUnit));
@@ -390,11 +600,20 @@ export class ProviderRoutingService {
       } else {
         // 成本和延迟都相同时 round-robin（基于 seed hash）
         const idx = this.stableBucket(seed, lowestLatencyCandidates.length);
+        if (detail) {
+          detail.costTieBreakIndex = idx;
+          detail.costTieBreakPool = lowestLatencyCandidates.map((c) => c.provider);
+        }
         selectedProvider = lowestLatencyCandidates[idx].provider;
       }
     }
 
     const selected = withCost.find(c => c.provider === selectedProvider)!;
+
+    if (detail) {
+      detail.minCostPerUnit = minCost;
+      detail.pickedProvider = selectedProvider;
+    }
 
     // 构建 routingMetrics
     const routingMetrics: RoutingRuleHit['routingMetrics'] = {
