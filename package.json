@@ -8,13 +8,13 @@
     "prebuild": "rimraf dist",
     "build": "nest build",
     "build:dashboard": "cd dashboard && npm run build",
-    "build:all": "npm run build && npm run build:dashboard",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "lint": "eslint \"{src,test}/**/*.ts\" --fix",
     "test": "jest",
+    "test:integration": "jest --testPathPattern=integration\\.spec\\.ts",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:e2e": "jest --config ./test/jest-e2e.json",
@@ -33,9 +33,12 @@
     "validate:rbac": "node scripts/validate-rbac-permissions.cjs",
     "sync:docs": "node scripts/sync-docs.cjs",
     "migrate:secrets": "node scripts/migrate-secrets-to-pool.cjs",
-    "cleanup:provider-secrets": "node scripts/cleanup-provider-secrets.cjs"
+    "cleanup:provider-secrets": "node scripts/cleanup-provider-secrets.cjs",
+    "validate:dashboard-menu": "node scripts/validate-dashboard-menu.cjs",
+    "build:all": "npm run validate:dashboard-menu && npm run build && npm run build:dashboard"
   },
   "dependencies": {
+    "@akool-sdk/storage": "^0.4.0",
     "@nestjs/bull": "^10.2.3",
     "@nestjs/common": "^10.4.15",
     "@nestjs/config": "^3.3.0",
