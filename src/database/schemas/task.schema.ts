@@ -125,6 +125,26 @@ export class Task {
 
   @Prop({ type: Object })
   metadata?: Record<string, any>;
+
+  /** 管理端资源元数据缓存（输入/输出 URL 的 HEAD/部分内容解析结果） */
+  @Prop({ type: Object })
+  resourceMetadata?: {
+    input: Record<string, unknown>;
+    output: Record<string, unknown>;
+  };
+
+  /** pending：已入队；ready：已写入 resourceMetadata；failed：提取异常；skipped：无 http URL */
+  @Prop({ enum: ['pending', 'ready', 'failed', 'skipped'] })
+  resourceMetadataStatus?: 'pending' | 'ready' | 'failed' | 'skipped';
+
+  @Prop()
+  resourceMetadataAt?: Date;
+
+  @Prop()
+  resourceMetadataFingerprint?: string;
+
+  @Prop()
+  resourceMetadataError?: string;
 }
 
 export const TaskSchema = SchemaFactory.createForClass(Task);

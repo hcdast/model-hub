@@ -3,6 +3,7 @@ import { AppConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
 import { RedisModule } from './redis/redis.module';
 import { QueueModule } from './queue/queue.module';
+import { ResourceMetadataQueueModule } from './queue/resource-metadata-queue.module';
 import { AuthModule } from './auth/auth.module';
 import { TaskModule } from './task/task.module';
 import { ProviderModule } from './provider/provider.module';
@@ -17,8 +18,9 @@ import { NotificationModule } from './notification/notification.module';
 import { FeatureRegistryModule } from './common/feature-registry.module';
 import { ProviderHealthModule } from './provider-health/provider-health.module';
 import { BillingModule } from './billing/billing.module';
+import { resolveProcessType, MONOLITH_PROCESS_TYPE } from './common/process-type.util';
 
-const processType = process.env.PROCESS_TYPE || 'api';
+const processType = resolveProcessType(process.env.PROCESS_TYPE);
 
 function getProcessModules() {
   // 所有进程共享的模块（api, worker, scheduler, admin-server 均加载）
@@ -27,6 +29,7 @@ function getProcessModules() {
     DatabaseModule,
     RedisModule,
     QueueModule,
+    ResourceMetadataQueueModule,
     ProviderModule,
     ObservabilityModule,
     FeatureRegistryModule,
@@ -46,7 +49,8 @@ function getProcessModules() {
     case 'admin-server':
       return [...shared, AdminModule, StatsModule, DashboardModule, HealthModule, NotificationModule];
 
-    default:
+    case MONOLITH_PROCESS_TYPE:
+      // 仅非 production：单进程加载全模块（本地联调）；生产环境在 resolveProcessType 已拦截
       return [
         ...shared,
         AuthModule,

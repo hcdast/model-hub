@@ -12,6 +12,8 @@ import { CharacterSwapProcessor, VideoUpscaleProcessor } from './processors/othe
 import { PROVIDER_SUB_QUEUE_PROCESSORS } from './processors/provider-sub-queue.processor';
 import { QueueRegistryService } from './queue-registry.service';
 import { QueueRouterService } from './queue-router.service';
+import { ResourceMetadataProcessor } from './resource-metadata.processor';
+import { MetadataModule } from '../metadata/metadata.module';
 import { DatabaseModule } from '../database/database.module';
 import { ProviderModule } from '../provider/provider.module';
 import { ProviderHealthModule } from '../provider-health/provider-health.module';
@@ -25,6 +27,7 @@ import {
   DEFAULT_QUEUE_OPTIONS,
   FEATURE_QUEUES,
 } from './queue.constants';
+import { LinkConversionModule } from '../link-conversion/link-conversion.module';
 
 @Module({
   imports: [
@@ -57,9 +60,11 @@ import {
       },
     ),
     DatabaseModule,
+    MetadataModule,
     ProviderModule,
     ProviderHealthModule,
     ApiClientModule,
+    LinkConversionModule,
   ],
   providers: [
     FeatureQueueProcessor,
@@ -69,6 +74,7 @@ import {
     CharacterSwapProcessor,
     VideoUpscaleProcessor,
     ...PROVIDER_SUB_QUEUE_PROCESSORS,
+    ResourceMetadataProcessor,
     TaskRepository,
     TaskTimelineService,
     TaskTimingService,

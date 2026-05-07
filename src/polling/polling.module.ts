@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
-import { BullModule } from '@nestjs/bull';
 import { PollingScheduler } from './polling.scheduler';
 import { PollingService } from './polling.service';
 import { ProviderModule } from '../provider/provider.module';
@@ -20,7 +19,6 @@ import { TaskTimingService } from '../task/task-timing.service';
     ProviderHealthModule,
     RedisModule,
     ApiClientModule,
-    BullModule.registerQueue({ name: 'callback' }),
   ],
   providers: [
     PollingScheduler,

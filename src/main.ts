@@ -13,9 +13,10 @@ import { ResponseTransformInterceptor } from './common/interceptors/response-tra
 import { ModelConfig, ModelConfigDocument } from './database/schemas/model-config.schema';
 import { generateSwaggerDescription } from './common/utils/param-doc-generator';
 import { Request, Response, NextFunction } from 'express';
+import { resolveProcessType } from './common/process-type.util';
 
 async function bootstrap() {
-  const processType = process.env.PROCESS_TYPE || 'api';
+  const processType = resolveProcessType(process.env.PROCESS_TYPE);
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const logger = new Logger('Bootstrap');
   const port = parseInt(process.env.PORT || '3000', 10);

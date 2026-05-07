@@ -1,6 +1,5 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bull';
-import { Queue, Job } from 'bull';
+import { Job } from 'bull';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { TaskRepository } from '../task/task.repository';
 import { ProviderRegistry } from '../provider/provider.registry';
@@ -22,6 +21,7 @@ import { BillingAdapter } from '../billing/billing.adapter';
 import { PricingService } from '../billing/pricing.service';
 import { UsageType } from '../billing/interfaces/billing.interface';
 import { UsageTrackerService } from '../api-client/usage-tracker.service';
+import { TaskResourceMetadataEnqueueService } from './task-resource-metadata-enqueue.service';
 
 @Injectable()
 export class FeatureQueueProcessor {
@@ -38,11 +38,11 @@ export class FeatureQueueProcessor {
     private readonly circuitBreaker: CircuitBreakerService,
     private readonly eventEmitter: EventEmitter2,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
-    @InjectQueue('callback') private readonly callbackQueue: Queue,
     private readonly queueRegistry: QueueRegistryService,
     private readonly billingAdapter: BillingAdapter,
     private readonly pricingService: PricingService,
     private readonly usageTracker: UsageTrackerService,
+    private readonly resourceMetadataEnqueue: TaskResourceMetadataEnqueueService,
   ) {}
 
   async processJob(job: Job<TaskSubmitJobData>): Promise<void> {
@@ -101,6 +101,7 @@ export class FeatureQueueProcessor {
       });
       this.metrics.taskFailedTotal.inc({ feature_type: featureType, provider: providerName, error_code: 'PROVIDER_NOT_FOUND' });
       this.eventEmitter.emit('system.provider_error', buildProviderEvent(providerName, 'PROVIDER_NOT_FOUND', errorMsg));
+      void this.resourceMetadataEnqueue.scheduleForTask(taskId).catch(() => undefined);
       return;
     }
 
@@ -192,9 +193,7 @@ export class FeatureQueueProcessor {
           this.logger.warn(`Usage 记录完成失败: clientId=${task.clientId}, error=${(err as Error).message}`);
         });
 
-        if (task.callback?.url) {
-          await this.callbackQueue.add('deliver', { taskId, callbackUrl: task.callback.url, callbackSecret: task.callback.secret });
-        }
+        void this.resourceMetadataEnqueue.scheduleForTask(taskId).catch(() => undefined);
       } else {
         await this.taskRepo.updateStatus(taskId, TaskStatus.PENDING, TaskStatus.SUBMITTED, {
           providerTask: { providerTaskId: result.providerTaskId, rawMeta: result.rawResponse },
@@ -249,6 +248,7 @@ export class FeatureQueueProcessor {
           this.logger.warn(`Usage 记录失败: clientId=${task.clientId}, error=${(err as Error).message}`);
         });
 
+        void this.resourceMetadataEnqueue.scheduleForTask(taskId).catch(() => undefined);
         return;
       }
       throw err;

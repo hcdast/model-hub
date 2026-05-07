@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Param, Query, Body, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Put, Param, Query, Body, UseGuards, Req, Logger } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { InjectModel } from '@nestjs/mongoose';
 import { InjectQueue } from '@nestjs/bull';
@@ -14,6 +14,8 @@ import { AuditLogService } from './audit-log.service';
 import { TaskTimelineService } from '../task/task-timeline.service';
 import { TaskTimingService } from '../task/task-timing.service';
 import { TaskService } from '../task/task.service';
+import { TaskResourceMetadataEnqueueService } from '../queue/task-resource-metadata-enqueue.service';
+import { TERMINAL_STATUSES } from '../common/constants/task-status';
 import { Request } from 'express';
 
 @ApiTags('管理后台 - 任务管理')
@@ -21,6 +23,8 @@ import { Request } from 'express';
 @Controller('api/v1/admin/tasks')
 @UseGuards(AdminJwtGuard, PermissionGuard)
 export class AdminTaskController {
+  private readonly logger = new Logger(AdminTaskController.name);
+
   constructor(
     @InjectModel(Task.name) private readonly taskModel: Model<TaskDocument>,
     @InjectModel(ApiClient.name) private readonly apiClientModel: Model<ApiClientDocument>,
@@ -30,6 +34,7 @@ export class AdminTaskController {
     private readonly timelineService: TaskTimelineService,
     private readonly timingService: TaskTimingService,
     private readonly taskService: TaskService,
+    private readonly resourceMetadataEnqueue: TaskResourceMetadataEnqueueService,
   ) {}
 
   @Get()
@@ -72,8 +77,16 @@ export class AdminTaskController {
   @Get(':taskId')
   @RequirePermissions('task:read')
   @ApiOperation({ summary: '任务详情（管理端）' })
+  @ApiQuery({
+    name: 'refreshResourceMetadata',
+    required: false,
+    description: '传 1 时强制重新入队拉取资源元数据（异步）',
+  })
   @ApiResponse({ status: 200, description: '查询成功' })
-  async getTask(@Param('taskId') taskId: string) {
+  async getTask(
+    @Param('taskId') taskId: string,
+    @Query('refreshResourceMetadata') refreshResourceMetadata?: string,
+  ) {
     const task = await this.taskModel.findOne({ taskId }).lean();
     if (!task) return { code: 3001, message: 'Task not found' };
 
@@ -99,6 +112,50 @@ export class AdminTaskController {
         refundedAt: billingRecord.refundedAt,
         failReason: billingRecord.failReason,
       };
+    }
+
+    const t = data as Record<string, any>;
+    const terminal = TERMINAL_STATUSES.has(t.status);
+
+    if (String(refreshResourceMetadata || '') === '1' && terminal) {
+      await this.resourceMetadataEnqueue.scheduleForTask(taskId, { force: true });
+      const latest = await this.taskModel.findOne({ taskId }).lean();
+      if (latest) {
+        const [re] = await this.attachClientDisplayNames([latest]);
+        Object.assign(t, re);
+      }
+    }
+
+    const extraction: Record<string, any> = {
+      extractedAt: t.resourceMetadataAt,
+      fingerprint: t.resourceMetadataFingerprint,
+      error: t.resourceMetadataError,
+    };
+    const st = t.resourceMetadataStatus as string | undefined;
+
+    if (!terminal) {
+      extraction.status = 'not_applicable';
+      data.resourceMetadataExtraction = extraction;
+    } else if (st === 'ready' && t.resourceMetadata) {
+      extraction.status = 'ready';
+      data.resourceMetadata = t.resourceMetadata;
+      data.resourceMetadataExtraction = extraction;
+    } else if (st === 'skipped') {
+      extraction.status = 'skipped';
+      data.resourceMetadata = { input: {}, output: {} };
+      data.resourceMetadataExtraction = extraction;
+    } else if (st === 'failed') {
+      extraction.status = 'failed';
+      data.resourceMetadata = t.resourceMetadata;
+      data.resourceMetadataExtraction = extraction;
+    } else if (st === 'pending') {
+      extraction.status = 'pending';
+      data.resourceMetadata = t.resourceMetadata;
+      data.resourceMetadataExtraction = extraction;
+    } else {
+      void this.resourceMetadataEnqueue.scheduleForTask(taskId).catch(() => undefined);
+      extraction.status = 'queued';
+      data.resourceMetadataExtraction = extraction;
     }
 
     return { code: 0, data };

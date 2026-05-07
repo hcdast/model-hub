@@ -33,6 +33,7 @@ import { ParamDefinitions } from '../common/interfaces/param-definition.interfac
 import { BillingAdapter } from '../billing/billing.adapter';
 import { BillingService } from '../billing/billing.service';
 import { InsufficientBalanceException } from '../billing/exceptions/insufficient-balance.exception';
+import { TaskResourceMetadataEnqueueService } from '../queue/task-resource-metadata-enqueue.service';
 
 @Injectable()
 export class TaskService {
@@ -54,6 +55,7 @@ export class TaskService {
     private readonly usageTracker: UsageTrackerService,
     private readonly billingAdapter: BillingAdapter,
     private readonly billingService: BillingService,
+    private readonly resourceMetadataEnqueue: TaskResourceMetadataEnqueueService,
   ) {}
 
   async createTask(clientId: string, dto: CreateTaskDto, idempotencyKey?: string) {
@@ -167,6 +169,8 @@ export class TaskService {
       dto.input = transformed;
     }
 
+    // 三方资源转存仅在任务成功后的 resultPayload 上执行（见 resource-metadata 队列），
+    // 创建任务时保留客户端传入的 input URL，由上游/供应商拉取。
     const taskId = ulid();
     const pollingCfg = this.config.polling;
 
@@ -336,27 +340,10 @@ export class TaskService {
       cancelledBy: cancelledBy || clientId,
     });
 
-    // Enqueue cancellation callback if callback URL is configured
-    if (task.callback?.url) {
-      try {
-        await this.enqueueCancelCallback(taskId, task.callback.url, task.callback.secret);
-      } catch (err: any) {
-        this.logger.warn(`Failed to enqueue cancel callback for task ${taskId}: ${err.message}`);
-      }
-    }
+    void this.resourceMetadataEnqueue.scheduleForTask(taskId).catch(() => undefined);
 
     this.logger.log(`Task cancelled: taskId=${taskId}, clientId=${clientId}, cancelledBy=${cancelledBy || clientId}`);
     return this.toResponse(updated);
-  }
-
-  /** Enqueue a callback job for a cancelled task */
-  private async enqueueCancelCallback(taskId: string, callbackUrl: string, callbackSecret?: string): Promise<void> {
-    const callbackQueue = this.queueRouter.getCallbackQueue();
-    if (!callbackQueue) {
-      this.logger.warn(`Callback queue not available for cancel callback, taskId=${taskId}`);
-      return;
-    }
-    await callbackQueue.add('deliver', { taskId, callbackUrl, callbackSecret });
   }
 
   /**

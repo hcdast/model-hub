@@ -53,7 +53,7 @@ Akool 统一 AI 模型接入中台 —— 集成多家第三方 AI 模型厂商�
 ```bash
 NODE_ENV=development
 PORT=6000
-PROCESS_TYPE=api                   # api | worker | scheduler | admin-server
+PROCESS_TYPE=api                   # api | worker | scheduler | admin-server（开发可选 monolith）
 
 NACOS_ENABLE=true
 NACOS_SERVER_ADDR=nacos-public.akool.io:8848
@@ -186,7 +186,7 @@ ecosystem.config.js (PM2 启动 4 个进程)
 
 ### 模块加载矩阵
 
-`AppModule` 启动时读取 `process.env.PROCESS_TYPE`，通过 `switch` 分支加载不同模块组合：
+`AppModule` 启动时通过 **`resolveProcessType(process.env.PROCESS_TYPE)`** 解析（非法值抛错；开发环境可设 **`PROCESS_TYPE=monolith`** 加载全模块，生产禁止），再按 `switch` 加载不同模块组合：
 
 | 模块 | api | worker | scheduler | admin-server | 说明 |
 |------|:---:|:------:|:---------:|:------------:|------|
@@ -224,7 +224,7 @@ ecosystem.config.js (PM2 启动 4 个进程)
 - **scheduler** 定时任务 + 分布式锁，全局只需 1 个实例（`fork` 模式）
 - **admin-server** 面向内部运维，低频低优先级，独立部署不影响业务链路
 
-**本地开发怎么办？** 不设 `PROCESS_TYPE` 时走 `default` 分支，单进程加载全部模块，便于调试。
+**本地开发怎么办？** 不设 `PROCESS_TYPE` 时默认为 **`api`**（仅业务 API 模块）。若需**单进程加载全模块**联调，请显式设置 **`PROCESS_TYPE=monolith`**（**生产环境禁止使用 `monolith`**，启动时会校验失败）。非法的 `PROCESS_TYPE` 会直接抛错，避免误配导致重复消费队列等问题。
 
 ### 队列两级路由分发
 
@@ -245,8 +245,12 @@ TaskService.createTask()
 ## 开发模式
 
 ```bash
-# 单进程全功能（默认 PROCESS_TYPE 未设置，加载所有模块）
+# 默认：仅 api 模块（PROCESS_TYPE 未设置时等同 api）
 npm run start:dev
+
+# 单进程全模块联调（开发环境）
+# Windows PowerShell: $env:PROCESS_TYPE="monolith"; npm run start:dev
+# Unix: PROCESS_TYPE=monolith npm run start:dev
 
 # 前端开发（热重载，自动代理 /api → 后端）
 cd dashboard && npm run dev    # → http://localhost:5173
