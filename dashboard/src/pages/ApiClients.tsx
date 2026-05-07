@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import {
   Table, Card, Button, Space, Typography, Switch, message, Modal, Form, Input, InputNumber, Tag, Select, Tooltip,
+  Progress,
 } from 'antd';
 import { PlusOutlined, ReloadOutlined, KeyOutlined, EditOutlined, BarChartOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
@@ -92,14 +93,18 @@ function UsageChart({ clientId }: { clientId: string }) {
     const totalRequests = dates.map((d) => dataMap.get(d)?.totalRequests ?? 0);
     const successRequests = dates.map((d) => dataMap.get(d)?.successRequests ?? 0);
     const failedRequests = dates.map((d) => dataMap.get(d)?.failedRequests ?? 0);
+    const totalCost = dates.map((d) => dataMap.get(d)?.totalCost ?? 0);
     const dateLabels = dates.map((d) => `${d.slice(4, 6)}-${d.slice(6, 8)}`);
 
     return {
       tooltip: { trigger: 'axis' },
-      legend: { data: ['总请求', '成功', '失败'], bottom: 0 },
+      legend: { data: ['总请求', '成功', '失败', '计费(元)'], bottom: 0 },
       grid: { left: '3%', right: '4%', bottom: '15%', top: '10%', containLabel: true },
       xAxis: { type: 'category', boundaryGap: false, data: dateLabels },
-      yAxis: { type: 'value', name: '请求数', min: 0 },
+      yAxis: [
+        { type: 'value', name: '请求数', min: 0 },
+        { type: 'value', name: '元', min: 0, splitLine: { show: false } },
+      ],
       series: [
         {
           name: '总请求',
@@ -125,6 +130,13 @@ function UsageChart({ clientId }: { clientId: string }) {
           data: failedRequests,
           itemStyle: { color: '#ff4d4f' },
           lineStyle: { width: 2 },
+        },
+        {
+          name: '计费(元)',
+          type: 'bar',
+          yAxisIndex: 1,
+          data: totalCost,
+          itemStyle: { color: 'rgba(250, 173, 20, 0.45)' },
         },
       ],
     };
@@ -490,12 +502,22 @@ export default function ApiClientsPage() {
         if (!summary) {
           return <Typography.Text type="secondary" style={{ fontSize: 12 }}>暂无数据</Typography.Text>;
         }
-        const dailyRequests = summary.todayRequests ?? 0;
+        const dailyRequests = summary.totalRequests ?? 0;
         const maxDaily = r.rateLimits?.maxDailyRequests ?? 10000;
+        const pct = maxDaily > 0 ? Math.min(100, Math.round((dailyRequests / maxDaily) * 100)) : 0;
         return (
-          <Space direction="vertical" size={0}>
+          <Space direction="vertical" size={4} style={{ minWidth: 140 }}>
             <Typography.Text style={{ fontSize: 12 }}>
-              今日: {dailyRequests.toLocaleString()} 次
+              今日: {dailyRequests.toLocaleString()} / {maxDaily.toLocaleString()} 次
+            </Typography.Text>
+            <Progress
+              percent={pct}
+              size="small"
+              status={pct >= 100 ? 'exception' : pct >= 80 ? 'active' : 'normal'}
+              showInfo={false}
+            />
+            <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+              今日费用约 ¥{(summary.totalCost ?? 0).toFixed(2)}
             </Typography.Text>
             <RateLimitStatusTag dailyRequests={dailyRequests} maxDailyRequests={maxDaily} />
           </Space>
@@ -567,7 +589,7 @@ export default function ApiClientsPage() {
         dataSource={items}
         loading={loading}
         size="small"
-        scroll={{ x: 1400 }}
+        scroll={{ x: 1500 }}
         pagination={{
           current: page,
           pageSize,

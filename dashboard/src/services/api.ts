@@ -86,6 +86,8 @@ export const modelRoutingApi = {
   create: (body: Record<string, unknown>) => api.post('/model-routing-rules', body),
   update: (id: string, body: Record<string, unknown>) => api.put(`/model-routing-rules/${id}`, body),
   remove: (id: string) => api.delete(`/model-routing-rules/${id}`),
+  /** 路由仿真：规则命中 + model_configs 兜底，不写指标 */
+  simulate: (body: Record<string, unknown>) => api.post('/model-routing-rules/simulate', body),
 };
 
 // ---- 厂商运行时配置类型（精简后，不再包含密钥字段） ----
@@ -225,6 +227,60 @@ export const inAppNotificationApi = {
   markRead: (id: string) => api.put(`/notifications/${id}/read`),
   markAllRead: () => api.put('/notifications/read-all'),
   unreadCount: () => api.get('/notifications/unread-count'),
+};
+
+/** 第三方链接转换配置（与后端 config 字段结构一致，snake_case） */
+export interface LinkConversionConfigPayload {
+  enabled: boolean;
+  timeout: {
+    download_ms: number;
+    upload_ms: number;
+    total_ms: number;
+  };
+  domain_whitelist: string[];
+  resource_filters: {
+    allowed_types: string[];
+    max_size_bytes: {
+      image: number;
+      video: number;
+      audio: number;
+    };
+  };
+  storage_config: {
+    bucket: string;
+    path_prefix: string;
+    biz_type?: string;
+  };
+  storagesvc: {
+    host: string;
+    jwt_secret: string;
+    timeout_ms?: number;
+    resilience?: Record<string, unknown>;
+    cdn_domain_list?: string[];
+    jwt_user_id_prefix?: string;
+    jwt_issuer?: string;
+    jwt_expires_in?: string;
+  };
+  failure_policy: 'fail_fast' | 'use_original';
+  retry_config: {
+    max_attempts: number;
+    backoff_factor: number;
+    initial_delay_ms: number;
+  };
+  monitoring: {
+    failure_rate_threshold: number;
+    alert_channels: string[];
+    alert_recipients: string[];
+  };
+}
+
+export const linkConversionConfigApi = {
+  get: (params?: { fresh?: boolean }) =>
+    api.get('/link-conversion-config', {
+      params: params?.fresh ? { fresh: '1' } : undefined,
+    }),
+  update: (body: LinkConversionConfigPayload) =>
+    api.put('/link-conversion-config', body),
 };
 
 export default api;

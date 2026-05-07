@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Descriptions, Steps, Button, Space, Typography, Spin, message, Tag, Divider, Popconfirm } from 'antd';
-import { ArrowLeftOutlined, RedoOutlined, StopOutlined, DollarOutlined } from '@ant-design/icons';
+import { Card, Descriptions, Steps, Button, Space, Typography, Spin, message, Tag, Divider, Popconfirm, Row, Col, Tooltip, Image } from 'antd';
+import { ArrowLeftOutlined, RedoOutlined, StopOutlined, DollarOutlined, PictureOutlined, VideoCameraOutlined, AudioOutlined, LinkOutlined, DownloadOutlined } from '@ant-design/icons';
 import StatusTag from '../components/StatusTag';
 import { taskApi } from '../services/api';
 import { priorityToLabel, formatDateTime } from '../utils/format-helpers';
@@ -71,6 +71,134 @@ export default function TaskDetailPage() {
   if (!task) return <Typography.Text>任务不存在</Typography.Text>;
 
   const formatMs = (ms?: number) => ms != null ? `${ms.toLocaleString()} ms` : '-';
+  const formatFileSize = (bytes?: number) => {
+    if (bytes == null) return '-';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  /** 从对象中递归提取所有 URL */
+  const extractUrls = (obj: any, prefix = ''): { key: string; url: string }[] => {
+    if (!obj || typeof obj !== 'object') return [];
+    const urls: { key: string; url: string }[] = [];
+    for (const [key, value] of Object.entries(obj)) {
+      const fullKey = prefix ? `${prefix}.${key}` : key;
+      if (typeof value === 'string' && /^https?:\/\//.test(value)) {
+        urls.push({ key: fullKey, url: value });
+      } else if (typeof value === 'object' && value !== null) {
+        urls.push(...extractUrls(value, fullKey));
+      }
+    }
+    return urls;
+  };
+
+  /** 根据 URL 判断资源类型 */
+  const getResourceType = (url: string): 'image' | 'video' | 'audio' | 'other' => {
+    const lowerUrl = url.toLowerCase();
+    if (/\.(jpg|jpeg|png|gif|webp|bmp|svg|ico)(\?|$)/.test(lowerUrl)) return 'image';
+    if (/\.(mp4|avi|mov|wmv|flv|webm|mkv|m4v)(\?|$)/.test(lowerUrl)) return 'video';
+    if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)(\?|$)/.test(lowerUrl)) return 'audio';
+    return 'other';
+  };
+
+  const RESOURCE_TYPE_ICON: Record<string, React.ReactNode> = {
+    image: <PictureOutlined />,
+    video: <VideoCameraOutlined />,
+    audio: <AudioOutlined />,
+  };
+
+  /** 格式化时长 (HH:MM:SS) */
+  const formatDuration = (seconds?: number) => {
+    if (seconds == null) return '-';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
+
+  /** 渲染资源预览 */
+  const renderResourcePreview = (url: string, resourceType: string) => {
+    if (resourceType === 'image') {
+      return (
+        <Image
+          src={url}
+          alt="Resource Preview"
+          style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8 }}
+          fallback="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMIAAADDCAYAAADQvc6UAAABRWlDQ1BJQ0MgUHJvZmlsZQAAKJFjYGASSSwoyGFhYGDIzSspCnJ3UoiIjFJgf8LAwSDCIMogwMCcmFxc4BgQ4ANUwgCjUcG3awyMIPqyLsis7PPOq3QdDFcvjV3jOD1boQVTPQrgSkktTgbSf4A4LbmgqISBgTEFyFYuLykAsTuAbJEioKOA7DkgdjqEvQHEToKwj4DVhAQ5A9k3gGyB5IxEoBmML4BsnSQk8XQkNtReEOBxcfXxUQg1Mjc0dyHgXNJBSWpFCYh2zi+oLMpMzyhRcASGVIMDCAlxmbzmCIHFEBEFMAoKDSAYN0fERHRUYAIYnMZAoYPk0E7PABNk/A7A/gzALYFhcKWDQMHB0ycA05AYJ8YGgAE9dg3HBwSAxIQ0hDP0F0Q4JN6OIgyXoIR4khKSgAO58OjkBKhhAAAAAElFTkSuQmCC"
+        />
+      );
+    }
+    if (resourceType === 'video') {
+      return (
+        <video
+          src={url}
+          controls
+          style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8 }}
+        />
+      );
+    }
+    if (resourceType === 'audio') {
+      return (
+        <audio src={url} controls style={{ width: '100%' }} />
+      );
+    }
+    return null;
+  };
+
+  /** 渲染元数据信息 */
+  const renderMetadata = (url: string, resourceType: string) => {
+    const metadata = task.resourceMetadata?.output?.[url] || task.resourceMetadata?.input?.[url];
+    if (!metadata) return null;
+
+    return (
+      <div style={{ marginTop: 8, padding: '8px 12px', background: '#f5f5f5', borderRadius: 6, fontSize: 12 }}>
+        <Space wrap size={[16, 4]}>
+          {metadata.fileSize != null && metadata.fileSize > 0 && (
+            <span>大小: {formatFileSize(metadata.fileSize)}</span>
+          )}
+          {metadata.format && (
+            <span>格式: {metadata.format}</span>
+          )}
+          {/* 图片元数据 */}
+          {resourceType === 'image' && metadata.dimensions && (
+            <>
+              <span>尺寸: {metadata.dimensions.width}×{metadata.dimensions.height}</span>
+              {metadata.aspectRatio && <span>比例: {metadata.aspectRatio}</span>}
+            </>
+          )}
+          {/* 视频/音频元数据 */}
+          {(resourceType === 'video' || resourceType === 'audio') && metadata.duration != null && (
+            <span>时长: {formatDuration(metadata.duration)}</span>
+          )}
+          {resourceType === 'video' && metadata.resolution && (
+            <span>分辨率: {metadata.resolution.width}×{metadata.resolution.height}</span>
+          )}
+          {resourceType === 'video' && metadata.codec && (
+            <span>编码: {metadata.codec}</span>
+          )}
+          {resourceType === 'video' && metadata.bitrate != null && metadata.bitrate > 0 && (
+            <span>码率: {(metadata.bitrate / 1000000).toFixed(1)} Mbps</span>
+          )}
+          {/* 音频元数据 */}
+          {resourceType === 'audio' && metadata.sampleRate != null && metadata.sampleRate > 0 && (
+            <span>采样率: {(metadata.sampleRate / 1000).toFixed(1)} kHz</span>
+          )}
+          {resourceType === 'audio' && metadata.channels != null && (
+            <span>声道: {metadata.channels === 1 ? '单声道' : metadata.channels === 2 ? '立体声' : `${metadata.channels}声道`}</span>
+          )}
+          {resourceType === 'audio' && metadata.audioBitrate != null && metadata.audioBitrate > 0 && (
+            <span>码率: {(metadata.audioBitrate / 1000).toFixed(0)} kbps</span>
+          )}
+        </Space>
+      </div>
+    );
+  };
+
+  // 提取输入和输出资源 URL
+  const inputUrls = extractUrls(task.requestPayload);
+  const outputUrls = extractUrls(task.resultPayload);
 
   return (
     <div>
@@ -164,6 +292,74 @@ export default function TaskDetailPage() {
               </Descriptions.Item>
             )}
           </Descriptions>
+        </Card>
+      )}
+
+      {/* 资源预览 */}
+      {(inputUrls.length > 0 || outputUrls.length > 0) && (
+        <Card title="资源信息" style={{ marginBottom: 16 }}>
+          <Row gutter={16}>
+            {/* 输入资源 */}
+            {inputUrls.length > 0 && (
+              <Col xs={24} lg={outputUrls.length > 0 ? 12 : 24}>
+                <Card type="inner" title="输入资源" size="small">
+                  {inputUrls.map(({ key, url }) => {
+                    const resourceType = getResourceType(url);
+                    return (
+                      <div key={key} style={{ marginBottom: 16 }}>
+                        <Space direction="vertical" style={{ width: '100%' }}>
+                          <Space>
+                            {RESOURCE_TYPE_ICON[resourceType] || <LinkOutlined />}
+                            <Tooltip title={url}>
+                              <Typography.Text copyable ellipsis style={{ maxWidth: 400 }}>
+                                {url}
+                              </Typography.Text>
+                            </Tooltip>
+                          </Space>
+                          {renderResourcePreview(url, resourceType)}
+                          {renderMetadata(url, resourceType)}
+                        </Space>
+                      </div>
+                    );
+                  })}
+                </Card>
+              </Col>
+            )}
+
+            {/* 输出资源 */}
+            {outputUrls.length > 0 && (
+              <Col xs={24} lg={inputUrls.length > 0 ? 12 : 24}>
+                <Card type="inner" title="输出资源" size="small">
+                  {outputUrls.map(({ key, url }) => {
+                    const resourceType = getResourceType(url);
+                    return (
+                      <div key={key} style={{ marginBottom: 16 }}>
+                        <Space direction="vertical" style={{ width: '100%' }}>
+                          <Space>
+                            {RESOURCE_TYPE_ICON[resourceType] || <LinkOutlined />}
+                            <Tooltip title={url}>
+                              <Typography.Text copyable ellipsis style={{ maxWidth: 400 }}>
+                                {url}
+                              </Typography.Text>
+                            </Tooltip>
+                            <Button
+                              type="link"
+                              size="small"
+                              icon={<DownloadOutlined />}
+                              href={url}
+                              target="_blank"
+                            />
+                          </Space>
+                          {renderResourcePreview(url, resourceType)}
+                          {renderMetadata(url, resourceType)}
+                        </Space>
+                      </div>
+                    );
+                  })}
+                </Card>
+              </Col>
+            )}
+          </Row>
         </Card>
       )}
 

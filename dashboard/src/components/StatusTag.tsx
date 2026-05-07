@@ -8,6 +8,12 @@ const colorMap: Record<string, string> = {
   FAILED: 'error',
   TIMEOUT: 'warning',
   CANCELLED: 'default',
+  // Link conversion statuses (lowercase)
+  pending: 'default',
+  processing: 'processing',
+  completed: 'success',
+  failed: 'error',
+  cancelled: 'default',
 };
 
 export default function StatusTag({ status }: { status: string }) {

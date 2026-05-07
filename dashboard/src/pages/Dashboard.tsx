@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Row, Col, Card, Typography, Spin, Table, Button, Space, Tag, Badge } from 'antd';
+import { Row, Col, Card, Typography, Spin, Table, Button, Space, Tag, Badge, Statistic } from 'antd';
 import {
-  CheckCircleOutlined, CloseCircleOutlined,
+  CheckCircleOutlined,
   CloudServerOutlined, ThunderboltOutlined,
-  ClockCircleOutlined, StopOutlined,
+  ClockCircleOutlined,
   ReloadOutlined,
   DollarOutlined, StarOutlined,
 } from '@ant-design/icons';
@@ -110,56 +110,6 @@ export default function DashboardPage() {
         </Space>
       </div>
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} sm={12} lg={4}>
-          <StatCard
-            title="今日任务总量"
-            value={today.totalTasks || 0}
-            prefix={<CloudServerOutlined />}
-          />
-        </Col>
-        <Col xs={24} sm={12} lg={4}>
-          <StatCard
-            title="今日成功率"
-            value={today.successRate?.toFixed(1) || '0.0'}
-            suffix="%"
-            prefix={<CheckCircleOutlined />}
-            valueStyle={{ color: (today.successRate || 0) >= 95 ? '#52c41a' : '#faad14' }}
-          />
-        </Col>
-        <Col xs={24} sm={12} lg={4}>
-          <StatCard
-            title="全部任务总量"
-            value={total.totalTasks || 0}
-            prefix={<CloudServerOutlined />}
-          />
-        </Col>
-        <Col xs={24} sm={12} lg={4}>
-          <StatCard
-            title="全部成功率"
-            value={total.successRate?.toFixed(1) || '0.0'}
-            suffix="%"
-            prefix={<CheckCircleOutlined />}
-            valueStyle={{ color: (total.successRate || 0) >= 95 ? '#52c41a' : '#faad14' }}
-          />
-        </Col>
-        <Col xs={24} sm={12} lg={4}>
-          <StatCard
-            title="当前队列深度"
-            value={queues.totalDepth || 0}
-            prefix={<ThunderboltOutlined />}
-            valueStyle={{ color: (queues.totalDepth || 0) > 100 ? '#ff4d4f' : undefined }}
-          />
-        </Col>
-        <Col xs={24} sm={12} lg={4}>
-          <StatCard
-            title="当前处理中"
-            value={queues.totalActive || 0}
-            prefix={<CloudServerOutlined />}
-          />
-        </Col>
-      </Row>
-
       {/* 成本观测 */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} sm={12} lg={6}>
@@ -200,23 +150,53 @@ export default function DashboardPage() {
 
       <Row gutter={[16, 16]} style={{ marginTop: 24 }}>
         <Col xs={24} lg={8}>
-          <Card title="今日任务统计">
-            <Row gutter={16}>
-              <Col span={6}><StatCard title="成功" value={today.successTasks || 0} valueStyle={{ color: '#52c41a' }} /></Col>
-              <Col span={6}><StatCard title="失败" value={today.failedTasks || 0} valueStyle={{ color: '#ff4d4f' }} prefix={<CloseCircleOutlined />} /></Col>
-              <Col span={6}><StatCard title="超时" value={today.timeoutTasks || 0} valueStyle={{ color: '#faad14' }} prefix={<ClockCircleOutlined />} /></Col>
-              <Col span={6}><StatCard title="总量" value={today.totalTasks || 0} /></Col>
+          <Card title={<>今日任务 <CloudServerOutlined /></>}>
+            <Row gutter={[16, 16]}>
+              <Col xs={12}>
+                <Statistic title="任务总量" value={today.totalTasks || 0} />
+              </Col>
+              <Col xs={12}>
+                <Statistic
+                  title="成功率"
+                  value={today.successRate?.toFixed(1) || '0.0'}
+                  suffix="%"
+                  prefix={<CheckCircleOutlined />}
+                  valueStyle={{ color: (today.successRate || 0) >= 95 ? '#52c41a' : '#faad14' }}
+                />
+              </Col>
             </Row>
+            <Typography.Paragraph type="secondary" style={{ marginTop: 16, marginBottom: 0 }}>
+              成功 <Typography.Text style={{ color: '#52c41a' }}>{today.successTasks || 0}</Typography.Text>
+              {' · '}
+              失败 <Typography.Text style={{ color: '#ff4d4f' }}>{today.failedTasks || 0}</Typography.Text>
+              {' · '}
+              超时 <Typography.Text style={{ color: '#faad14' }}>{today.timeoutTasks || 0}</Typography.Text>
+            </Typography.Paragraph>
           </Card>
         </Col>
         <Col xs={24} lg={8}>
-          <Card title="全部数据统计">
-            <Row gutter={16}>
-              <Col span={6}><StatCard title="成功" value={total.successTasks || 0} valueStyle={{ color: '#52c41a' }} /></Col>
-              <Col span={6}><StatCard title="失败" value={total.failedTasks || 0} valueStyle={{ color: '#ff4d4f' }} prefix={<CloseCircleOutlined />} /></Col>
-              <Col span={6}><StatCard title="超时" value={total.timeoutTasks || 0} valueStyle={{ color: '#faad14' }} prefix={<ClockCircleOutlined />} /></Col>
-              <Col span={6}><StatCard title="总量" value={total.totalTasks || 0} /></Col>
+          <Card title={<>累计任务 <CloudServerOutlined /></>}>
+            <Row gutter={[16, 16]}>
+              <Col xs={12}>
+                <Statistic title="任务总量" value={total.totalTasks || 0} />
+              </Col>
+              <Col xs={12}>
+                <Statistic
+                  title="成功率"
+                  value={total.successRate?.toFixed(1) || '0.0'}
+                  suffix="%"
+                  prefix={<CheckCircleOutlined />}
+                  valueStyle={{ color: (total.successRate || 0) >= 95 ? '#52c41a' : '#faad14' }}
+                />
+              </Col>
             </Row>
+            <Typography.Paragraph type="secondary" style={{ marginTop: 16, marginBottom: 0 }}>
+              成功 <Typography.Text style={{ color: '#52c41a' }}>{total.successTasks || 0}</Typography.Text>
+              {' · '}
+              失败 <Typography.Text style={{ color: '#ff4d4f' }}>{total.failedTasks || 0}</Typography.Text>
+              {' · '}
+              超时 <Typography.Text style={{ color: '#faad14' }}>{total.timeoutTasks || 0}</Typography.Text>
+            </Typography.Paragraph>
           </Card>
         </Col>
         <Col xs={24} lg={8}>
@@ -224,6 +204,7 @@ export default function DashboardPage() {
             title={
               <span>
                 队列状态
+                <ThunderboltOutlined style={{ marginLeft: 6 }} />
                 {(queues.totalDepth || 0) > 50 && (
                   <Badge status="error" style={{ marginLeft: 8 }} />
                 )}
@@ -231,17 +212,27 @@ export default function DashboardPage() {
             }
             style={(queues.totalDepth || 0) > 100 ? { borderLeft: '3px solid #ff4d4f' } : undefined}
           >
-            <Row gutter={16}>
-              <Col span={12}><StatCard title="等待+延迟" value={queues.totalDepth || 0} /></Col>
-              <Col span={12}><StatCard title="处理中" value={queues.totalActive || 0} /></Col>
-            </Row>
-            <Row style={{ marginTop: 12, textAlign: 'center' }}>
-              <Col span={24}>
-                {(queues.totalDepth || 0) <= 50 && <Tag color="success">健康</Tag>}
-                {(queues.totalDepth || 0) > 50 && (queues.totalDepth || 0) <= 100 && <Tag color="warning">注意</Tag>}
-                {(queues.totalDepth || 0) > 100 && <Tag color="error">告警</Tag>}
+            <Row gutter={[16, 16]}>
+              <Col xs={12}>
+                <Statistic
+                  title="等待 + 延迟（深度）"
+                  value={queues.totalDepth || 0}
+                  valueStyle={{ color: (queues.totalDepth || 0) > 100 ? '#ff4d4f' : undefined }}
+                />
+              </Col>
+              <Col xs={12}>
+                <Statistic
+                  title="处理中"
+                  value={queues.totalActive || 0}
+                  prefix={<ClockCircleOutlined />}
+                />
               </Col>
             </Row>
+            <div style={{ marginTop: 12, textAlign: 'center' }}>
+              {(queues.totalDepth || 0) <= 50 && <Tag color="success">健康</Tag>}
+              {(queues.totalDepth || 0) > 50 && (queues.totalDepth || 0) <= 100 && <Tag color="warning">注意</Tag>}
+              {(queues.totalDepth || 0) > 100 && <Tag color="error">告警</Tag>}
+            </div>
           </Card>
         </Col>
       </Row>

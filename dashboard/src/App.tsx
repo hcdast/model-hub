@@ -8,6 +8,8 @@ import {
   TeamOutlined, SafetyOutlined, LockOutlined, WalletOutlined,
   ClusterOutlined, BellOutlined, FileTextOutlined, NotificationOutlined,
   SettingOutlined, SunOutlined, MoonOutlined, HeartOutlined,
+  FileSearchOutlined, SyncOutlined, DatabaseOutlined, DollarOutlined, MailOutlined,
+  LinkOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from './store/auth';
 import { useMenuStore, type MenuGroup, type MenuItem } from './store/menu';
@@ -38,6 +40,7 @@ import ForbiddenPage from './pages/Forbidden';
 import ProviderHealthPage from './pages/ProviderHealth';
 import BillingRecordsPage from './pages/BillingRecords';
 import WalletManagementPage from './pages/WalletManagement';
+import LinkConversionConfigPage from './pages/LinkConversionConfig';
 
 const { Header, Sider, Content } = Layout;
 
@@ -64,6 +67,12 @@ const iconMap: Record<string, React.ReactNode> = {
   NotificationOutlined: <NotificationOutlined />,
   SettingOutlined: <SettingOutlined />,
   HeartOutlined: <HeartOutlined />,
+  FileSearchOutlined: <FileSearchOutlined />,
+  SyncOutlined: <SyncOutlined />,
+  DatabaseOutlined: <DatabaseOutlined />,
+  DollarOutlined: <DollarOutlined />,
+  MailOutlined: <MailOutlined />,
+  LinkOutlined: <LinkOutlined />,
 };
 
 /** 解析图标名称为 React 组件，未匹配时使用默认图标 */
@@ -332,6 +341,7 @@ function AppLayout() {
             {/* 计费管理路由 */}
             <Route path="/billing/records" element={<PermissionRoute permission="billing:read"><BillingRecordsPage /></PermissionRoute>} />
             <Route path="/billing/wallets" element={<PermissionRoute permission="billing:read"><WalletManagementPage /></PermissionRoute>} />
+            <Route path="/link-conversion-config" element={<PermissionRoute permission="link-conversion:read"><LinkConversionConfigPage /></PermissionRoute>} />
             <Route path="/stats" element={<PermissionRoute permission="stats:read"><StatsPage /></PermissionRoute>} />
             <Route path="/audit-logs" element={<PermissionRoute permission="audit:read"><AuditLogsPage /></PermissionRoute>} />
             <Route path="/notification-rules" element={<PermissionRoute permission="notification-rule:read"><NotificationRulesPage /></PermissionRoute>} />

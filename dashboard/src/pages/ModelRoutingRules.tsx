@@ -2,12 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Table, Card, Button, Space, Typography, Input, message, Tag, Modal, Form, Select, Switch,
-  InputNumber, DatePicker, Popconfirm, Tooltip,
+  InputNumber, DatePicker, Popconfirm, Tooltip, Descriptions, Alert, Collapse, AutoComplete,
 } from 'antd';
-import { ReloadOutlined, SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined, MinusCircleOutlined } from '@ant-design/icons';
+import {
+  ReloadOutlined, SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined, MinusCircleOutlined,
+  ExperimentOutlined,
+} from '@ant-design/icons';
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
-import { modelRoutingApi, providerConfigApi, modelApi } from '../services/api';
+import { modelRoutingApi, providerConfigApi, modelApi, apiClientApi } from '../services/api';
 
 type Strategy = 'fixed' | 'weighted' | 'primary_fallback' | 'latency' | 'cost';
 
@@ -59,6 +62,17 @@ function strategySummary(r: RuleRow): string {
   return `${p} / ${f}（${r.primary_weight ?? 100}:${r.fallback_weight ?? 0}）`;
 }
 
+/** 与创建任务 options.featureType 一致（可选，用于 model_configs 查询） */
+const SIM_FEATURE_OPTIONS = [
+  { label: '（按 model 路径推断）', value: '' },
+  { label: 'textToImage', value: 'textToImage' },
+  { label: 'imageToImage', value: 'imageToImage' },
+  { label: 'textToVideo', value: 'textToVideo' },
+  { label: 'imageToVideo', value: 'imageToVideo' },
+  { label: 'characterFaceswap', value: 'characterFaceswap' },
+  { label: 'videoUpscale', value: 'videoUpscale' },
+];
+
 function getCreateFormDefaults(modelName = '') {
   return {
     model_name: modelName,
@@ -91,6 +105,11 @@ export default function ModelRoutingRulesPage() {
   const [providers, setProviders] = useState<string[]>([]);
   const [loadingProviderPricing, setLoadingProviderPricing] = useState(false);
 
+  const [simForm] = Form.useForm();
+  const [simLoading, setSimLoading] = useState(false);
+  const [simResult, setSimResult] = useState<any>(null);
+  const [clientOptions, setClientOptions] = useState<{ label: string; value: string }[]>([]);
+
   const fetchData = useCallback(async (p = page, ps = pageSize) => {
     setLoading(true);
     try {
@@ -112,6 +131,7 @@ export default function ModelRoutingRulesPage() {
   useEffect(() => {
     void fetchData(1, pageSize);
     void fetchProviders();
+    void loadClientOptions();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅挂载时拉取首屏
   }, []);
 
@@ -123,6 +143,45 @@ export default function ModelRoutingRulesPage() {
     } catch {
       message.error('加载厂商列表失败');
     }
+  };
+
+  const loadClientOptions = async () => {
+    try {
+      const res: any = await apiClientApi.list({ page: 1, pageSize: 200 });
+      const items: any[] = res.data?.items || [];
+      setClientOptions(
+        items.map((c) => ({
+          value: c.clientId,
+          label: c.name ? `${c.clientId} (${c.name})` : c.clientId,
+        })),
+      );
+    } catch {
+      setClientOptions([]);
+    }
+  };
+
+  const runSimulation = async () => {
+    const v = await simForm.validateFields().catch(() => null);
+    if (!v) return;
+    setSimLoading(true);
+    setSimResult(null);
+    try {
+      const body: Record<string, unknown> = {
+        model_name: String(v.sim_model_name).trim(),
+        client_id: String(v.sim_client_id).trim(),
+      };
+      const ft = v.sim_featureType as string | undefined;
+      if (ft) body.featureType = ft;
+      const at = v.sim_at as Dayjs | undefined;
+      if (at) body.at = at.toISOString();
+      const res: any = await modelRoutingApi.simulate(body);
+      setSimResult(res.data);
+      message.success('仿真完成');
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || e?.message;
+      message.error(msg || '仿真失败');
+    }
+    setSimLoading(false);
   };
 
   /** 从模型配置「配置路由」跳转：`/model-routing-rules?action=new&model_name=...` */
@@ -347,6 +406,158 @@ export default function ModelRoutingRulesPage() {
         <Button icon={<ReloadOutlined />} onClick={() => fetchData(page, pageSize)}>刷新</Button>
         <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建规则</Button>
       </Space>
+
+      <Card
+        title={(
+          <Space>
+            <ExperimentOutlined />
+            <span>路由仿真 / 调试</span>
+          </Space>
+        )}
+        style={{ marginBottom: 16 }}
+        size="small"
+      >
+        <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
+          输入与真实创建任务一致的 model、clientId，查看路由规则命中顺序、熔断与权重分流细节；未命中规则时展示 model_configs.service 与路径兜底解析。不产生任务、不写 Prometheus。
+        </Typography.Paragraph>
+        <Form form={simForm} layout="vertical">
+          <Space wrap style={{ width: '100%' }} align="start">
+            <Form.Item
+              name="sim_model_name"
+              label="model_name"
+              rules={[{ required: true, message: '必填' }]}
+              style={{ minWidth: 280, marginBottom: 8 }}
+            >
+              <Input placeholder="与 API 创建任务时的 model 一致" allowClear />
+            </Form.Item>
+            <Form.Item
+              name="sim_client_id"
+              label="client_id"
+              rules={[{ required: true, message: '必填' }]}
+              style={{ minWidth: 320, marginBottom: 8 }}
+            >
+              <AutoComplete
+                allowClear
+                placeholder="输入或从下拉选择 clientId"
+                options={clientOptions}
+                filterOption={(input, option) =>
+                  (option?.value as string)?.toLowerCase().includes(input.toLowerCase()) ||
+                  (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
+                  false
+                }
+              />
+            </Form.Item>
+            <Form.Item name="sim_featureType" label="featureType（可选）" style={{ minWidth: 220, marginBottom: 8 }}>
+              <Select options={SIM_FEATURE_OPTIONS} placeholder="推断 model_type 用" allowClear />
+            </Form.Item>
+            <Form.Item name="sim_at" label="判定时间 at（可选）" style={{ minWidth: 220, marginBottom: 8 }}>
+              <DatePicker showTime style={{ width: '100%' }} placeholder="默认当前时间" />
+            </Form.Item>
+            <Form.Item label=" " colon={false} style={{ marginBottom: 8 }}>
+              <Button type="primary" icon={<ExperimentOutlined />} loading={simLoading} onClick={() => void runSimulation()}>
+                运行仿真
+              </Button>
+            </Form.Item>
+          </Space>
+        </Form>
+
+        {simResult && (
+          <div style={{ marginTop: 16 }}>
+            {(simResult.warnings?.length > 0) && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message="提示"
+                description={(
+                  <ul style={{ margin: 0, paddingLeft: 18 }}>
+                    {simResult.warnings.map((w: string, i: number) => (
+                      <li key={i}>{w}</li>
+                    ))}
+                  </ul>
+                )}
+              />
+            )}
+            <Descriptions bordered size="small" column={2} style={{ marginBottom: 12 }}>
+              <Descriptions.Item label="最终 provider">{simResult.resolution?.provider ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label="routingSource">{simResult.resolution?.routingSource}</Descriptions.Item>
+              <Descriptions.Item label="routeId">{simResult.resolution?.routeId ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label="Adapter 已注册">
+                {simResult.resolution?.adapterRegistered ? <Tag color="green">是</Tag> : <Tag color="red">否</Tag>}
+              </Descriptions.Item>
+              <Descriptions.Item label="推断 featureType">{simResult.inferredFeatureType}</Descriptions.Item>
+              <Descriptions.Item label="查询 model_type">{simResult.modelTypeUsed ?? '（未限定）'}</Descriptions.Item>
+            </Descriptions>
+            <Collapse
+              items={[
+                {
+                  key: 'rules',
+                  label: `规则评估（共 ${simResult.ruleSimulation?.evaluations?.length ?? 0} 条）`,
+                  children: (
+                    <Table
+                      size="small"
+                      pagination={false}
+                      rowKey="ruleId"
+                      dataSource={simResult.ruleSimulation?.evaluations || []}
+                      columns={[
+                        { title: 'ruleId', dataIndex: 'ruleId', width: 200, ellipsis: true },
+                        { title: 'client_id', dataIndex: 'client_id', width: 120, render: (t: string) => t || '（全站）' },
+                        { title: '策略', dataIndex: 'strategy_type', width: 120 },
+                        { title: '优先级', dataIndex: 'priority', width: 72 },
+                        {
+                          title: '候选',
+                          dataIndex: 'isCandidate',
+                          width: 72,
+                          render: (v: boolean) => (v ? <Tag color="green">是</Tag> : <Tag>否</Tag>),
+                        },
+                        {
+                          title: '跳过原因',
+                          dataIndex: 'skipReasons',
+                          render: (reasons: string[]) =>
+                            (reasons?.length ? reasons.join('；') : '—'),
+                        },
+                      ]}
+                    />
+                  ),
+                },
+                {
+                  key: 'debug',
+                  label: '胜出规则解析细节（resolutionDebug）',
+                  children: simResult.ruleSimulation?.resolutionDebug ? (
+                    <Typography.Paragraph copyable>
+                      <pre style={{ margin: 0, fontSize: 12, maxHeight: 360, overflow: 'auto' }}>
+                        {JSON.stringify(simResult.ruleSimulation.resolutionDebug, null, 2)}
+                      </pre>
+                    </Typography.Paragraph>
+                  ) : (
+                    <Typography.Text type="secondary">无（未命中可解析规则或解析失败）</Typography.Text>
+                  ),
+                },
+                {
+                  key: 'fallback',
+                  label: '兜底与 model 配置摘要',
+                  children: (
+                    <>
+                      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                        fallbackDetail（model_configs / 路径兜底）
+                      </Typography.Text>
+                      <pre style={{ fontSize: 12, maxHeight: 240, overflow: 'auto' }}>
+                        {JSON.stringify(simResult.resolution?.fallbackDetail ?? {}, null, 2)}
+                      </pre>
+                      <Typography.Text type="secondary" style={{ display: 'block', marginTop: 12, marginBottom: 8 }}>
+                        modelConfig
+                      </Typography.Text>
+                      <pre style={{ fontSize: 12, maxHeight: 240, overflow: 'auto' }}>
+                        {JSON.stringify(simResult.modelConfig ?? null, null, 2)}
+                      </pre>
+                    </>
+                  ),
+                },
+              ]}
+            />
+          </div>
+        )}
+      </Card>
 
       <Card>
         <Table
