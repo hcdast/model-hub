@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
-  Table, Card, Typography, Button, Space, Tag, Modal, Form, Input, Select,
+  Table, Card, Button, Space, Tag, Modal, Form, Input, Select,
   Switch, InputNumber, message, Popconfirm,
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
+import PageHeader from '../components/PageHeader';
 import { notificationRuleApi } from '../services/api';
+import { usePermission } from '../hooks/usePermission';
 
 const EVENT_TYPES = [
   'task_success', 'task_failed', 'task_timeout',
@@ -25,6 +27,10 @@ const severityColor: Record<string, string> = { info: 'blue', warning: 'orange',
 const channelColor: Record<string, string> = { wecom: 'green', email: 'purple', in_app: 'cyan' };
 
 export default function NotificationRulesPage() {
+  const { hasPermission } = usePermission();
+  const canCreate = hasPermission('notification:create');
+  const canUpdate = hasPermission('notification:update');
+  const canDelete = hasPermission('notification:delete');
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -128,10 +134,14 @@ export default function NotificationRulesPage() {
     {
       title: '操作', width: 120, render: (_: any, record: any) => (
         <Space>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(record)} />
-          <Popconfirm title="确认删除？" onConfirm={() => handleDelete(record._id)}>
-            <Button type="link" size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
+          {canUpdate && (
+            <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(record)} />
+          )}
+          {canDelete && (
+            <Popconfirm title="确认删除？" onConfirm={() => handleDelete(record._id)}>
+              <Button type="link" size="small" danger icon={<DeleteOutlined />} />
+            </Popconfirm>
+          )}
         </Space>
       ),
     },
@@ -139,11 +149,14 @@ export default function NotificationRulesPage() {
 
   return (
     <div>
-      <Typography.Title level={4}>通知规则</Typography.Title>
-      <Card>
-        <Space style={{ marginBottom: 16 }}>
+      <PageHeader
+        title="通知规则"
+        leftExtra={canCreate ? (
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建规则</Button>
-        </Space>
+        ) : undefined}
+        extra={<Button icon={<ReloadOutlined />} onClick={() => void fetchData()}>刷新</Button>}
+      />
+      <Card>
         <Table columns={columns} dataSource={data} rowKey="_id" loading={loading} size="small" pagination={false} scroll={{ x: 1200 }} />
       </Card>
 

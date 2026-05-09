@@ -1,5 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Table, Card, DatePicker, Select, Space, Typography, Row, Col, Statistic } from 'antd';
+import { Table, Card, DatePicker, Select, Button, Typography, Row, Col, Statistic } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
+import PageHeader from '../components/PageHeader';
 import dayjs from 'dayjs';
 import ReactEChartsCore from 'echarts-for-react';
 import { statsApi } from '../services/api';
@@ -58,7 +60,28 @@ export default function StatsPage() {
 
   return (
     <div>
-      <Typography.Title level={4}>统计报表</Typography.Title>
+      <PageHeader
+        title="统计报表"
+        extra={(
+          <>
+            <DatePicker.RangePicker
+              value={[dayjs(dateRange[0]), dayjs(dateRange[1])]}
+              onChange={(_, ds) => ds[0] && ds[1] && setDateRange([ds[0], ds[1]])}
+            />
+            <Select
+              placeholder="功能类型"
+              allowClear
+              style={{ width: 180 }}
+              options={featureTypeOptions.map((v: string) => ({ label: v, value: v }))}
+              value={featureType}
+              onChange={setFeatureType}
+            />
+            <Button type="primary" icon={<ReloadOutlined />} onClick={() => void fetchData()}>
+              刷新
+            </Button>
+          </>
+        )}
+      />
 
       <Card style={{ marginBottom: 16 }}>
         <Row gutter={24}>
@@ -78,17 +101,6 @@ export default function StatsPage() {
       </Card>
 
       <Card>
-        <Space style={{ marginBottom: 16 }} wrap>
-          <DatePicker.RangePicker
-            value={[dayjs(dateRange[0]), dayjs(dateRange[1])]}
-            onChange={(_, ds) => setDateRange([ds[0], ds[1]])}
-          />
-          <Select
-            placeholder="功能类型" allowClear style={{ width: 180 }}
-            options={featureTypeOptions.map((v: string) => ({ label: v, value: v }))}
-            onChange={setFeatureType}
-          />
-        </Space>
         <Table columns={columns} dataSource={data.items} rowKey={(r) => `${r.date}-${r.featureType}-${r.provider}`} loading={loading} size="small" />
       </Card>
     </div>

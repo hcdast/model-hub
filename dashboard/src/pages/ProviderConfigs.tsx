@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Card, Table, Button, Space, Typography, message, Modal, Form, Input, InputNumber, Switch, Avatar, Alert } from 'antd';
 import { ReloadOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
+import PageHeader from '../components/PageHeader';
 import { providerConfigApi } from '../services/api';
 import type { ProviderConfigItem } from '../services/api';
 
@@ -98,22 +99,22 @@ export default function ProviderConfigsPage() {
   };
 
   return (
-    <Card
-      title={
-        <Typography.Title level={4} style={{ margin: 0 }}>厂商运行时配置</Typography.Title>
-      }
-      extra={(
-        <Space>
+    <div>
+      <PageHeader
+        title="厂商运行时配置"
+        leftExtra={(
           <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>
             添加厂商
           </Button>
+        )}
+        extra={(
           <Button icon={<ReloadOutlined />} onClick={() => void fetchData()} loading={loading}>
             刷新
           </Button>
-        </Space>
-      )}
-    >
-      <Table<ProviderConfigItem>
+        )}
+      />
+      <Card>
+        <Table<ProviderConfigItem>
         rowKey="provider_name"
         loading={loading}
         dataSource={items}
@@ -231,5 +232,6 @@ export default function ProviderConfigsPage() {
         </Form>
       </Modal>
     </Card>
+    </div>
   );
 }

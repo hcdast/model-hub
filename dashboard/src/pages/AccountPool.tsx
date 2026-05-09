@@ -11,6 +11,7 @@ import {
 import { accountPoolApi, providerConfigApi } from '../services/api';
 import { ErrorHandler } from '../utils/error-handler';
 import type { ProviderConfigItem } from '../services/api';
+import PageHeader from '../components/PageHeader';
 
 interface AccountEntry {
   _id: string;
@@ -354,21 +355,26 @@ export default function AccountPoolPage() {
 
   return (
     <div>
-      <Card
-        title={<Typography.Title level={4} style={{ margin: 0 }}>账号池管理</Typography.Title>}
-        extra={
-          <Space>
+      <PageHeader
+        title="账号池管理"
+        leftExtra={(
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>添加账号</Button>
+        )}
+        extra={(
+          <>
             <Select
-              placeholder="按厂商筛选" allowClear style={{ width: 180 }}
+              placeholder="按厂商筛选"
+              allowClear
+              style={{ width: 180 }}
               options={providerNames.map((p) => ({ label: p, value: p }))}
               value={filterProvider}
               onChange={(v) => { setFilterProvider(v); setPage(1); }}
             />
             <Button icon={<ReloadOutlined />} onClick={() => { void fetchData(); void fetchProviderConfigs(); }} loading={loading}>刷新</Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>添加账号</Button>
-          </Space>
-        }
-      >
+          </>
+        )}
+      />
+      <Card>
         {/* 无账号池条目的厂商警告 */}
         {providersWithoutEntries.length > 0 && (
           <Alert

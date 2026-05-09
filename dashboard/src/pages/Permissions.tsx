@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Table, Card, Select, message, Tag } from 'antd';
+import { Table, Card, Select, message, Tag, Button } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
-import { Button, Space } from 'antd';
 import { permissionApi } from '../services/api';
+import PageHeader from '../components/PageHeader';
 
 interface Permission {
   code: string;
@@ -111,35 +111,38 @@ export default function PermissionsPage() {
   ];
 
   return (
-    <Card
-      title="权限管理"
-      extra={
-        <Space>
-          <Select
-            allowClear
-            placeholder="按模块过滤"
-            style={{ width: 200 }}
-            value={selectedModule}
-            onChange={handleModuleChange}
-            options={modules.map((m) => ({ label: m, value: m }))}
-          />
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={() => fetchPermissions(selectedModule)}
-          >
-            刷新
-          </Button>
-        </Space>
-      }
-    >
-      <Table
-        rowKey="code"
-        columns={columns}
-        dataSource={groupedData}
-        loading={loading}
-        size="small"
-        pagination={false}
+    <div>
+      <PageHeader
+        title="权限管理"
+        extra={(
+          <>
+            <Select
+              allowClear
+              placeholder="按模块过滤"
+              style={{ width: 200 }}
+              value={selectedModule}
+              onChange={handleModuleChange}
+              options={modules.map((m) => ({ label: m, value: m }))}
+            />
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={() => fetchPermissions(selectedModule)}
+            >
+              刷新
+            </Button>
+          </>
+        )}
       />
-    </Card>
+      <Card>
+        <Table
+          rowKey="code"
+          columns={columns}
+          dataSource={groupedData}
+          loading={loading}
+          size="small"
+          pagination={false}
+        />
+      </Card>
+    </div>
   );
 }

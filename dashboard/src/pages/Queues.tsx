@@ -13,6 +13,7 @@ import {
 import { queueApi } from '../services/api';
 import StatCard from '../components/StatCard';
 import dayjs from 'dayjs';
+import PageHeader from '../components/PageHeader';
 
 /* ---------- 类型定义 ---------- */
 
@@ -365,34 +366,35 @@ export default function QueuesPage() {
 
   return (
     <div>
-      {/* ===== 页面头部 ===== */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
-        <Space align="center">
-          <DashboardOutlined style={{ fontSize: 22, color: '#1677ff' }} />
-          <Typography.Title level={4} style={{ margin: 0 }}>队列监控</Typography.Title>
+      <PageHeader
+        title="队列监控"
+        prefix={<DashboardOutlined style={{ fontSize: 22, color: '#1677ff' }} />}
+        leftExtra={(
           <Badge status={summary.errorCount > 0 ? 'error' : summary.warningCount > 0 ? 'warning' : 'success'} />
-        </Space>
-        <Space wrap>
-          {lastUpdated && (
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              最后更新：{lastUpdated.toLocaleTimeString('zh-CN')}
-            </Typography.Text>
-          )}
-          <Button icon={<ReloadOutlined />} loading={refreshing} onClick={handleRefresh} size="small">
-            刷新
-          </Button>
-          <Tag color="green">每 10 秒自动刷新</Tag>
-          <Segmented
-            size="small"
-            value={viewMode}
-            onChange={(v) => setViewMode(v as 'card' | 'table')}
-            options={[
-              { label: <Tooltip title="卡片视图"><AppstoreOutlined /></Tooltip>, value: 'card' },
-              { label: <Tooltip title="表格视图"><UnorderedListOutlined /></Tooltip>, value: 'table' },
-            ]}
-          />
-        </Space>
-      </div>
+        )}
+        extra={(
+          <>
+            {lastUpdated && (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                最后更新：{lastUpdated.toLocaleTimeString('zh-CN')}
+              </Typography.Text>
+            )}
+            <Button icon={<ReloadOutlined />} loading={refreshing} onClick={handleRefresh} size="small">
+              刷新
+            </Button>
+            <Tag color="green">每 10 秒自动刷新</Tag>
+            <Segmented
+              size="small"
+              value={viewMode}
+              onChange={(v) => setViewMode(v as 'card' | 'table')}
+              options={[
+                { label: <Tooltip title="卡片视图"><AppstoreOutlined /></Tooltip>, value: 'card' },
+                { label: <Tooltip title="表格视图"><UnorderedListOutlined /></Tooltip>, value: 'table' },
+              ]}
+            />
+          </>
+        )}
+      />
 
       {/* ===== 全局汇总指标 ===== */}
       <Row gutter={[12, 12]} style={{ marginBottom: 24 }}>

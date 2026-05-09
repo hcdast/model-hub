@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Table, Card, Input, Typography, Space, Tag } from 'antd';
+import { Table, Card, Input, Tag } from 'antd';
+import PageHeader from '../components/PageHeader';
 import { auditApi } from '../services/api';
 import { useRequest } from '../hooks/useRequest';
 
@@ -22,12 +23,18 @@ export default function AuditLogsPage() {
 
   return (
     <div>
-      <Typography.Title level={4}>审计日志</Typography.Title>
+      <PageHeader
+        title="审计日志"
+        extra={(
+          <Input.Search
+            placeholder="按操作类型搜索"
+            allowClear
+            style={{ width: 240 }}
+            onSearch={(v) => setParams({ ...params, action: v || undefined, page: 1 })}
+          />
+        )}
+      />
       <Card>
-        <Space style={{ marginBottom: 16 }}>
-          <Input.Search placeholder="按操作类型搜索" allowClear style={{ width: 240 }}
-            onSearch={(v) => setParams({ ...params, action: v || undefined, page: 1 })} />
-        </Space>
         <Table
           columns={columns} dataSource={data?.items || []} rowKey="_id" loading={loading} size="small"
           pagination={{ current: params.page, pageSize: params.pageSize, total: data?.total || 0, showTotal: (t) => `共 ${t} 条`,

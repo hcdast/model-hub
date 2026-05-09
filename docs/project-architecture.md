@@ -2382,8 +2382,7 @@ npm run seed:model-configs
   tags: Array<{text, color}>;      // 标签
   sort: number;                    // 排序权重
   disabled: boolean;               // 是否禁用
-  unit_credit_map: object;         // 积分映射
-  unit_price_map: object;          // 价格映射
+  unit_price_map: object;          // 分档定价（含 unit_credit / cost_unit_price / sale_unit_price 等）
   params: object;                  // 参数定义
   // ... 其他字段
 }

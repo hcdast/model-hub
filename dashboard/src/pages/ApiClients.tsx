@@ -8,6 +8,8 @@ import ReactECharts from 'echarts-for-react';
 import dayjs from 'dayjs';
 import { apiClientApi, modelApi } from '../services/api';
 import { ErrorHandler } from '../utils/error-handler';
+import { usePermission } from '../hooks/usePermission';
+import PageHeader from '../components/PageHeader';
 
 /** 计费策略颜色映射 */
 const BILLING_POLICY_COLOR: Record<string, string> = {
@@ -157,6 +159,9 @@ function UsageChart({ clientId }: { clientId: string }) {
 }
 
 export default function ApiClientsPage() {
+  const { hasPermission } = usePermission();
+  const canCreateClient = hasPermission('api-client:create');
+  const canUpdateClient = hasPermission('api-client:update');
   const [items, setItems] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -541,7 +546,12 @@ export default function ApiClientsPage() {
       key: 'enabled',
       width: 70,
       render: (_: unknown, r: any) => (
-        <Switch checked={r.enabled !== false} onChange={(v) => onToggle(r, v)} size="small" />
+        <Switch
+          disabled={!canUpdateClient}
+          checked={r.enabled !== false}
+          onChange={(v) => onToggle(r, v)}
+          size="small"
+        />
       ),
     },
     {
@@ -550,23 +560,27 @@ export default function ApiClientsPage() {
       width: 360,
       render: (_: unknown, r: any) => (
         <Space wrap>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => onEditRateLimits(r)}>
-            限流
-          </Button>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => onEditAllowlist(r)}>
-            白名单
-          </Button>
+          {canUpdateClient && (
+            <>
+              <Button type="link" size="small" icon={<EditOutlined />} onClick={() => onEditRateLimits(r)}>
+                限流
+              </Button>
+              <Button type="link" size="small" icon={<EditOutlined />} onClick={() => onEditAllowlist(r)}>
+                白名单
+              </Button>
+              <Button type="link" size="small" onClick={() => onEditPriority(r)}>
+                优先级
+              </Button>
+              <Button type="link" size="small" onClick={() => onEditBillingPolicy(r)}>
+                计费
+              </Button>
+              <Button type="link" size="small" icon={<KeyOutlined />} onClick={() => onRotate(r.clientId)}>
+                轮换
+              </Button>
+            </>
+          )}
           <Button type="link" size="small" icon={<BarChartOutlined />} onClick={() => onShowUsageChart(r)}>
             用量
-          </Button>
-          <Button type="link" size="small" onClick={() => onEditPriority(r)}>
-            优先级
-          </Button>
-          <Button type="link" size="small" onClick={() => onEditBillingPolicy(r)}>
-            计费
-          </Button>
-          <Button type="link" size="small" icon={<KeyOutlined />} onClick={() => onRotate(r.clientId)}>
-            轮换
           </Button>
         </Space>
       ),
@@ -574,30 +588,45 @@ export default function ApiClientsPage() {
   ];
 
   return (
-    <Card
-      title="API 客户端"
-      extra={(
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => { fetchData(page, pageSize); fetchUsageSummary(); }}>刷新</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>新建</Button>
-        </Space>
-      )}
-    >
-      <Table
-        rowKey="clientId"
-        columns={columns}
-        dataSource={items}
-        loading={loading}
-        size="small"
-        scroll={{ x: 1500 }}
-        pagination={{
-          current: page,
-          pageSize,
-          total,
-          showSizeChanger: true,
-          onChange: (p, ps) => fetchData(p, ps || pageSize),
-        }}
+    <div>
+      <PageHeader
+        title="API 客户端"
+        leftExtra={
+          canCreateClient ? (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+              新建
+            </Button>
+          ) : undefined
+        }
+        extra={(
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={() => {
+              fetchData(page, pageSize);
+              fetchUsageSummary();
+            }}
+          >
+            刷新
+          </Button>
+        )}
       />
+      <Card>
+        <Table
+          rowKey="clientId"
+          columns={columns}
+          dataSource={items}
+          loading={loading}
+          size="small"
+          scroll={{ x: 1500 }}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            onChange: (p, ps) => fetchData(p, ps || pageSize),
+          }}
+        />
+      </Card>
 
       {/* 新建客户端弹窗 */}
       <Modal
@@ -767,6 +796,6 @@ export default function ApiClientsPage() {
       >
         {usageChartClient && <UsageChart clientId={usageChartClient.clientId} />}
       </Modal>
-    </Card>
+    </div>
   );
 }

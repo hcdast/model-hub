@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Card, Table, Tag, Typography, Button, Space, message, Spin } from 'antd';
 import { ReloadOutlined, HeartOutlined } from '@ant-design/icons';
 import { providerHealthApi, type ProviderHealthOverview } from '../services/provider-health';
+import PageHeader from '../components/PageHeader';
 
 /** 熔断状态对应的颜色和文案 */
 const circuitStateMap: Record<string, { color: string; label: string }> = {
@@ -38,19 +39,17 @@ export default function ProviderHealthPage() {
   }, [fetchData]);
 
   return (
-    <Card
-      title={
-        <Space>
-          <HeartOutlined />
-          <Typography.Title level={4} style={{ margin: 0 }}>Provider 健康监控</Typography.Title>
-        </Space>
-      }
-      extra={
-        <Button icon={<ReloadOutlined />} onClick={() => void fetchData()} loading={loading}>
-          刷新
-        </Button>
-      }
-    >
+    <div>
+      <PageHeader
+        title="Provider 健康监控"
+        prefix={<HeartOutlined style={{ color: '#eb2f96', fontSize: 20 }} />}
+        extra={(
+          <Button icon={<ReloadOutlined />} onClick={() => void fetchData()} loading={loading}>
+            刷新
+          </Button>
+        )}
+      />
+      <Card>
       {loading && items.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 48 }}>
           <Spin size="large" tip="加载中..." />
@@ -121,5 +120,6 @@ export default function ProviderHealthPage() {
         />
       )}
     </Card>
+    </div>
   );
 }

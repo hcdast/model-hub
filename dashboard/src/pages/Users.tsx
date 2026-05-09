@@ -6,6 +6,7 @@ import {
 import {
   PlusOutlined, ReloadOutlined, SearchOutlined,
 } from '@ant-design/icons';
+import PageHeader from '../components/PageHeader';
 import dayjs from 'dayjs';
 import { userApi, roleApi } from '../services/api';
 import { ErrorHandler } from '../utils/error-handler';
@@ -239,42 +240,50 @@ export default function UsersPage() {
   }));
 
   return (
-    <Card
-      title="用户管理"
-      extra={
-        <Space>
-          <Input
-            placeholder="搜索用户名"
-            prefix={<SearchOutlined />}
-            value={searchUsername}
-            onChange={(e) => setSearchUsername(e.target.value)}
-            onPressEnter={handleSearch}
-            allowClear
-            style={{ width: 200 }}
-          />
-          <Button icon={<ReloadOutlined />} onClick={() => fetchUsers(page, pageSize, searchUsername)}>
-            刷新
-          </Button>
+    <div>
+      <PageHeader
+        title="用户管理"
+        leftExtra={(
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
             新建用户
           </Button>
-        </Space>
-      }
-    >
-      <Table
-        rowKey="_id"
-        columns={columns}
-        dataSource={users}
-        loading={loading}
-        size="small"
-        pagination={{
-          current: page,
-          pageSize,
-          total,
-          showSizeChanger: true,
-          onChange: (p, ps) => fetchUsers(p, ps || pageSize, searchUsername),
-        }}
+        )}
+        extra={(
+          <>
+            <Input
+              placeholder="搜索用户名"
+              prefix={<SearchOutlined />}
+              value={searchUsername}
+              onChange={(e) => setSearchUsername(e.target.value)}
+              onPressEnter={handleSearch}
+              allowClear
+              style={{ width: 200 }}
+            />
+            <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
+              查询
+            </Button>
+            <Button icon={<ReloadOutlined />} onClick={() => fetchUsers(page, pageSize, searchUsername)}>
+              刷新
+            </Button>
+          </>
+        )}
       />
+      <Card>
+        <Table
+          rowKey="_id"
+          columns={columns}
+          dataSource={users}
+          loading={loading}
+          size="small"
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            onChange: (p, ps) => fetchUsers(p, ps || pageSize, searchUsername),
+          }}
+        />
+      </Card>
 
       {/* 新建用户弹窗 */}
       <Modal
@@ -352,6 +361,6 @@ export default function UsersPage() {
           </Form.Item>
         </Form>
       </Modal>
-    </Card>
+    </div>
   );
 }

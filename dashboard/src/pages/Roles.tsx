@@ -7,6 +7,7 @@ import {
   PlusOutlined, ReloadOutlined, LockOutlined,
 } from '@ant-design/icons';
 import { roleApi, permissionApi } from '../services/api';
+import PageHeader from '../components/PageHeader';
 
 interface Permission {
   code: string;
@@ -278,20 +279,18 @@ export default function RolesPage() {
   // ---- render ----
 
   return (
-    <Card
-      title="角色管理"
-      extra={
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={fetchRoles}>
-            刷新
-          </Button>
+    <div>
+      <PageHeader
+        title="角色管理"
+        leftExtra={(
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
             新建角色
           </Button>
-        </Space>
-      }
-    >
-      <Table
+        )}
+        extra={<Button icon={<ReloadOutlined />} onClick={fetchRoles}>刷新</Button>}
+      />
+      <Card>
+        <Table
         rowKey="name"
         columns={columns}
         dataSource={roles}
@@ -361,5 +360,6 @@ export default function RolesPage() {
         </Form>
       </Modal>
     </Card>
+    </div>
   );
 }

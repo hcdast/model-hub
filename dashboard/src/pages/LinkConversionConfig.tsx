@@ -17,6 +17,7 @@ import {
 import { ReloadOutlined, SaveOutlined } from '@ant-design/icons';
 import { linkConversionConfigApi, type LinkConversionConfigPayload } from '../services/api';
 import { useAuthStore } from '../store/auth';
+import PageHeader from '../components/PageHeader';
 
 const BYTES_PER_MB = 1024 * 1024;
 
@@ -144,25 +145,27 @@ export default function LinkConversionConfigPage() {
   };
 
   return (
-    <Card
-      title={<Typography.Title level={4} style={{ margin: 0 }}>第三方链接转换配置</Typography.Title>}
-      extra={(
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>
-            刷新
-          </Button>
-          <Button
-            type="primary"
-            icon={<SaveOutlined />}
-            onClick={() => void submit()}
-            loading={saving}
-            disabled={!canUpdate}
-          >
-            保存
-          </Button>
-        </Space>
-      )}
-    >
+    <div>
+      <PageHeader
+        title="第三方链接转换配置"
+        extra={(
+          <>
+            <Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>
+              刷新
+            </Button>
+            <Button
+              type="primary"
+              icon={<SaveOutlined />}
+              onClick={() => void submit()}
+              loading={saving}
+              disabled={!canUpdate}
+            >
+              保存
+            </Button>
+          </>
+        )}
+      />
+      <Card>
       <Alert
         type="info"
         showIcon
@@ -338,5 +341,6 @@ export default function LinkConversionConfigPage() {
         </Form.Item>
       </Form>
     </Card>
+    </div>
   );
 }

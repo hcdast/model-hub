@@ -6,8 +6,9 @@ import {
 } from 'antd';
 import {
   ReloadOutlined, SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined, MinusCircleOutlined,
-  ExperimentOutlined,
+  ExperimentOutlined, UndoOutlined,
 } from '@ant-design/icons';
+import PageHeader from '../components/PageHeader';
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
 import { modelRoutingApi, providerConfigApi, modelApi, apiClientApi } from '../services/api';
@@ -110,13 +111,14 @@ export default function ModelRoutingRulesPage() {
   const [simResult, setSimResult] = useState<any>(null);
   const [clientOptions, setClientOptions] = useState<{ label: string; value: string }[]>([]);
 
-  const fetchData = useCallback(async (p = page, ps = pageSize) => {
+  const fetchData = useCallback(async (p = page, ps = pageSize, keywordOverride?: string) => {
+    const kw = keywordOverride !== undefined ? keywordOverride : keyword;
     setLoading(true);
     try {
       const res: any = await modelRoutingApi.list({
         page: p,
         pageSize: ps,
-        model_name: keyword.trim() || undefined,
+        model_name: kw.trim() || undefined,
       });
       setItems(res.data?.items || []);
       setTotal(res.data?.total ?? 0);
@@ -389,23 +391,35 @@ export default function ModelRoutingRulesPage() {
 
   return (
     <div>
-      <Space style={{ marginBottom: 16 }} wrap align="center">
-        <Typography.Title level={4} style={{ margin: 0 }}>路由规则</Typography.Title>
-        <Typography.Text type="secondary">覆盖 model_configs.service；支持固定 / 权重分流 / 主备比例 / 延迟优先 / 成本优先</Typography.Text>
-      </Space>
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Input
-          placeholder="筛选 model_name"
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          onPressEnter={() => fetchData(1, pageSize)}
-          style={{ width: 260 }}
-          allowClear
-        />
-        <Button type="primary" icon={<SearchOutlined />} onClick={() => fetchData(1, pageSize)}>查询</Button>
-        <Button icon={<ReloadOutlined />} onClick={() => fetchData(page, pageSize)}>刷新</Button>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建规则</Button>
-      </Space>
+      <PageHeader
+        title="路由规则"
+        leftExtra={(
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建规则</Button>
+        )}
+        extra={(
+          <>
+            <Input
+              placeholder="筛选 model_name"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              onPressEnter={() => fetchData(1, pageSize)}
+              style={{ width: 260 }}
+              allowClear
+            />
+            <Button type="primary" icon={<SearchOutlined />} onClick={() => fetchData(1, pageSize)}>查询</Button>
+            <Button
+              icon={<UndoOutlined />}
+              onClick={() => {
+                setKeyword('');
+                void fetchData(1, pageSize, '');
+              }}
+            >
+              重置
+            </Button>
+            <Button icon={<ReloadOutlined />} onClick={() => fetchData(page, pageSize)}>刷新</Button>
+          </>
+        )}
+      />
 
       <Card
         title={(
@@ -417,9 +431,6 @@ export default function ModelRoutingRulesPage() {
         style={{ marginBottom: 16 }}
         size="small"
       >
-        <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-          输入与真实创建任务一致的 model、clientId，查看路由规则命中顺序、熔断与权重分流细节；未命中规则时展示 model_configs.service 与路径兜底解析。不产生任务、不写 Prometheus。
-        </Typography.Paragraph>
         <Form form={simForm} layout="vertical">
           <Space wrap style={{ width: '100%' }} align="start">
             <Form.Item
