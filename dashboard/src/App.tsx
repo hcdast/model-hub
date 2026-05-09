@@ -12,6 +12,7 @@ import {
   LinkOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from './store/auth';
+import { usePermission } from './hooks/usePermission';
 import { useMenuStore, type MenuGroup, type MenuItem } from './store/menu';
 import { useThemeStore } from './store/theme';
 import { userApi, inAppNotificationApi } from './services/api';
@@ -41,6 +42,9 @@ import ProviderHealthPage from './pages/ProviderHealth';
 import BillingRecordsPage from './pages/BillingRecords';
 import WalletManagementPage from './pages/WalletManagement';
 import LinkConversionConfigPage from './pages/LinkConversionConfig';
+import CallbackLogsPage from './pages/CallbackLogs';
+import SystemInfoPage from './pages/SystemInfo';
+import NotFoundPage from './pages/NotFound';
 
 const { Header, Sider, Content } = Layout;
 
@@ -241,6 +245,8 @@ function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { username, logout } = useAuthStore();
+  const { hasPermission } = usePermission();
+  const canInAppNotifications = hasPermission('notification:read');
   const { menuGroups, loading: menuLoading, fetchMenu } = useMenuStore();
   const { token: { colorBgContainer, borderRadiusLG } } = theme.useToken();
   const toggleTheme = useThemeStore((s) => s.toggle);
@@ -260,10 +266,14 @@ function AppLayout() {
   }, [fetchMenu]);
 
   useEffect(() => {
+    if (!canInAppNotifications) {
+      setUnreadCount(0);
+      return;
+    }
     fetchUnreadCount();
     const timer = setInterval(fetchUnreadCount, 60000);
     return () => clearInterval(timer);
-  }, []);
+  }, [canInAppNotifications]);
 
   const antdMenuItems = buildAntdMenuItems(menuGroups);
   const selectedKeys = findSelectedKey(menuGroups, location.pathname);
@@ -295,12 +305,14 @@ function AppLayout() {
         <Header style={{ padding: '0 24px', background: colorBgContainer, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f0f0f0' }}>
           <Typography.Text strong>管理后台</Typography.Text>
           <Space size="middle">
-            <Badge count={unreadCount} size="small" offset={[-2, 2]}>
-              <BellOutlined
-                style={{ fontSize: 18, cursor: 'pointer' }}
-                onClick={() => navigate('/notifications')}
-              />
-            </Badge>
+            {canInAppNotifications && (
+              <Badge count={unreadCount} size="small" offset={[-2, 2]}>
+                <BellOutlined
+                  style={{ fontSize: 18, cursor: 'pointer' }}
+                  onClick={() => navigate('/notifications')}
+                />
+              </Badge>
+            )}
             <Button
               type="text"
               icon={themeMode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
@@ -344,14 +356,16 @@ function AppLayout() {
             <Route path="/link-conversion-config" element={<PermissionRoute permission="link-conversion:read"><LinkConversionConfigPage /></PermissionRoute>} />
             <Route path="/stats" element={<PermissionRoute permission="stats:read"><StatsPage /></PermissionRoute>} />
             <Route path="/audit-logs" element={<PermissionRoute permission="audit:read"><AuditLogsPage /></PermissionRoute>} />
-            <Route path="/notification-rules" element={<PermissionRoute permission="notification-rule:read"><NotificationRulesPage /></PermissionRoute>} />
-            <Route path="/notification-records" element={<PermissionRoute permission="notification-record:read"><NotificationRecordsPage /></PermissionRoute>} />
-            <Route path="/notifications" element={<InAppNotificationsPage />} />
+            <Route path="/notification-rules" element={<PermissionRoute permission="notification:read"><NotificationRulesPage /></PermissionRoute>} />
+            <Route path="/notification-records" element={<PermissionRoute permission="notification:read"><NotificationRecordsPage /></PermissionRoute>} />
+            <Route path="/notifications" element={<PermissionRoute permission="notification:read"><InAppNotificationsPage /></PermissionRoute>} />
+            <Route path="/callback-logs" element={<PermissionRoute permission="callback-log:read"><CallbackLogsPage /></PermissionRoute>} />
+            <Route path="/system-info" element={<PermissionRoute permission="system:read"><SystemInfoPage /></PermissionRoute>} />
             <Route path="/users" element={<PermissionRoute permission="user:read"><UsersPage /></PermissionRoute>} />
             <Route path="/roles" element={<PermissionRoute permission="role:read"><RolesPage /></PermissionRoute>} />
             <Route path="/permissions" element={<PermissionRoute permission="permission:read"><PermissionsPage /></PermissionRoute>} />
             <Route path="/forbidden" element={<ForbiddenPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </Content>
       </Layout>

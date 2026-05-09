@@ -28,6 +28,8 @@ import { QueueModule } from '../queue/queue.module';
 import { ProviderHealthModule } from '../provider-health/provider-health.module';
 import { AdminLinkConversionConfigController } from './admin-link-conversion-config.controller';
 import { LinkConversionConfigModule } from './link-conversion-config.module';
+import { AdminCallbackLogsController } from './admin-callback-logs.controller';
+import { AdminSystemInfoController } from './admin-system-info.controller';
 
 @Module({
   imports: [
@@ -57,6 +59,8 @@ import { LinkConversionConfigModule } from './link-conversion-config.module';
     AdminMenuController,
     ProviderHealthController,
     AdminLinkConversionConfigController,
+    AdminCallbackLogsController,
+    AdminSystemInfoController,
   ],
   providers: [
     AdminAuthService,
