@@ -20,6 +20,7 @@ import { buildTaskEvent, buildProviderEvent } from '../notification/events/event
 import { BillingAdapter } from '../billing/billing.adapter';
 import { PricingService } from '../billing/pricing.service';
 import { UsageType } from '../billing/interfaces/billing.interface';
+import { computeActualUsageValue } from '../billing/actual-usage.util';
 import { UsageTrackerService } from '../api-client/usage-tracker.service';
 import { TaskResourceMetadataEnqueueService } from './task-resource-metadata-enqueue.service';
 
@@ -175,7 +176,11 @@ export class FeatureQueueProcessor {
 
         // 计费结算：同步任务完成，从供应商结果中提取实际用量并结算
         try {
-          const actualUsage = await this.extractActualUsage(task.model, result.result);
+          const actualUsage = await this.extractActualUsage(
+            task.model,
+            result.result,
+            task.requestPayload?.input,
+          );
           await this.billingAdapter.settle({
             taskId,
             actualUsage,
@@ -270,39 +275,13 @@ export class FeatureQueueProcessor {
   private async extractActualUsage(
     model: string,
     result?: Record<string, any>,
+    requestInput?: Record<string, any>,
   ): Promise<{ usageType: UsageType; usageValue: number }> {
-    const { usageType } = await this.pricingService.getUnitPrice(model);
-
-    let usageValue: number;
-
-    switch (usageType) {
-      case UsageType.TOKEN: {
-        // LLM 类型：从 usage 字段提取 token 数
-        const usage = result?.usage;
-        if (usage?.total_tokens && typeof usage.total_tokens === 'number') {
-          usageValue = usage.total_tokens;
-        } else if (usage?.input_tokens || usage?.output_tokens) {
-          usageValue = (Number(usage.input_tokens) || 0) + (Number(usage.output_tokens) || 0);
-        } else if (usage?.prompt_tokens || usage?.completion_tokens) {
-          // 兼容 OpenAI 格式
-          usageValue = (Number(usage.prompt_tokens) || 0) + (Number(usage.completion_tokens) || 0);
-        } else {
-          usageValue = 1;
-        }
-        break;
-      }
-      case UsageType.COUNT:
-        // 图像类型：从结果中提取数量
-        usageValue = Number(result?.batch_quantity) || Number(result?.image_count) || 1;
-        break;
-      case UsageType.DURATION:
-        // 视频类型：从结果中提取时长（秒）
-        usageValue = Number(result?.duration) || Number(result?.video_duration) || 1;
-        break;
-      default:
-        usageValue = 1;
-    }
-
+    const { usageType, durationStep } = await this.pricingService.getUnitPrice(model);
+    const usageValue = computeActualUsageValue(usageType, result, {
+      durationStep,
+      requestInput,
+    });
     return { usageType, usageValue };
   }
 

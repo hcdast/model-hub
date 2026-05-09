@@ -1,16 +1,20 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Card, Select, Button, Space, Typography, Tooltip, Tag, Popconfirm, message } from 'antd';
+import { Table, Card, Select, Button, Space, Tooltip, Tag, Popconfirm, message } from 'antd';
 import { ErrorHandler } from '../utils/error-handler';
 import { ReloadOutlined, StopOutlined } from '@ant-design/icons';
 import StatusTag from '../components/StatusTag';
+import PageHeader from '../components/PageHeader';
 import { taskApi } from '../services/api';
 import { priorityToLabel, formatDateTime } from '../utils/format-helpers';
+import { usePermission } from '../hooks/usePermission';
 
 const STATUS_OPTIONS = ['PENDING', 'SUBMITTED', 'PROCESSING', 'SUCCESS', 'FAILED', 'TIMEOUT', 'CANCELLED'];
 
 export default function TasksPage() {
   const navigate = useNavigate();
+  const { hasPermission } = usePermission();
+  const canUpdateTask = hasPermission('task:update');
   const [data, setData] = useState<any>({ items: [], total: 0 });
   const [loading, setLoading] = useState(false);
   const [params, setParams] = useState({ page: 1, pageSize: 20, status: undefined as string | undefined });
@@ -65,7 +69,7 @@ export default function TasksPage() {
       render: (_: any, record: any) => (
         <Space>
           <a onClick={() => navigate(`/tasks/${record.taskId}`)}>详情</a>
-          {(record.status === 'PENDING' || record.status === 'SUBMITTED') && (
+          {canUpdateTask && (record.status === 'PENDING' || record.status === 'SUBMITTED') && (
             <Popconfirm
               title="确认取消该任务？"
               onConfirm={async () => {
@@ -88,16 +92,25 @@ export default function TasksPage() {
 
   return (
     <div>
-      <Typography.Title level={4}>任务管理</Typography.Title>
+      <PageHeader
+        title="任务管理"
+        extra={(
+          <>
+            <Select
+              placeholder="状态筛选"
+              allowClear
+              style={{ width: 160 }}
+              options={STATUS_OPTIONS.map((s) => ({ label: s, value: s }))}
+              value={params.status}
+              onChange={(v) => setParams({ ...params, status: v, page: 1 })}
+            />
+            <Button icon={<ReloadOutlined />} onClick={fetchData}>
+              刷新
+            </Button>
+          </>
+        )}
+      />
       <Card>
-        <Space style={{ marginBottom: 16 }} wrap>
-          <Select
-            placeholder="状态筛选" allowClear style={{ width: 160 }}
-            options={STATUS_OPTIONS.map((s) => ({ label: s, value: s }))}
-            onChange={(v) => setParams({ ...params, status: v, page: 1 })}
-          />
-          <Button icon={<ReloadOutlined />} onClick={fetchData}>刷新</Button>
-        </Space>
         <Table
           columns={columns} dataSource={data.items} rowKey="taskId" loading={loading} size="small"
           pagination={{

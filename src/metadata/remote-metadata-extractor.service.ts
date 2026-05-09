@@ -4,6 +4,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
+import { fetchAndParseMp4Metadata } from './mp4-metadata.util';
 
 export enum ResourceType {
   IMAGE = 'image',
@@ -221,10 +222,53 @@ export class RemoteMetadataExtractorService {
   }
 
   private async extractVideoMetadata(
-    _url: string,
+    url: string,
     baseMetadata: ResourceMetadata,
   ): Promise<ResourceMetadata> {
-    return baseMetadata;
+    const lower = url.toLowerCase().split('?')[0];
+    const looksMp4 =
+      baseMetadata.mimeType.includes('video/mp4') ||
+      /\.(mp4|m4v)(\s|$)/.test(lower);
+
+    if (!looksMp4) {
+      return baseMetadata;
+    }
+
+    try {
+      const mp4 = await fetchAndParseMp4Metadata(url);
+      if (!mp4) return baseMetadata;
+
+      const duration = mp4.durationSeconds;
+      const resolution =
+        mp4.width != null && mp4.height != null
+          ? { width: mp4.width, height: mp4.height }
+          : undefined;
+
+      let bitrate = baseMetadata.bitrate;
+      if (
+        bitrate == null &&
+        baseMetadata.fileSize > 0 &&
+        duration != null &&
+        duration > 0
+      ) {
+        bitrate = Math.round((baseMetadata.fileSize * 8) / duration);
+      }
+
+      const aspectRatio =
+        resolution != null
+          ? this.calculateAspectRatio(resolution.width, resolution.height)
+          : undefined;
+
+      return {
+        ...baseMetadata,
+        ...(duration != null && duration > 0 ? { duration } : {}),
+        ...(resolution ? { resolution, ...(aspectRatio ? { aspectRatio } : {}) } : {}),
+        ...(mp4.codecFourCc ? { codec: mp4.codecFourCc } : {}),
+        ...(bitrate != null && bitrate > 0 ? { bitrate } : {}),
+      };
+    } catch {
+      return baseMetadata;
+    }
   }
 
   private async extractAudioMetadata(

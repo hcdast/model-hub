@@ -39,7 +39,8 @@ export const overviewApi = {
 
 export const taskApi = {
   list: (params: Record<string, any>) => api.get('/tasks', { params }),
-  get: (taskId: string) => api.get(`/tasks/${taskId}`),
+  get: (taskId: string, params?: { refreshResourceMetadata?: string }) =>
+    api.get(`/tasks/${taskId}`, { params }),
   getTimeline: (taskId: string) => api.get(`/tasks/${taskId}/timeline`),
   getTiming: (taskId: string) => api.get(`/tasks/${taskId}/timing`),
   replayCallback: (taskId: string) => api.post(`/tasks/${taskId}/replay-callback`),
@@ -273,6 +274,14 @@ export interface LinkConversionConfigPayload {
     alert_recipients: string[];
   };
 }
+
+export const callbackLogApi = {
+  list: (params: Record<string, any>) => api.get('/callback-logs', { params }),
+};
+
+export const systemInfoApi = {
+  get: () => api.get('/system-info'),
+};
 
 export const linkConversionConfigApi = {
   get: (params?: { fresh?: boolean }) =>

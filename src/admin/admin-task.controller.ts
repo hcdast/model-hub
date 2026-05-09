@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Param, Query, Body, UseGuards, Req, Logger } from '@nestjs/common';
+import { Controller, Get, Post, Put, Param, Query, Body, UseGuards, Req, Logger, Inject } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { InjectModel } from '@nestjs/mongoose';
 import { InjectQueue } from '@nestjs/bull';
@@ -7,6 +7,7 @@ import { Queue } from 'bull';
 import { Task, TaskDocument } from '../database/schemas/task.schema';
 import { ApiClient, ApiClientDocument } from '../database/schemas/api-client.schema';
 import { BillingRecord, BillingRecordDocument } from '../database/schemas/billing-record.schema';
+import { ModelConfig, ModelConfigDocument } from '../database/schemas/model-config.schema';
 import { AdminJwtGuard } from './guards/admin-jwt.guard';
 import { PermissionGuard } from './guards/permission.guard';
 import { RequirePermissions } from './decorators/require-permissions.decorator';
@@ -17,6 +18,9 @@ import { TaskService } from '../task/task.service';
 import { TaskResourceMetadataEnqueueService } from '../queue/task-resource-metadata-enqueue.service';
 import { TERMINAL_STATUSES } from '../common/constants/task-status';
 import { Request } from 'express';
+import { APP_CONFIG } from '../config/config.module';
+import type { AppConfig } from '../config/interfaces/config.interface';
+import { resolveUnitPriceMapTier, pickCreditReferenceUnitFromPriceMap } from '../billing/unit-price-map.util';
 
 @ApiTags('管理后台 - 任务管理')
 @ApiBearerAuth('AdminJwt')
@@ -29,12 +33,14 @@ export class AdminTaskController {
     @InjectModel(Task.name) private readonly taskModel: Model<TaskDocument>,
     @InjectModel(ApiClient.name) private readonly apiClientModel: Model<ApiClientDocument>,
     @InjectModel(BillingRecord.name) private readonly billingModel: Model<BillingRecordDocument>,
+    @InjectModel(ModelConfig.name) private readonly modelConfigModel: Model<ModelConfigDocument>,
     @InjectQueue('callback') private readonly callbackQueue: Queue,
     private readonly auditLogService: AuditLogService,
     private readonly timelineService: TaskTimelineService,
     private readonly timingService: TaskTimingService,
     private readonly taskService: TaskService,
     private readonly resourceMetadataEnqueue: TaskResourceMetadataEnqueueService,
+    @Inject(APP_CONFIG) private readonly appConfig: AppConfig,
   ) {}
 
   @Get()
@@ -98,7 +104,7 @@ export class AdminTaskController {
     // 附加计费信息
     const data: Record<string, any> = { ...enriched };
     if (billingRecord) {
-      data.billing = {
+      const billing: Record<string, unknown> = {
         status: billingRecord.status,
         billingPolicy: billingRecord.billingPolicy,
         usageType: billingRecord.usageType,
@@ -112,6 +118,85 @@ export class AdminTaskController {
         refundedAt: billingRecord.refundedAt,
         failReason: billingRecord.failReason,
       };
+
+      const actualRev = billingRecord.actualCost;
+      const usageVal = billingRecord.actualUsage;
+      billing.actualRevenue = actualRev;
+
+      const pricingTierKey = this.extractPricingTierKey(task as Record<string, unknown>);
+      billing.pricingTierKey = pricingTierKey ?? null;
+
+      let cfg: Record<string, unknown> | null = null;
+      if (task.model) {
+        cfg = await this.resolveModelConfigRow(String(task.model), task.provider ? String(task.provider) : undefined);
+      }
+
+      let providerReferenceCost: number | undefined;
+      if (cfg && typeof usageVal === 'number' && !Number.isNaN(usageVal)) {
+        const unit = pickCreditReferenceUnitFromPriceMap(
+          cfg.unit_price_map as Record<string, unknown> | undefined,
+          pricingTierKey,
+        );
+        if (unit > 0) providerReferenceCost = this.roundMoney(unit * usageVal, 4);
+      }
+      if (providerReferenceCost !== undefined) {
+        billing.providerReferenceCost = providerReferenceCost;
+      }
+
+      const creditToUsd = this.appConfig.billing?.creditToUsd;
+      const usdResolved = cfg ? this.resolveUsdPricingFromCfg(cfg, pricingTierKey) : {};
+      billing.unitPriceTierUsed = usdResolved.unitPriceTierUsed ?? null;
+      const { costUnitUsd, saleUsdPerCredit } = usdResolved;
+      const unitUsd = cfg ? this.pickPositiveUsdFromMap(cfg.unit_usd_map as Record<string, unknown>) : undefined;
+      const vendorUsd = cfg ? this.pickPositiveUsdFromMap(cfg.vendor_unit_usd_map as Record<string, unknown>) : undefined;
+
+      let actualRevenueUsd: number | undefined;
+      if (
+        saleUsdPerCredit != null &&
+        typeof actualRev === 'number' &&
+        !Number.isNaN(actualRev)
+      ) {
+        actualRevenueUsd = this.roundMoney(actualRev * saleUsdPerCredit, 4);
+      } else if (unitUsd != null && typeof usageVal === 'number' && !Number.isNaN(usageVal)) {
+        actualRevenueUsd = this.roundMoney(unitUsd * usageVal, 4);
+      } else if (
+        creditToUsd != null &&
+        creditToUsd > 0 &&
+        typeof actualRev === 'number' &&
+        !Number.isNaN(actualRev)
+      ) {
+        actualRevenueUsd = this.roundMoney(actualRev * creditToUsd, 4);
+      }
+
+      let providerCostUsd: number | undefined;
+      if (costUnitUsd != null && typeof usageVal === 'number' && !Number.isNaN(usageVal)) {
+        providerCostUsd = this.roundMoney(costUnitUsd * usageVal, 4);
+      } else if (vendorUsd != null && typeof usageVal === 'number' && !Number.isNaN(usageVal)) {
+        providerCostUsd = this.roundMoney(vendorUsd * usageVal, 4);
+      } else if (
+        creditToUsd != null &&
+        creditToUsd > 0 &&
+        providerReferenceCost != null
+      ) {
+        providerCostUsd = this.roundMoney(providerReferenceCost * creditToUsd, 4);
+      }
+
+      if (actualRevenueUsd !== undefined) billing.actualRevenueUsd = actualRevenueUsd;
+      if (providerCostUsd !== undefined) billing.providerCostUsd = providerCostUsd;
+
+      if (actualRevenueUsd !== undefined && providerCostUsd !== undefined) {
+        const gpUsd = this.roundMoney(actualRevenueUsd - providerCostUsd, 4);
+        billing.grossProfitUsd = gpUsd;
+        if (actualRevenueUsd > 0) {
+          billing.profitMarginPercent = this.roundMoney((gpUsd / actualRevenueUsd) * 100, 2);
+        }
+      }
+
+      if (providerReferenceCost !== undefined && typeof actualRev === 'number' && !Number.isNaN(actualRev)) {
+        billing.grossProfit = this.roundMoney(actualRev - providerReferenceCost, 4);
+      }
+
+      data.billing = billing;
     }
 
     const t = data as Record<string, any>;
@@ -229,6 +314,93 @@ export class AdminTaskController {
       newPriority: result.newPriority,
     });
     return { code: 0, data: result };
+  }
+
+  /** 按 model_name + provider 解析模型配置；无精确命中时回退为仅 model_name（与定价服务一致） */
+  private async resolveModelConfigRow(
+    modelName: string,
+    provider?: string,
+  ): Promise<Record<string, unknown> | null> {
+    if (provider) {
+      const exact = await this.modelConfigModel
+        .findOne({
+          model_name: modelName,
+          provider,
+          disabled: { $ne: true },
+        })
+        .select(
+          'unit_price_map unit_usd_map vendor_unit_usd_map cost_unit_price sale_unit_price',
+        )
+        .lean();
+      if (exact) return exact as Record<string, unknown>;
+    }
+    const fallback = await this.modelConfigModel
+      .findOne({ model_name: modelName, disabled: { $ne: true } })
+      .select(
+        'unit_price_map unit_usd_map vendor_unit_usd_map cost_unit_price sale_unit_price',
+      )
+      .lean();
+    return fallback ? (fallback as Record<string, unknown>) : null;
+  }
+
+  /** 从任务请求解析 unit_price_map 档位键（分辨率等），如 input.resolution / input.size */
+  private extractPricingTierKey(task: Record<string, unknown>): string | undefined {
+    const payload = task.requestPayload as Record<string, unknown> | undefined;
+    const input = payload?.input as Record<string, unknown> | undefined;
+    if (!input || typeof input !== 'object') return undefined;
+    const r = input.resolution ?? input.size;
+    if (typeof r === 'string' && r.trim()) return r.trim();
+    if (typeof r === 'number' && Number.isFinite(r)) return String(r);
+    return undefined;
+  }
+
+  /**
+   * 解析 USD：优先 unit_price_map 中对应分辨率档位（及 default）内的 cost_unit_price / sale_unit_price；
+   * 仍缺则回退模型顶层 cost_unit_price / sale_unit_price。
+   */
+  private resolveUsdPricingFromCfg(
+    cfg: Record<string, unknown>,
+    tierKey?: string,
+  ): {
+    costUnitUsd?: number;
+    saleUsdPerCredit?: number;
+    unitPriceTierUsed?: string;
+  } {
+    const upm = cfg.unit_price_map as Record<string, unknown> | undefined;
+    const { entry, usedKey } = resolveUnitPriceMapTier(upm, tierKey);
+
+    let costUnitUsd = entry ? this.pickPositiveScalar(entry.cost_unit_price) : undefined;
+    let saleUsdPerCredit = entry ? this.pickPositiveScalar(entry.sale_unit_price) : undefined;
+
+    if (costUnitUsd == null) costUnitUsd = this.pickPositiveScalar(cfg.cost_unit_price);
+    if (saleUsdPerCredit == null) saleUsdPerCredit = this.pickPositiveScalar(cfg.sale_unit_price);
+
+    return {
+      costUnitUsd,
+      saleUsdPerCredit,
+      unitPriceTierUsed: usedKey,
+    };
+  }
+
+  private pickPositiveScalar(value: unknown): number | undefined {
+    if (typeof value === 'number' && value > 0 && Number.isFinite(value)) return value;
+    return undefined;
+  }
+
+  private pickPositiveUsdFromMap(map?: Record<string, unknown>): number | undefined {
+    if (!map || typeof map !== 'object') return undefined;
+    if (typeof map.default === 'number' && map.default > 0 && Number.isFinite(map.default)) {
+      return map.default;
+    }
+    for (const v of Object.values(map)) {
+      if (typeof v === 'number' && v > 0 && Number.isFinite(v)) return v;
+    }
+    return undefined;
+  }
+
+  private roundMoney(n: number, decimals: number): number {
+    const f = 10 ** decimals;
+    return Math.round(n * f) / f;
   }
 
   /** 为任务列表/详情附加 api_clients.name，便于后台区分调用方 */
