@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Card, Table, Space, Typography, DatePicker, Select, Row, Col, Statistic, Tag, message,
+  Card, Table, Typography, DatePicker, Select, Row, Col, Statistic, Tag, message, Button,
 } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
+import PageHeader from '../components/PageHeader';
 import dayjs from 'dayjs';
 import ReactEChartsCore from 'echarts-for-react';
 import { accountCostApi, accountPoolApi, providerConfigApi } from '../services/api';
@@ -196,7 +198,40 @@ export default function AccountCostPage() {
 
   return (
     <div>
-      <Typography.Title level={4}>账号成本观测</Typography.Title>
+      <PageHeader
+        title="账号成本观测"
+        extra={(
+          <>
+            <DatePicker.RangePicker
+              value={[dayjs(dateRange[0]), dayjs(dateRange[1])]}
+              onChange={(_, ds) => {
+                if (ds[0] && ds[1]) setDateRange([ds[0], ds[1]]);
+              }}
+            />
+            <Select
+              placeholder="按厂商筛选"
+              allowClear
+              style={{ width: 180 }}
+              options={providerNames.map((p) => ({ label: p, value: p }))}
+              value={filterProvider}
+              onChange={setFilterProvider}
+            />
+            <Select
+              placeholder="按账号筛选"
+              allowClear
+              style={{ width: 200 }}
+              options={accounts
+                .filter((a) => !filterProvider || a.provider_name === filterProvider)
+                .map((a) => ({ label: `${a.account_alias} (${a.provider_name})`, value: a._id }))}
+              value={filterAccount}
+              onChange={setFilterAccount}
+            />
+            <Button icon={<ReloadOutlined />} onClick={() => void fetchData()} loading={loading}>
+              刷新
+            </Button>
+          </>
+        )}
+      />
 
       <Card style={{ marginBottom: 16 }}>
         <Row gutter={24}>
@@ -208,26 +243,6 @@ export default function AccountCostPage() {
       </Card>
 
       <Card title="成本趋势" style={{ marginBottom: 16 }}>
-        <Space style={{ marginBottom: 16 }} wrap>
-          <DatePicker.RangePicker
-            value={[dayjs(dateRange[0]), dayjs(dateRange[1])]}
-            onChange={(_, ds) => { if (ds[0] && ds[1]) setDateRange([ds[0], ds[1]]); }}
-          />
-          <Select
-            placeholder="按厂商筛选" allowClear style={{ width: 180 }}
-            options={providerNames.map((p) => ({ label: p, value: p }))}
-            value={filterProvider}
-            onChange={setFilterProvider}
-          />
-          <Select
-            placeholder="按账号筛选" allowClear style={{ width: 200 }}
-            options={accounts
-              .filter((a) => !filterProvider || a.provider_name === filterProvider)
-              .map((a) => ({ label: `${a.account_alias} (${a.provider_name})`, value: a._id }))}
-            value={filterAccount}
-            onChange={setFilterAccount}
-          />
-        </Space>
         {chartDates.length > 0 ? (
           <ReactEChartsCore option={costChartOption} style={{ height: 300 }} />
         ) : (

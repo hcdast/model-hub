@@ -122,9 +122,16 @@ export const billingApi = {
   getRecords: (params: BillingRecordQuery) =>
     api.get('/billing/records', { params }),
 
-  /** 查询计费汇总 */
+  /** 查询计费汇总（查询参数与后端 snake_case 对齐） */
   getSummary: (params: BillingSummaryQuery) =>
-    api.get('/billing/summary', { params }),
+    api.get('/billing/summary', {
+      params: {
+        groupBy: params.groupBy,
+        billingPolicy: params.billingPolicy,
+        start_date: params.startDate,
+        end_date: params.endDate,
+      },
+    }),
 
   /** 查询指定 API Client 的钱包余额 */
   getWallet: (clientId: string) =>

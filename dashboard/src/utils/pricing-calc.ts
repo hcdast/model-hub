@@ -9,8 +9,10 @@ export interface PricingEntry {
 }
 
 export function getModelCategory(modelType: number): ModelCategory {
-  const prefix = Math.floor(modelType / 1000);
-  if (prefix === 42) return 'video';
+  // 与后端 PricingService.inferUsageType 对齐：1500~1599 为视频生成/编辑（按时长计费）
+  if (modelType >= 1500 && modelType <= 1599) return 'video';
+  // 兼容历史 model_type 分段（如 42xxx 曾用于视频类）
+  if (Math.floor(modelType / 1000) === 42) return 'video';
   return 'image';
 }
 

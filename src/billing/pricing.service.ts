@@ -8,6 +8,10 @@ import {
 import { APP_CONFIG } from '../config/config.module';
 import { AppConfig } from '../config/interfaces/config.interface';
 import { UsageType, PriceEstimate } from './interfaces/billing.interface';
+import { pickCreditReferenceUnitFromPriceMap } from './unit-price-map.util';
+
+/** 视频类用量：请求未带 duration 时的默认预估秒数（不再来自模型配置字段） */
+export const DEFAULT_DURATION_FALLBACK_SECONDS = 5;
 
 /** 缓存条目结构 */
 interface PriceCacheEntry {
@@ -17,7 +21,7 @@ interface PriceCacheEntry {
   usageType: UsageType;
   /** 货币单位 */
   currency: string;
-  /** 模型默认 duration_step（视频类型使用） */
+  /** 视频类 duration 回退秒数 */
   durationStep: number;
   /** 缓存过期时间戳 */
   expireAt: number;
@@ -68,25 +72,28 @@ export class PricingService {
     // 缓存未命中或已过期，查询数据库
     const modelConfig = await this.modelConfigModel
       .findOne({ model_name: model })
-      .select('model_type unit_price_map unit_credit_map duration_step')
+      .select('model_type unit_price_map')
       .lean()
       .exec();
 
     if (!modelConfig) {
       this.logger.warn(`模型 [${model}] 无定价配置，返回零价格`);
-      return { unitPrice: 0, usageType: UsageType.TOKEN, currency: 'credit', durationStep: 5 };
+      return {
+        unitPrice: 0,
+        usageType: UsageType.TOKEN,
+        currency: 'credit',
+        durationStep: DEFAULT_DURATION_FALLBACK_SECONDS,
+      };
     }
 
     // 根据 model_type 推断 usageType
     const usageType = this.inferUsageType(modelConfig.model_type);
 
-    // 从 unit_price_map 或 unit_credit_map 中提取单价
-    const unitPrice = this.extractUnitPrice(
-      modelConfig.unit_price_map,
-      modelConfig.unit_credit_map,
+    const unitPrice = pickCreditReferenceUnitFromPriceMap(
+      modelConfig.unit_price_map as Record<string, unknown> | undefined,
     );
 
-    const durationStep = modelConfig.duration_step ?? 5;
+    const durationStep = DEFAULT_DURATION_FALLBACK_SECONDS;
     const currency = 'credit';
 
     // 写入缓存
@@ -107,7 +114,7 @@ export class PricingService {
    * 费用预估 —— 根据模型单价和输入参数预估费用
    *
    * - count 类型：estimatedUsage = input.batch_quantity 或 1
-   * - duration 类型：estimatedUsage = input.duration 或模型默认 duration_step
+   * - duration 类型：estimatedUsage = input.duration 或默认秒数（DEFAULT_DURATION_FALLBACK_SECONDS）
    * - token 类型：estimatedUsage = input.max_tokens 或 1000（预估值）
    */
   async estimate(
@@ -180,47 +187,4 @@ export class PricingService {
     return UsageType.TOKEN;
   }
 
-  /**
-   * 从 unit_price_map 或 unit_credit_map 中提取单价
-   *
-   * 优先使用 unit_price_map 中的 default 值，
-   * 其次使用 unit_credit_map 中的 default 值，
-   * 最后取 map 中第一个数值类型的值。
-   */
-  private extractUnitPrice(
-    unitPriceMap?: Record<string, any>,
-    unitCreditMap?: Record<string, any>,
-  ): number {
-    // 优先从 unit_price_map 提取
-    const priceFromMap = this.extractFromMap(unitPriceMap);
-    if (priceFromMap > 0) return priceFromMap;
-
-    // 其次从 unit_credit_map 提取
-    const priceFromCredit = this.extractFromMap(unitCreditMap);
-    if (priceFromCredit > 0) return priceFromCredit;
-
-    return 0;
-  }
-
-  /**
-   * 从 map 中提取单价值
-   * 优先取 default 键，否则取第一个数值类型的值
-   */
-  private extractFromMap(map?: Record<string, any>): number {
-    if (!map || typeof map !== 'object') return 0;
-
-    // 优先取 default 键
-    if (map.default !== undefined && typeof map.default === 'number') {
-      return map.default;
-    }
-
-    // 取第一个数值类型的值
-    for (const value of Object.values(map)) {
-      if (typeof value === 'number' && value > 0) {
-        return value;
-      }
-    }
-
-    return 0;
-  }
 }

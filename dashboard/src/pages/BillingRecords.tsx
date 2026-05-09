@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
-import { Table, Card, Input, Select, DatePicker, Button, Space, Typography, Tag, message } from 'antd';
+import { Table, Card, Input, Select, DatePicker, Button, Space, Tag, message } from 'antd';
+import PageHeader from '../components/PageHeader';
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
 import { billingApi, type BillingRecordQuery, type BillingRecordItem } from '../services/billing';
 import { useRequest } from '../hooks/useRequest';
@@ -201,56 +202,58 @@ export default function BillingRecordsPage() {
 
   return (
     <div>
-      <Typography.Title level={4}>计费记录</Typography.Title>
+      <PageHeader
+        title="计费记录"
+        extra={(
+          <>
+            <Input.Search
+              placeholder="Client ID"
+              allowClear
+              style={{ width: 200 }}
+              onSearch={(v) => updateFilter({ clientId: v || undefined })}
+            />
+            <Input.Search
+              placeholder="模型名称"
+              allowClear
+              style={{ width: 200 }}
+              onSearch={(v) => updateFilter({ model: v || undefined })}
+            />
+            <Select
+              placeholder="计费策略"
+              allowClear
+              style={{ width: 140 }}
+              options={BILLING_POLICY_OPTIONS}
+              onChange={(v) => updateFilter({ billingPolicy: v })}
+            />
+            <Select
+              placeholder="状态"
+              allowClear
+              style={{ width: 120 }}
+              options={STATUS_OPTIONS}
+              onChange={(v) => updateFilter({ status: v })}
+            />
+            <DatePicker.RangePicker
+              onChange={(dates) => {
+                updateFilter({
+                  startDate: dates?.[0]?.toISOString(),
+                  endDate: dates?.[1]?.toISOString(),
+                });
+              }}
+            />
+            <Button icon={<ReloadOutlined />} onClick={refresh}>
+              刷新
+            </Button>
+            <Button
+              type="primary"
+              icon={<DownloadOutlined />}
+              onClick={() => exportToCsv(data?.items || [])}
+            >
+              导出 CSV
+            </Button>
+          </>
+        )}
+      />
       <Card>
-        {/* 筛选条件区域 */}
-        <Space style={{ marginBottom: 16 }} wrap>
-          <Input.Search
-            placeholder="Client ID"
-            allowClear
-            style={{ width: 200 }}
-            onSearch={(v) => updateFilter({ clientId: v || undefined })}
-          />
-          <Input.Search
-            placeholder="模型名称"
-            allowClear
-            style={{ width: 200 }}
-            onSearch={(v) => updateFilter({ model: v || undefined })}
-          />
-          <Select
-            placeholder="计费策略"
-            allowClear
-            style={{ width: 140 }}
-            options={BILLING_POLICY_OPTIONS}
-            onChange={(v) => updateFilter({ billingPolicy: v })}
-          />
-          <Select
-            placeholder="状态"
-            allowClear
-            style={{ width: 120 }}
-            options={STATUS_OPTIONS}
-            onChange={(v) => updateFilter({ status: v })}
-          />
-          <DatePicker.RangePicker
-            onChange={(dates) => {
-              updateFilter({
-                startDate: dates?.[0]?.toISOString(),
-                endDate: dates?.[1]?.toISOString(),
-              });
-            }}
-          />
-          <Button icon={<ReloadOutlined />} onClick={refresh}>
-            刷新
-          </Button>
-          <Button
-            icon={<DownloadOutlined />}
-            onClick={() => exportToCsv(data?.items || [])}
-          >
-            导出 CSV
-          </Button>
-        </Space>
-
-        {/* 计费记录表格 */}
         <Table
           columns={columns}
           dataSource={data?.items || []}

@@ -1,8 +1,10 @@
 import { useState, useCallback, useEffect } from 'react';
 import {
   Card, Input, Button, Space, Typography, Table, Tag, Modal,
-  Form, InputNumber, Row, Col, Statistic, message, Tooltip,
+  Form, InputNumber, Row, Col, Statistic, message, Tooltip, DatePicker, Alert,
 } from 'antd';
+import type { Dayjs } from 'dayjs';
+import dayjs from 'dayjs';
 import {
   SearchOutlined, ReloadOutlined, PlusOutlined, EyeOutlined,
   WalletOutlined, LockOutlined, DollarOutlined,
@@ -15,6 +17,8 @@ import {
   type WalletBalance,
 } from '../services/billing';
 import { formatDateTime } from '../utils/format-helpers';
+import { usePermission } from '../hooks/usePermission';
+import PageHeader from '../components/PageHeader';
 
 /** 交易类型 → 中文标签映射 */
 const txTypeLabelMap: Record<string, string> = {
@@ -40,6 +44,16 @@ const policyLabelMap: Record<string, string> = {
 };
 
 export default function WalletManagementPage() {
+  const { hasPermission } = usePermission();
+  const canBillingWrite = hasPermission('billing:write');
+
+  const [reconRange, setReconRange] = useState<[Dayjs, Dayjs]>([
+    dayjs().subtract(6, 'day').startOf('day'),
+    dayjs().endOf('day'),
+  ]);
+  const [reconRows, setReconRows] = useState<any[]>([]);
+  const [reconLoading, setReconLoading] = useState(false);
+
   // 钱包列表
   const [wallets, setWallets] = useState<WalletListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -76,10 +90,32 @@ export default function WalletManagementPage() {
     }
   }, [page, pageSize, keyword]);
 
+  const loadReconciliation = useCallback(async () => {
+    setReconLoading(true);
+    try {
+      const [from, to] = reconRange;
+      const res: any = await billingApi.getSummary({
+        groupBy: 'date',
+        startDate: from.startOf('day').toISOString(),
+        endDate: to.endOf('day').toISOString(),
+      });
+      setReconRows(Array.isArray(res.data) ? res.data : []);
+    } catch {
+      message.error('加载对账汇总失败');
+      setReconRows([]);
+    } finally {
+      setReconLoading(false);
+    }
+  }, [reconRange]);
+
   /** 初始加载 */
   useEffect(() => {
     fetchWallets(1, 20, '');
   }, []);
+
+  useEffect(() => {
+    loadReconciliation();
+  }, [loadReconciliation]);
 
   /** 搜索 */
   const handleSearch = useCallback(() => {
@@ -243,14 +279,16 @@ export default function WalletManagementPage() {
               onClick={() => loadWalletDetail(record.clientId)}
             />
           </Tooltip>
-          <Tooltip title="充值">
-            <Button
-              type="link"
-              size="small"
-              icon={<PlusOutlined />}
-              onClick={() => openCredit(record.clientId)}
-            />
-          </Tooltip>
+          {canBillingWrite && (
+            <Tooltip title="充值">
+              <Button
+                type="link"
+                size="small"
+                icon={<PlusOutlined />}
+                onClick={() => openCredit(record.clientId)}
+              />
+            </Tooltip>
+          )}
         </Space>
       ),
     },
@@ -320,27 +358,69 @@ export default function WalletManagementPage() {
 
   return (
     <div>
-      <Typography.Title level={4}>钱包管理</Typography.Title>
+      <PageHeader
+        title="钱包管理"
+        extra={(
+          <>
+            <Input
+              placeholder="搜索 Client ID"
+              prefix={<SearchOutlined />}
+              allowClear
+              style={{ width: 300 }}
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              onPressEnter={handleSearch}
+            />
+            <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
+              搜索
+            </Button>
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={() => {
+                setKeyword('');
+                setPage(1);
+                fetchWallets(1, pageSize, '');
+              }}
+            >
+              刷新
+            </Button>
+          </>
+        )}
+      />
 
-      {/* 搜索栏 */}
-      <Card style={{ marginBottom: 16 }}>
-        <Space>
-          <Input
-            placeholder="搜索 Client ID"
-            prefix={<SearchOutlined />}
-            allowClear
-            style={{ width: 300 }}
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            onPressEnter={handleSearch}
-          />
-          <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
-            搜索
-          </Button>
-          <Button icon={<ReloadOutlined />} onClick={() => { setKeyword(''); setPage(1); fetchWallets(1, pageSize, ''); }}>
-            刷新
-          </Button>
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="余额告警"
+        description="低余额事件（account_balance_low）请在「通知规则」中配置；全局默认阈值由服务配置 billing.wallet.lowBalanceThreshold 控制。"
+      />
+
+      <Card title="周期对账（按日汇总）" style={{ marginBottom: 16 }} loading={reconLoading}>
+        <Space wrap style={{ marginBottom: 12 }}>
+          <DatePicker.RangePicker value={reconRange} onChange={(v) => v && v[0] && v[1] && setReconRange([v[0], v[1]])} />
+          <Button type="primary" onClick={() => loadReconciliation()}>查询</Button>
         </Space>
+        <Table
+          size="small"
+          rowKey={(r) => String(r._id)}
+          dataSource={reconRows}
+          pagination={false}
+          columns={[
+            { title: '日期', dataIndex: '_id', width: 120 },
+            { title: '笔数', dataIndex: 'count', width: 90 },
+            {
+              title: '预估费用',
+              dataIndex: 'totalEstimatedCost',
+              render: (v: number) => (v != null ? Number(v).toFixed(4) : '—'),
+            },
+            {
+              title: '实际费用',
+              dataIndex: 'totalActualCost',
+              render: (v: number) => (v != null ? Number(v).toFixed(4) : '—'),
+            },
+          ]}
+        />
       </Card>
 
       {/* 钱包列表 */}
@@ -404,14 +484,16 @@ export default function WalletManagementPage() {
               <Card size="small" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
                 <Space>
                   <Typography.Text type="secondary">{selectedClientId}</Typography.Text>
-                  <Button
-                    type="primary"
-                    size="small"
-                    icon={<PlusOutlined />}
-                    onClick={() => openCredit(selectedClientId)}
-                  >
-                    充值
-                  </Button>
+                  {canBillingWrite && (
+                    <Button
+                      type="primary"
+                      size="small"
+                      icon={<PlusOutlined />}
+                      onClick={() => openCredit(selectedClientId)}
+                    >
+                      充值
+                    </Button>
+                  )}
                 </Space>
               </Card>
             </Col>
