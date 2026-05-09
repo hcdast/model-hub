@@ -9,3 +9,4 @@ export { TemplateSelector } from './TemplateSelector';
 export { default as PricingModal } from './PricingModal';
 export { default as CircuitBreakerOverrideModal } from './CircuitBreakerOverrideModal';
 export { PermissionGuard } from './PermissionGuard';
+export { default as PageHeader } from './PageHeader';
