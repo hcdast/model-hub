@@ -7,13 +7,12 @@ import {
   Typography,
 } from 'antd';
 import { ArrowLeftOutlined, SaveOutlined } from '@ant-design/icons';
+import PageHeader from '../components/PageHeader';
 import { ModelConfigEditor } from '../components/ModelConfigEditor';
 import { TemplateSelector } from '../components/TemplateSelector';
 import { LoadingState } from '../components/LoadingState';
 import { modelApi } from '../services/api';
 import { ErrorHandler } from '../utils/error-handler';
-
-const { Title } = Typography;
 
 /**
  * 创建模型配置页面
@@ -43,9 +42,6 @@ export default function CreateModelConfigPage() {
       disabled: false,
       unusable: false,
       display: true,
-      unit_credit_map: {
-        default: 1,
-      },
       unit_price_map: {
         default: {
           cost_unit_price: 0,
@@ -54,16 +50,12 @@ export default function CreateModelConfigPage() {
           original_unit_credit: 1,
         },
       },
-      duration_step: 1,
       audio_extra_credit_multiplier: 1,
       discount: {},
-      requires_pay: false,
       requires_priority: 10,
       requires_priority_4_unlimit_mode: -1,
       supported_unlimit_mode: false,
       supported_unlimit_mode_start_time: 0,
-      max_count: 1,
-      batch_quantity: [1],
       params: {},
     };
 
@@ -137,20 +129,15 @@ export default function CreateModelConfigPage() {
 
   return (
     <div>
-      {/* 页面头部 */}
-      <Space style={{ marginBottom: 16 }} align="center">
-        <Button
-          icon={<ArrowLeftOutlined />}
-          onClick={handleCancel}
-        >
-          返回
-        </Button>
-        <Title level={4} style={{ margin: 0 }}>
-          创建模型配置
-        </Title>
-      </Space>
+      <PageHeader
+        title="创建模型配置"
+        prefix={(
+          <Button icon={<ArrowLeftOutlined />} onClick={handleCancel}>
+            返回
+          </Button>
+        )}
+      />
 
-      {/* 编辑器卡片 */}
       <Card>
         {/* 模板选择器 */}
         <TemplateSelector onChange={handleTemplateLoad} />

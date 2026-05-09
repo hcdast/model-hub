@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Table, Card, Button, Space, Typography, Input, Select, Drawer, Switch, message, Tag,
+  Table, Card, Button, Space, Input, Select, Drawer, Switch, message, Tag, Spin,
 } from 'antd';
-import { ReloadOutlined, SearchOutlined, BranchesOutlined, PlusOutlined, EditOutlined, DollarOutlined } from '@ant-design/icons';
+import {
+  ReloadOutlined, SearchOutlined, BranchesOutlined, PlusOutlined, EditOutlined, DollarOutlined, UndoOutlined,
+} from '@ant-design/icons';
 import { modelApi } from '../services/api';
 import { ErrorHandler } from '../utils/error-handler';
 import PricingModal from '../components/PricingModal';
+import PageHeader from '../components/PageHeader';
+import ModelDetailContent from '../components/ModelDetailContent';
 
 export default function ModelsPage() {
   const navigate = useNavigate();
@@ -24,15 +28,22 @@ export default function ModelsPage() {
   const [pricingOpen, setPricingOpen] = useState(false);
   const [pricingModel, setPricingModel] = useState<any | null>(null);
 
-  const fetchData = async (p = page, ps = pageSize) => {
+  const fetchData = async (
+    p = page,
+    ps = pageSize,
+    filterOverride?: { keyword: string; provider: string | undefined; includeDisabled: boolean },
+  ) => {
+    const kw = filterOverride ? filterOverride.keyword : keyword;
+    const prov = filterOverride ? filterOverride.provider : provider;
+    const inc = filterOverride ? filterOverride.includeDisabled : includeDisabled;
     setLoading(true);
     try {
       const res: any = await modelApi.list({
         page: p,
         pageSize: ps,
-        keyword: keyword.trim() || undefined,
-        provider: provider || undefined,
-        includeDisabled: includeDisabled ? 'true' : undefined,
+        keyword: kw.trim() || undefined,
+        provider: prov || undefined,
+        includeDisabled: inc ? 'true' : undefined,
       });
       setItems(res.data?.items || []);
       setTotal(res.data?.total ?? 0);
@@ -149,45 +160,64 @@ export default function ModelsPage() {
     },
   ];
 
+  const handleResetFilters = () => {
+    setKeyword('');
+    setProvider(undefined);
+    setIncludeDisabled(false);
+    void fetchData(1, pageSize, { keyword: '', provider: undefined, includeDisabled: false });
+  };
+
   return (
     <div>
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Typography.Title level={4} style={{ margin: 0 }}>模型配置</Typography.Title>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => navigate('/models/create')}
-        >
-          创建模型配置
-        </Button>
-        <Input
-          placeholder="搜索 model_name / label"
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          onPressEnter={() => fetchData(1, pageSize)}
-          style={{ width: 220 }}
-          allowClear
-        />
-        <Input
-          placeholder="provider 筛选"
-          value={provider}
-          onChange={(e) => setProvider(e.target.value || undefined)}
-          style={{ width: 140 }}
-          allowClear
-        />
-        <Select
-          placeholder="含禁用"
-          value={includeDisabled ? 'yes' : 'no'}
-          style={{ width: 120 }}
-          options={[
-            { value: 'no', label: '仅启用' },
-            { value: 'yes', label: '含禁用' },
-          ]}
-          onChange={(v) => setIncludeDisabled(v === 'yes')}
-        />
-        <Button type="primary" icon={<SearchOutlined />} onClick={() => fetchData(1, pageSize)}>查询</Button>
-        <Button icon={<ReloadOutlined />} onClick={() => fetchData(page, pageSize)}>刷新</Button>
-      </Space>
+      <PageHeader
+        title="模型配置"
+        leftExtra={(
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => navigate('/models/create')}
+          >
+            创建模型配置
+          </Button>
+        )}
+        extra={(
+          <>
+            <Input
+              placeholder="搜索 model_name / label"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              onPressEnter={() => fetchData(1, pageSize)}
+              style={{ width: 220 }}
+              allowClear
+            />
+            <Input
+              placeholder="provider 筛选"
+              value={provider ?? ''}
+              onChange={(e) => setProvider(e.target.value || undefined)}
+              style={{ width: 140 }}
+              allowClear
+            />
+            <Select
+              value={includeDisabled ? 'yes' : 'no'}
+              style={{ width: 120 }}
+              options={[
+                { value: 'no', label: '仅启用' },
+                { value: 'yes', label: '含禁用' },
+              ]}
+              onChange={(v) => setIncludeDisabled(v === 'yes')}
+            />
+            <Button type="primary" icon={<SearchOutlined />} onClick={() => fetchData(1, pageSize)}>
+              查询
+            </Button>
+            <Button icon={<UndoOutlined />} onClick={handleResetFilters}>
+              重置
+            </Button>
+            <Button icon={<ReloadOutlined />} onClick={() => fetchData(page, pageSize)}>
+              刷新
+            </Button>
+          </>
+        )}
+      />
 
       <Card>
         <Table
@@ -210,16 +240,19 @@ export default function ModelsPage() {
 
       <Drawer
         title={detail?.model_name || '模型详情'}
-        width={720}
+        width={920}
         open={detailOpen}
         onClose={() => { setDetailOpen(false); setDetail(null); }}
         destroyOnClose
+        styles={{ body: { paddingBottom: 24 } }}
       >
-        {detailLoading && <Typography.Paragraph>加载中…</Typography.Paragraph>}
+        {detailLoading && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
+            <Spin tip="加载中…" />
+          </div>
+        )}
         {!detailLoading && detail && (
-          <pre style={{ fontSize: 12, overflow: 'auto', maxHeight: 'calc(100vh - 120px)' }}>
-            {JSON.stringify(detail, null, 2)}
-          </pre>
+          <ModelDetailContent detail={detail as Record<string, unknown>} />
         )}
       </Drawer>
 

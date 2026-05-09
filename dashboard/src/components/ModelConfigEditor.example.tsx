@@ -165,9 +165,6 @@ export const CompleteCreateExample: React.FC = () => {
     disabled: false,
     unusable: false,
     display: true,
-    unit_credit_map: {
-      default: 1
-    },
     unit_price_map: {
       default: {
         cost_unit_price: 0,
@@ -176,10 +173,8 @@ export const CompleteCreateExample: React.FC = () => {
         original_unit_credit: 1
       }
     },
-    duration_step: 1,
     audio_extra_credit_multiplier: 1,
     discount: {},
-    requires_pay: false,
     requires_priority: 10,
     params: {}
   };

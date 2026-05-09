@@ -8,12 +8,11 @@ import {
   Modal,
 } from 'antd';
 import { ArrowLeftOutlined, SaveOutlined, ReloadOutlined } from '@ant-design/icons';
+import PageHeader from '../components/PageHeader';
 import { ModelConfigEditor } from '../components/ModelConfigEditor';
 import { LoadingState } from '../components/LoadingState';
 import { modelApi } from '../services/api';
 import { ErrorHandler } from '../utils/error-handler';
-
-const { Title } = Typography;
 
 /**
  * 编辑模型配置页面
@@ -183,25 +182,16 @@ export default function EditModelConfigPage() {
 
   return (
     <div>
-      {/* 页面头部 */}
-      <Space style={{ marginBottom: 16 }} align="center">
-        <Button
-          icon={<ArrowLeftOutlined />}
-          onClick={handleCancel}
-        >
-          返回
-        </Button>
-        <Title level={4} style={{ margin: 0 }}>
-          编辑模型配置
-        </Title>
-        {hasChanges && (
-          <Typography.Text type="warning" style={{ fontSize: 12 }}>
-            (有未保存的修改)
-          </Typography.Text>
+      <PageHeader
+        title="编辑模型配置"
+        subtitle={hasChanges ? '有未保存的修改' : undefined}
+        prefix={(
+          <Button icon={<ArrowLeftOutlined />} onClick={handleCancel}>
+            返回
+          </Button>
         )}
-      </Space>
+      />
 
-      {/* 编辑器卡片 */}
       <Card>
         <ModelConfigEditor
           value={jsonValue}
