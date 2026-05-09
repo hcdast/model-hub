@@ -248,10 +248,9 @@ export const queueDescriptor: FeatureModuleDescriptor = {
   permissions: [
     {
       resource: 'queue',
-      actions: ['read', 'execute'],
+      actions: ['read'],
       displayNames: {
         read: '查看队列',
-        execute: '执行队列操作',
       },
       module: 'queue-management',
     },
@@ -320,9 +319,23 @@ export const providerDescriptor: FeatureModuleDescriptor = {
   ],
 };
 
-export const notificationRuleDescriptor: FeatureModuleDescriptor = {
-  moduleKey: 'notification-rule',
-  displayName: '通知规则',
+/** 通知管理（与 Notification*Controller 的 notification:* 权限一致） */
+export const notificationDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'notification',
+  displayName: '通知管理',
+  permissions: [
+    {
+      resource: 'notification',
+      actions: ['read', 'create', 'update', 'delete'],
+      displayNames: {
+        read: '查看通知与规则',
+        create: '创建通知规则',
+        update: '更新通知与站内信',
+        delete: '删除通知规则',
+      },
+      module: 'notification-management',
+    },
+  ],
   menus: [
     {
       path: '/notification-rules',
@@ -330,36 +343,75 @@ export const notificationRuleDescriptor: FeatureModuleDescriptor = {
       icon: 'BellOutlined',
       parentKey: 'notification',
       sortOrder: 10,
-      requiredPermission: 'notification-rule:read',
+      requiredPermission: 'notification:read',
     },
-  ],
-};
-
-export const notificationRecordDescriptor: FeatureModuleDescriptor = {
-  moduleKey: 'notification-record',
-  displayName: '通知记录',
-  menus: [
     {
       path: '/notification-records',
       label: '通知记录',
       icon: 'MailOutlined',
       parentKey: 'notification',
       sortOrder: 20,
-      requiredPermission: 'notification-record:read',
+      requiredPermission: 'notification:read',
     },
-  ],
-};
-
-export const inAppNotificationDescriptor: FeatureModuleDescriptor = {
-  moduleKey: 'in-app-notification',
-  displayName: '站内通知',
-  menus: [
     {
       path: '/notifications',
       label: '站内通知',
       icon: 'NotificationOutlined',
       parentKey: 'notification',
       sortOrder: 30,
+      requiredPermission: 'notification:read',
+    },
+  ],
+};
+
+/** 回调投递日志（Mongo callback_logs） */
+export const callbackLogDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'callback-log',
+  displayName: '回调日志',
+  permissions: [
+    {
+      resource: 'callback-log',
+      actions: ['read'],
+      displayNames: {
+        read: '查看回调投递日志',
+      },
+      module: 'callback-log-management',
+    },
+  ],
+  menus: [
+    {
+      path: '/callback-logs',
+      label: '回调日志',
+      icon: 'FileSearchOutlined',
+      parentKey: 'security',
+      sortOrder: 15,
+      requiredPermission: 'callback-log:read',
+    },
+  ],
+};
+
+/** 只读系统运行信息 */
+export const systemInfoDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'system-info',
+  displayName: '系统信息',
+  permissions: [
+    {
+      resource: 'system',
+      actions: ['read'],
+      displayNames: {
+        read: '查看系统运行信息',
+      },
+      module: 'system-info-management',
+    },
+  ],
+  menus: [
+    {
+      path: '/system-info',
+      label: '系统信息',
+      icon: 'ClusterOutlined',
+      parentKey: 'system',
+      sortOrder: 18,
+      requiredPermission: 'system:read',
     },
   ],
 };
@@ -439,9 +491,9 @@ export const builtInDescriptors: FeatureModuleDescriptor[] = [
   statsDescriptor,
   queueDescriptor,
   providerDescriptor,
-  notificationRuleDescriptor,
-  notificationRecordDescriptor,
-  inAppNotificationDescriptor,
+  notificationDescriptor,
+  callbackLogDescriptor,
+  systemInfoDescriptor,
   billingDescriptor,
   linkConversionDescriptor,
 ];

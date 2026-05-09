@@ -4,9 +4,8 @@ import { HydratedDocument, Schema as MongooseSchema } from 'mongoose';
 export type ModelConfigDocument = HydratedDocument<ModelConfig>;
 
 /**
- * 模型配置 Schema —— 与 AGI-Content 的 aimodelconfigs 集合完全对齐。
- * 数据从 AGI-Content 的枚举文件（imageGenEnum / imageToVideoEnum / characterSwapEnum）
- * 通过 importAiModelConfigs.js 脚本导入，或由 Model-Hub 管理后台维护。
+ * 模型配置 Schema —— collection: model_configs。
+ * 数据可由种子脚本导入或由 Model-Hub 管理后台维护。
  */
 @Schema({ timestamps: false, versionKey: false, collection: 'model_configs' })
 export class ModelConfig {
@@ -55,13 +54,19 @@ export class ModelConfig {
 
   // ===== 计费配置 =====
   @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
-  unit_credit_map!: Record<string, any>;
-
-  @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
   unit_price_map!: Record<string, any>;
 
-  @Prop({ default: 5 })
-  duration_step!: number;
+  /** 对外 USD 单价（每计费用量单位：秒 / 张 / 千 token 等），与 billing.usageType 对应 */
+  @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
+  unit_usd_map!: Record<string, any>;
+
+  /** 厂商成本 USD 单价，与 billing.usageType 一致：duration→$/秒，count→$/张（token 时为每计量单位的 $） */
+  @Prop()
+  cost_unit_price?: number;
+
+  /** 对客户 credit 的 USD 单价（每 1 credit 多少美元）；实际收益（$）≈ 实际费用(credit) × sale_unit_price */
+  @Prop()
+  sale_unit_price?: number;
 
   @Prop({ default: 1 })
   audio_extra_credit_multiplier!: number;
@@ -70,9 +75,6 @@ export class ModelConfig {
   discount?: Record<string, any>;
 
   // ===== 访问控制 =====
-  @Prop({ default: false })
-  requires_pay!: boolean;
-
   @Prop({ default: 10 })
   requires_priority!: number;
 
@@ -120,13 +122,7 @@ export class ModelConfig {
   supported_web_search!: boolean;
 
   @Prop({ default: false })
-  is_akool_tp!: boolean;
-
-  @Prop({ default: false })
   is_extend_model!: boolean;
-
-  @Prop({ default: false })
-  is_sd2!: boolean;
 
   @Prop({ default: false })
   supports_elements!: boolean;
@@ -141,11 +137,9 @@ export class ModelConfig {
   support_all_in_one_reference!: boolean;
 
   // ===== 数量与限制 =====
-  @Prop({ default: 4 })
-  max_count!: number;
-
-  @Prop({ type: [Number], default: [1] })
-  batch_quantity!: number[];
+  /** 出图/出片数量与优先级档位（与 AGI 枚举 outputQuantityConfig 一致） */
+  @Prop({ type: [MongooseSchema.Types.Mixed] })
+  output_quantity_config?: any[];
 
   @Prop()
   max_resource_count?: number;

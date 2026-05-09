@@ -206,9 +206,6 @@ export class ModelConfigService {
         disabled: false,
         unusable: false,
         display: true,
-        unit_credit_map: {
-          default: 1,
-        },
         unit_price_map: {
           default: {
             cost_unit_price: 0,
@@ -217,10 +214,8 @@ export class ModelConfigService {
             original_unit_credit: 1,
           },
         },
-        duration_step: 1,
         audio_extra_credit_multiplier: 1,
         discount: {},
-        requires_pay: false,
         requires_priority: 10,
         requires_priority_4_unlimit_mode: -1,
         supported_unlimit_mode: false,
@@ -230,8 +225,6 @@ export class ModelConfigService {
         supported_extend_prompt: false,
         supported_reference: false,
         supported_variation: false,
-        max_count: 4,
-        batch_quantity: [1],
         params: {},
       },
       'video-generation': {
@@ -248,9 +241,6 @@ export class ModelConfigService {
         disabled: false,
         unusable: false,
         display: true,
-        unit_credit_map: {
-          default: 2,
-        },
         unit_price_map: {
           default: {
             cost_unit_price: 0,
@@ -259,10 +249,8 @@ export class ModelConfigService {
             original_unit_credit: 2,
           },
         },
-        duration_step: 5,
         audio_extra_credit_multiplier: 1,
         discount: {},
-        requires_pay: false,
         requires_priority: 10,
         requires_priority_4_unlimit_mode: 9,
         supported_unlimit_mode: true,
@@ -272,8 +260,6 @@ export class ModelConfigService {
         supported_extend_prompt: false,
         supported_keep_original_sound: false,
         is_extend_model: false,
-        max_count: 1,
-        batch_quantity: [1],
         params: {},
       },
       'face-swap': {
@@ -290,9 +276,6 @@ export class ModelConfigService {
         disabled: false,
         unusable: false,
         display: true,
-        unit_credit_map: {
-          default: 1,
-        },
         unit_price_map: {
           default: {
             cost_unit_price: 0,
@@ -301,16 +284,12 @@ export class ModelConfigService {
             original_unit_credit: 1,
           },
         },
-        duration_step: 1,
         audio_extra_credit_multiplier: 1,
         discount: {},
-        requires_pay: false,
         requires_priority: 10,
         requires_priority_4_unlimit_mode: -1,
         supported_unlimit_mode: false,
         supported_unlimit_mode_start_time: 0,
-        max_count: 1,
-        batch_quantity: [1],
         params: {},
       },
     };

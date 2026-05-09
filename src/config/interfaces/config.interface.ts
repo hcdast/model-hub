@@ -59,6 +59,11 @@ export interface AppConfig {
   billing?: {
     /** 定价缓存 TTL（毫秒），默认 60000 */
     pricingCacheTtlMs?: number;
+    /**
+     * credit → USD 折算系数（用于任务详情展示）。
+     * 当模型未配置 unit_usd_map / vendor_unit_usd_map 时：USD ≈ credit × creditToUsd。
+     */
+    creditToUsd?: number;
     /** 钱包相关配置 */
     wallet?: {
       /** 低余额告警阈值，余额低于此值时触发 wallet.low_balance 事件 */

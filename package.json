@@ -26,7 +26,7 @@
     "docs:task-demos-appendix": "node scripts/generate-task-demo-appendix.cjs",
     "seed:api-client": "node scripts/seed-default-api-client.cjs",
     "seed:providers:apply": "node scripts/seed-provider-runtime-from-config.cjs",
-    "migrate:clientid": "node scripts/migrate-tenantid-to-clientid.cjs",
+    "migrate:model-config:strip-legacy": "node scripts/migrate-model-config-strip-legacy-fields.cjs",
     "verify:providers": "node scripts/verify-provider-registration.cjs",
     "seed:rbac": "node scripts/seed-rbac-permissions.cjs",
     "migrate:rbac": "node scripts/migrate-admin-users-rbac.cjs",

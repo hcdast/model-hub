@@ -65,14 +65,6 @@ export class ModelConfigValidator {
       });
     }
 
-    if (config.requires_pay !== undefined && typeof config.requires_pay !== 'boolean') {
-      errors.push({
-        field: 'requires_pay',
-        message: 'requires_pay 必须是布尔类型',
-        value: config.requires_pay,
-      });
-    }
-
     if (config.supported_unlimit_mode !== undefined && typeof config.supported_unlimit_mode !== 'boolean') {
       errors.push({
         field: 'supported_unlimit_mode',
@@ -89,19 +81,11 @@ export class ModelConfigValidator {
       });
     }
 
-    if (config.batch_quantity !== undefined && !Array.isArray(config.batch_quantity)) {
+    if (config.tags !== undefined && !Array.isArray(config.tags)) {
       errors.push({
-        field: 'batch_quantity',
-        message: 'batch_quantity 必须是数组类型',
-        value: config.batch_quantity,
-      });
-    }
-
-    if (config.unit_credit_map !== undefined && typeof config.unit_credit_map !== 'object') {
-      errors.push({
-        field: 'unit_credit_map',
-        message: 'unit_credit_map 必须是对象类型',
-        value: config.unit_credit_map,
+        field: 'output_quantity_config',
+        message: 'output_quantity_config 必须是数组类型',
+        value: config.output_quantity_config,
       });
     }
 

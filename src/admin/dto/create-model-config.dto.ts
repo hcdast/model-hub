@@ -89,13 +89,9 @@ export class CreateModelConfigDto {
   @IsOptional()
   display?: boolean;
 
-  @ApiPropertyOptional({ description: '单位积分映射', example: { default: 1 } })
-  @IsObject()
-  @IsOptional()
-  unit_credit_map?: Record<string, any>;
-
   @ApiPropertyOptional({
-    description: '单位价格映射',
+    description:
+      '单位价格映射；支持 default 与分辨率等档位键（与请求 input.resolution / input.size 一致）。每档可为对象：cost_unit_price（$/用量单位）、sale_unit_price（$/credit）、unit_credit 等。',
     example: {
       default: {
         cost_unit_price: 0,
@@ -109,11 +105,25 @@ export class CreateModelConfigDto {
   @IsOptional()
   unit_price_map?: Record<string, any>;
 
-  @ApiPropertyOptional({ description: '时长步长', example: 1 })
+  @ApiPropertyOptional({
+    description:
+      '厂商成本 USD 单价兜底（$/用量单位）。优先使用 unit_price_map 命中档位内的 cost_unit_price；档位来自任务 input.resolution/size，无则 default。',
+    example: 0.05,
+  })
   @IsNumber()
   @IsOptional()
-  @Min(1)
-  duration_step?: number;
+  @Min(0)
+  cost_unit_price?: number;
+
+  @ApiPropertyOptional({
+    description:
+      '对客户 credit 的 USD 单价兜底（$/credit）。优先使用 unit_price_map 命中档位内的 sale_unit_price；档位规则同上。',
+    example: 0.002,
+  })
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  sale_unit_price?: number;
 
   @ApiPropertyOptional({ description: '音频额外积分倍数', example: 1 })
   @IsNumber()
@@ -125,11 +135,6 @@ export class CreateModelConfigDto {
   @IsObject()
   @IsOptional()
   discount?: Record<string, any>;
-
-  @ApiPropertyOptional({ description: '是否需要付费', example: false })
-  @IsBoolean()
-  @IsOptional()
-  requires_pay?: boolean;
 
   @ApiPropertyOptional({ description: '所需优先级', example: 10 })
   @IsNumber()
@@ -208,20 +213,10 @@ export class CreateModelConfigDto {
   @IsOptional()
   supported_web_search?: boolean;
 
-  @ApiPropertyOptional({ description: '是否为 Akool TP', example: false })
-  @IsBoolean()
-  @IsOptional()
-  is_akool_tp?: boolean;
-
   @ApiPropertyOptional({ description: '是否为扩展模型', example: false })
   @IsBoolean()
   @IsOptional()
   is_extend_model?: boolean;
-
-  @ApiPropertyOptional({ description: '是否为 SD2', example: false })
-  @IsBoolean()
-  @IsOptional()
-  is_sd2?: boolean;
 
   @ApiPropertyOptional({ description: '是否支持元素', example: false })
   @IsBoolean()
@@ -243,16 +238,14 @@ export class CreateModelConfigDto {
   @IsOptional()
   support_all_in_one_reference?: boolean;
 
-  @ApiPropertyOptional({ description: '最大数量', example: 4 })
-  @IsNumber()
-  @IsOptional()
-  @Min(1)
-  max_count?: number;
-
-  @ApiPropertyOptional({ description: '批量数量选项', example: [1] })
+  @ApiPropertyOptional({
+    description:
+      '出图数量与对应优先级档位（与 AGI outputQuantityConfig 一致），如 [{ value: 1, level: 10 }, ...]',
+    example: [{ value: 1, level: 10 }],
+  })
   @IsArray()
   @IsOptional()
-  batch_quantity?: number[];
+  output_quantity_config?: any[];
 
   @ApiPropertyOptional({ description: '最大资源数量' })
   @IsNumber()
