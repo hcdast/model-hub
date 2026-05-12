@@ -4,6 +4,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { ModelConfig, ModelConfigDocument } from '../database/schemas/model-config.schema';
 import { generateParamDoc } from '../common/utils/param-doc-generator';
+import { validateMandatoryUnitPriceMap } from '../billing/unit-price-map.util';
 
 @ApiTags('模型配置')
 @Controller('v1/models')
@@ -96,6 +97,10 @@ export class ModelConfigController {
   @ApiResponse({ status: 200, description: '操作成功' })
   async upsertModel(@Body() body: Record<string, any>) {
     if (!body.model_name) return { code: 1001, message: 'model_name is required' };
+    const upmCheck = validateMandatoryUnitPriceMap(body.unit_price_map);
+    if (!upmCheck.valid) {
+      return { code: 1001, message: upmCheck.errors.join('；') };
+    }
 
     const result = await this.modelConfigModel.findOneAndUpdate(
       { model_name: body.model_name },
@@ -119,6 +124,11 @@ export class ModelConfigController {
 
     for (const model of models) {
       if (!model.model_name) { skipped++; continue; }
+
+      const upmCheck = validateMandatoryUnitPriceMap(model.unit_price_map);
+      if (!upmCheck.valid) {
+        return { code: 1001, message: `${model.model_name}: ${upmCheck.errors.join('；')}` };
+      }
 
       const existing = await this.modelConfigModel.findOne({ model_name: model.model_name }).lean();
 

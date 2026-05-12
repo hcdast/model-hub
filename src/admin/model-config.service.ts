@@ -204,8 +204,6 @@ export class ModelConfigService {
         tags: [],
         sort: 100,
         disabled: false,
-        unusable: false,
-        display: true,
         unit_price_map: {
           default: {
             cost_unit_price: 0,
@@ -214,17 +212,6 @@ export class ModelConfigService {
             original_unit_credit: 1,
           },
         },
-        audio_extra_credit_multiplier: 1,
-        discount: {},
-        requires_priority: 10,
-        requires_priority_4_unlimit_mode: -1,
-        supported_unlimit_mode: false,
-        supported_unlimit_mode_start_time: 0,
-        supported_last_frame: false,
-        supported_first_frame: false,
-        supported_extend_prompt: false,
-        supported_reference: false,
-        supported_variation: false,
         params: {},
       },
       'video-generation': {
@@ -239,8 +226,6 @@ export class ModelConfigService {
         tags: [],
         sort: 100,
         disabled: false,
-        unusable: false,
-        display: true,
         unit_price_map: {
           default: {
             cost_unit_price: 0,
@@ -249,17 +234,6 @@ export class ModelConfigService {
             original_unit_credit: 2,
           },
         },
-        audio_extra_credit_multiplier: 1,
-        discount: {},
-        requires_priority: 10,
-        requires_priority_4_unlimit_mode: 9,
-        supported_unlimit_mode: true,
-        supported_unlimit_mode_start_time: 0,
-        supported_last_frame: false,
-        supported_first_frame: false,
-        supported_extend_prompt: false,
-        supported_keep_original_sound: false,
-        is_extend_model: false,
         params: {},
       },
       'face-swap': {
@@ -274,8 +248,6 @@ export class ModelConfigService {
         tags: [],
         sort: 100,
         disabled: false,
-        unusable: false,
-        display: true,
         unit_price_map: {
           default: {
             cost_unit_price: 0,
@@ -284,12 +256,6 @@ export class ModelConfigService {
             original_unit_credit: 1,
           },
         },
-        audio_extra_credit_multiplier: 1,
-        discount: {},
-        requires_priority: 10,
-        requires_priority_4_unlimit_mode: -1,
-        supported_unlimit_mode: false,
-        supported_unlimit_mode_start_time: 0,
         params: {},
       },
     };

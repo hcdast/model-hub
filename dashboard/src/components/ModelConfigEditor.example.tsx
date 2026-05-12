@@ -163,8 +163,6 @@ export const CompleteCreateExample: React.FC = () => {
     tags: [],
     sort: 100,
     disabled: false,
-    unusable: false,
-    display: true,
     unit_price_map: {
       default: {
         cost_unit_price: 0,
@@ -173,9 +171,6 @@ export const CompleteCreateExample: React.FC = () => {
         original_unit_credit: 1
       }
     },
-    audio_extra_credit_multiplier: 1,
-    discount: {},
-    requires_priority: 10,
     params: {}
   };
 
@@ -193,7 +188,7 @@ export const CompleteCreateExample: React.FC = () => {
       const config = JSON.parse(jsonValue);
       
       // 验证必填字段
-      const requiredFields = ['model_name', 'model_type', 'provider', 'label', 'service'];
+      const requiredFields = ['model_name', 'model_type', 'provider', 'label', 'service', 'unit_price_map'];
       const missingFields = requiredFields.filter(field => !config[field]);
       
       if (missingFields.length > 0) {

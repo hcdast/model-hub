@@ -9,7 +9,7 @@ import { RequirePermissions } from './decorators/require-permissions.decorator';
 import { CreateModelConfigDto } from './dto/create-model-config.dto';
 import { UpdateModelConfigDto } from './dto/update-model-config.dto';
 import { ModelConfigService } from './model-config.service';
-import { pickCreditReferenceUnitFromPriceMap } from '../billing/unit-price-map.util';
+import { pickCreditReferenceUnitFromPriceMap, validateMandatoryUnitPriceMap } from '../billing/unit-price-map.util';
 
 @ApiTags('管理后台 - 模型配置')
 @ApiBearerAuth('AdminJwt')
@@ -207,6 +207,10 @@ export class AdminModelConfigController {
   ) {
     if (!body.unit_price_map || typeof body.unit_price_map !== 'object' || Object.keys(body.unit_price_map).length === 0) {
       return { code: 1001, message: 'unit_price_map 不能为空' };
+    }
+    const upmCheck = validateMandatoryUnitPriceMap(body.unit_price_map);
+    if (!upmCheck.valid) {
+      return { code: 1001, message: upmCheck.errors.join('；') };
     }
 
     const result = await this.modelConfigModel.findByIdAndUpdate(

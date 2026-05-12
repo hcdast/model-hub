@@ -90,7 +90,7 @@ export default function EditModelConfigPage() {
     }
 
     // 验证必填字段
-    const requiredFields = ['model_name', 'model_type', 'provider', 'label', 'service'];
+    const requiredFields = ['model_name', 'model_type', 'provider', 'label', 'service', 'unit_price_map'];
     const missingFields = requiredFields.filter((field) => !config[field]);
     if (missingFields.length > 0) {
       ErrorHandler.showWarning(`缺少必填字段: ${missingFields.join(', ')}`);

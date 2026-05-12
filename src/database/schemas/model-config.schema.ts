@@ -5,11 +5,10 @@ export type ModelConfigDocument = HydratedDocument<ModelConfig>;
 
 /**
  * 模型配置 Schema —— collection: model_configs。
- * 数据可由种子脚本导入或由 Model-Hub 管理后台维护。
+ * 计费以 unit_price_map（含 mandatory default 档）为唯一来源。
  */
 @Schema({ timestamps: false, versionKey: false, collection: 'model_configs' })
 export class ModelConfig {
-  // ===== 基础标识 =====
   @Prop({ required: true, index: true })
   model_name!: string;
 
@@ -19,8 +18,6 @@ export class ModelConfig {
   @Prop({ required: true, index: true })
   provider!: string;
 
-  // provider_model_name: 提供商的模型标识符，用于路由和调用
-  // 这个字段应该是唯一的，因为它是完整的模型路径
   @Prop({ unique: true, sparse: true, index: true })
   provider_model_name?: string;
 
@@ -42,116 +39,15 @@ export class ModelConfig {
   @Prop({ default: false })
   disabled!: boolean;
 
-  @Prop({ default: false })
-  unusable!: boolean;
-
-  @Prop({ default: true })
-  display!: boolean;
-
-  // ===== 服务配置 =====
   @Prop({ default: '' })
   service!: string;
 
-  // ===== 计费配置 =====
   @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
   unit_price_map!: Record<string, any>;
 
-  /** 对外 USD 单价（每计费用量单位：秒 / 张 / 千 token 等），与 billing.usageType 对应 */
-  @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
-  unit_usd_map!: Record<string, any>;
-
-  /** 厂商成本 USD 单价，与 billing.usageType 一致：duration→$/秒，count→$/张（token 时为每计量单位的 $） */
-  @Prop()
-  cost_unit_price?: number;
-
-  /** 对客户 credit 的 USD 单价（每 1 credit 多少美元）；实际收益（$）≈ 实际费用(credit) × sale_unit_price */
-  @Prop()
-  sale_unit_price?: number;
-
-  @Prop({ default: 1 })
-  audio_extra_credit_multiplier!: number;
-
-  @Prop({ type: MongooseSchema.Types.Mixed })
-  discount?: Record<string, any>;
-
-  // ===== 访问控制 =====
-  @Prop({ default: 10 })
-  requires_priority!: number;
-
-  @Prop({ default: -1 })
-  requires_priority_4_unlimit_mode!: number;
-
-  @Prop()
-  requires_priority_4_unlimit_mode_monthly?: number;
-
-  @Prop()
-  requires_priority_4_unlimit_mode_yearly?: number;
-
-  @Prop({ default: false })
-  supported_unlimit_mode!: boolean;
-
-  @Prop({ default: 0 })
-  supported_unlimit_mode_start_time!: number;
-
-  @Prop({ type: MongooseSchema.Types.Mixed })
-  supported_unlimit_days_monthly?: Record<string, any>;
-
-  @Prop({ type: MongooseSchema.Types.Mixed })
-  supported_unlimit_days_yearly?: Record<string, any>;
-
-  // ===== 功能开关 =====
-  @Prop({ default: false })
-  supported_last_frame!: boolean;
-
-  @Prop({ default: false })
-  supported_first_frame!: boolean;
-
-  @Prop({ default: false })
-  supported_extend_prompt!: boolean;
-
-  @Prop({ default: false })
-  supported_reference!: boolean;
-
-  @Prop({ default: false })
-  supported_variation!: boolean;
-
-  @Prop({ default: false })
-  supported_keep_original_sound!: boolean;
-
-  @Prop({ default: false })
-  supported_web_search!: boolean;
-
-  @Prop({ default: false })
-  is_extend_model!: boolean;
-
-  @Prop({ default: false })
-  supports_elements!: boolean;
-
-  @Prop({ default: false })
-  supports_reference!: boolean;
-
-  @Prop({ default: false })
-  supports_inline_media!: boolean;
-
-  @Prop({ default: false })
-  support_all_in_one_reference!: boolean;
-
-  // ===== 数量与限制 =====
-  /** 出图/出片数量与优先级档位（与 AGI 枚举 outputQuantityConfig 一致） */
-  @Prop({ type: [MongooseSchema.Types.Mixed] })
-  output_quantity_config?: any[];
-
-  @Prop()
-  max_resource_count?: number;
-
-  @Prop({ type: MongooseSchema.Types.Mixed })
-  lock_duration_limit?: Record<string, any>;
-
-  // ===== 完整参数配置 =====
   @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
   params!: Record<string, any>;
 
-  // ===== 元数据 =====
   @Prop({ default: () => Date.now() })
   create_time!: number;
 
@@ -161,10 +57,7 @@ export class ModelConfig {
 
 export const ModelConfigSchema = SchemaFactory.createForClass(ModelConfig);
 
-// 复合唯一索引：model_name + model_type + service 组合唯一
 ModelConfigSchema.index({ model_name: 1, model_type: 1, service: 1 }, { unique: true });
-
-// 其他查询索引
 ModelConfigSchema.index({ model_type: 1, disabled: 1, sort: -1 });
 ModelConfigSchema.index({ provider: 1, model_type: 1 });
 ModelConfigSchema.index({ create_time: -1 });
