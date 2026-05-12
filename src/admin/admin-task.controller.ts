@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Param, Query, Body, UseGuards, Req, Logger, Inject } from '@nestjs/common';
+import { Controller, Get, Post, Put, Param, Query, Body, UseGuards, Req, Logger } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { InjectModel } from '@nestjs/mongoose';
 import { InjectQueue } from '@nestjs/bull';
@@ -18,9 +18,8 @@ import { TaskService } from '../task/task.service';
 import { TaskResourceMetadataEnqueueService } from '../queue/task-resource-metadata-enqueue.service';
 import { TERMINAL_STATUSES } from '../common/constants/task-status';
 import { Request } from 'express';
-import { APP_CONFIG } from '../config/config.module';
-import type { AppConfig } from '../config/interfaces/config.interface';
 import { resolveUnitPriceMapTier, pickCreditReferenceUnitFromPriceMap } from '../billing/unit-price-map.util';
+import { roundMoney } from '../common/utils/money.util';
 
 @ApiTags('管理后台 - 任务管理')
 @ApiBearerAuth('AdminJwt')
@@ -40,7 +39,6 @@ export class AdminTaskController {
     private readonly timingService: TaskTimingService,
     private readonly taskService: TaskService,
     private readonly resourceMetadataEnqueue: TaskResourceMetadataEnqueueService,
-    @Inject(APP_CONFIG) private readonly appConfig: AppConfig,
   ) {}
 
   @Get()
@@ -109,17 +107,29 @@ export class AdminTaskController {
         billingPolicy: billingRecord.billingPolicy,
         usageType: billingRecord.usageType,
         estimatedUsage: billingRecord.estimatedUsage,
-        estimatedCost: billingRecord.estimatedCost,
+        estimatedCost:
+          typeof billingRecord.estimatedCost === 'number'
+            ? roundMoney(billingRecord.estimatedCost)
+            : billingRecord.estimatedCost,
         actualUsage: billingRecord.actualUsage,
-        actualCost: billingRecord.actualCost,
-        unitPrice: billingRecord.unitPrice,
+        actualCost:
+          typeof billingRecord.actualCost === 'number'
+            ? roundMoney(billingRecord.actualCost)
+            : billingRecord.actualCost,
+        unitPrice:
+          typeof billingRecord.unitPrice === 'number'
+            ? roundMoney(billingRecord.unitPrice)
+            : billingRecord.unitPrice,
         currency: billingRecord.currency,
         settledAt: billingRecord.settledAt,
         refundedAt: billingRecord.refundedAt,
         failReason: billingRecord.failReason,
       };
 
-      const actualRev = billingRecord.actualCost;
+      const actualRev =
+        typeof billingRecord.actualCost === 'number'
+          ? roundMoney(billingRecord.actualCost)
+          : billingRecord.actualCost;
       const usageVal = billingRecord.actualUsage;
       billing.actualRevenue = actualRev;
 
@@ -137,18 +147,15 @@ export class AdminTaskController {
           cfg.unit_price_map as Record<string, unknown> | undefined,
           pricingTierKey,
         );
-        if (unit > 0) providerReferenceCost = this.roundMoney(unit * usageVal, 4);
+        if (unit > 0) providerReferenceCost = roundMoney(unit * usageVal, 2);
       }
       if (providerReferenceCost !== undefined) {
         billing.providerReferenceCost = providerReferenceCost;
       }
 
-      const creditToUsd = this.appConfig.billing?.creditToUsd;
       const usdResolved = cfg ? this.resolveUsdPricingFromCfg(cfg, pricingTierKey) : {};
       billing.unitPriceTierUsed = usdResolved.unitPriceTierUsed ?? null;
       const { costUnitUsd, saleUsdPerCredit } = usdResolved;
-      const unitUsd = cfg ? this.pickPositiveUsdFromMap(cfg.unit_usd_map as Record<string, unknown>) : undefined;
-      const vendorUsd = cfg ? this.pickPositiveUsdFromMap(cfg.vendor_unit_usd_map as Record<string, unknown>) : undefined;
 
       let actualRevenueUsd: number | undefined;
       if (
@@ -156,44 +163,27 @@ export class AdminTaskController {
         typeof actualRev === 'number' &&
         !Number.isNaN(actualRev)
       ) {
-        actualRevenueUsd = this.roundMoney(actualRev * saleUsdPerCredit, 4);
-      } else if (unitUsd != null && typeof usageVal === 'number' && !Number.isNaN(usageVal)) {
-        actualRevenueUsd = this.roundMoney(unitUsd * usageVal, 4);
-      } else if (
-        creditToUsd != null &&
-        creditToUsd > 0 &&
-        typeof actualRev === 'number' &&
-        !Number.isNaN(actualRev)
-      ) {
-        actualRevenueUsd = this.roundMoney(actualRev * creditToUsd, 4);
+        actualRevenueUsd = roundMoney(actualRev * saleUsdPerCredit, 2);
       }
 
       let providerCostUsd: number | undefined;
       if (costUnitUsd != null && typeof usageVal === 'number' && !Number.isNaN(usageVal)) {
-        providerCostUsd = this.roundMoney(costUnitUsd * usageVal, 4);
-      } else if (vendorUsd != null && typeof usageVal === 'number' && !Number.isNaN(usageVal)) {
-        providerCostUsd = this.roundMoney(vendorUsd * usageVal, 4);
-      } else if (
-        creditToUsd != null &&
-        creditToUsd > 0 &&
-        providerReferenceCost != null
-      ) {
-        providerCostUsd = this.roundMoney(providerReferenceCost * creditToUsd, 4);
+        providerCostUsd = roundMoney(costUnitUsd * usageVal, 2);
       }
 
       if (actualRevenueUsd !== undefined) billing.actualRevenueUsd = actualRevenueUsd;
       if (providerCostUsd !== undefined) billing.providerCostUsd = providerCostUsd;
 
       if (actualRevenueUsd !== undefined && providerCostUsd !== undefined) {
-        const gpUsd = this.roundMoney(actualRevenueUsd - providerCostUsd, 4);
+        const gpUsd = roundMoney(actualRevenueUsd - providerCostUsd, 2);
         billing.grossProfitUsd = gpUsd;
         if (actualRevenueUsd > 0) {
-          billing.profitMarginPercent = this.roundMoney((gpUsd / actualRevenueUsd) * 100, 2);
+          billing.profitMarginPercent = roundMoney((gpUsd / actualRevenueUsd) * 100, 2);
         }
       }
 
       if (providerReferenceCost !== undefined && typeof actualRev === 'number' && !Number.isNaN(actualRev)) {
-        billing.grossProfit = this.roundMoney(actualRev - providerReferenceCost, 4);
+        billing.grossProfit = roundMoney(actualRev - providerReferenceCost, 2);
       }
 
       data.billing = billing;
@@ -328,17 +318,13 @@ export class AdminTaskController {
           provider,
           disabled: { $ne: true },
         })
-        .select(
-          'unit_price_map unit_usd_map vendor_unit_usd_map cost_unit_price sale_unit_price',
-        )
+        .select('unit_price_map')
         .lean();
       if (exact) return exact as Record<string, unknown>;
     }
     const fallback = await this.modelConfigModel
       .findOne({ model_name: modelName, disabled: { $ne: true } })
-      .select(
-        'unit_price_map unit_usd_map vendor_unit_usd_map cost_unit_price sale_unit_price',
-      )
+      .select('unit_price_map')
       .lean();
     return fallback ? (fallback as Record<string, unknown>) : null;
   }
@@ -355,8 +341,8 @@ export class AdminTaskController {
   }
 
   /**
-   * 解析 USD：优先 unit_price_map 中对应分辨率档位（及 default）内的 cost_unit_price / sale_unit_price；
-   * 仍缺则回退模型顶层 cost_unit_price / sale_unit_price。
+   * 解析 USD：仅从 unit_price_map 命中档位（及 default）内的 cost_unit_price / sale_unit_price。
+   * cost 允许为 0；sale 须为正数才有 saleUsdPerCredit。
    */
   private resolveUsdPricingFromCfg(
     cfg: Record<string, unknown>,
@@ -369,11 +355,8 @@ export class AdminTaskController {
     const upm = cfg.unit_price_map as Record<string, unknown> | undefined;
     const { entry, usedKey } = resolveUnitPriceMapTier(upm, tierKey);
 
-    let costUnitUsd = entry ? this.pickPositiveScalar(entry.cost_unit_price) : undefined;
-    let saleUsdPerCredit = entry ? this.pickPositiveScalar(entry.sale_unit_price) : undefined;
-
-    if (costUnitUsd == null) costUnitUsd = this.pickPositiveScalar(cfg.cost_unit_price);
-    if (saleUsdPerCredit == null) saleUsdPerCredit = this.pickPositiveScalar(cfg.sale_unit_price);
+    const costUnitUsd = entry ? this.pickUsdPerUsageCost(entry.cost_unit_price) : undefined;
+    const saleUsdPerCredit = entry ? this.pickPositiveScalar(entry.sale_unit_price) : undefined;
 
     return {
       costUnitUsd,
@@ -387,20 +370,9 @@ export class AdminTaskController {
     return undefined;
   }
 
-  private pickPositiveUsdFromMap(map?: Record<string, unknown>): number | undefined {
-    if (!map || typeof map !== 'object') return undefined;
-    if (typeof map.default === 'number' && map.default > 0 && Number.isFinite(map.default)) {
-      return map.default;
-    }
-    for (const v of Object.values(map)) {
-      if (typeof v === 'number' && v > 0 && Number.isFinite(v)) return v;
-    }
+  private pickUsdPerUsageCost(value: unknown): number | undefined {
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value;
     return undefined;
-  }
-
-  private roundMoney(n: number, decimals: number): number {
-    const f = 10 ** decimals;
-    return Math.round(n * f) / f;
   }
 
   /** 为任务列表/详情附加 api_clients.name，便于后台区分调用方 */

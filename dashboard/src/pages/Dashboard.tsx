@@ -23,6 +23,28 @@ import {
   DailySummary,
 } from '../utils/trend-chart-helpers';
 
+/** 列表中的失败/超时任务摘要展示 */
+function formatTaskFailureReason(task: any): string {
+  const err = task?.error;
+  if (err && typeof err === 'object') {
+    const parts = [err.message, err.providerMessage].filter(
+      (x: unknown) => x != null && String(x).trim().length > 0,
+    ) as string[];
+    const text = parts.filter((s, i, a) => a.indexOf(s) === i).join(' · ');
+    if (text) return text;
+    if (err.code || err.providerCode) return String(err.code || err.providerCode);
+  }
+  if (task?.status === 'TIMEOUT') return '任务超时（未在时限内完成）';
+  return '—';
+}
+
+function formatTaskErrorCode(task: any): string {
+  const err = task?.error;
+  if (!err || typeof err !== 'object') return '—';
+  const code = err.code ?? err.providerCode;
+  return code != null && String(code).trim() !== '' ? String(code) : '—';
+}
+
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { hasPermission } = usePermission();
@@ -175,7 +197,7 @@ export default function DashboardPage() {
           <Col xs={24} sm={12} lg={6}>
             <StatCard
               title="模型消耗"
-              value={costData?.totalSpend?.toFixed(4) || '0.0000'}
+              value={costData?.totalSpend?.toFixed(2) || '0.00'}
               prefix={<DollarOutlined />}
               suffix="credits"
             />
@@ -183,7 +205,7 @@ export default function DashboardPage() {
           <Col xs={24} sm={12} lg={6}>
             <StatCard
               title="路由成本"
-              value="0.0000"
+              value="0.00"
               prefix={<DollarOutlined />}
               suffix="credits"
               valueStyle={{ color: '#8c8c8c' }}
@@ -192,7 +214,7 @@ export default function DashboardPage() {
           <Col xs={24} sm={12} lg={6}>
             <StatCard
               title="缓存节省"
-              value="0.0000"
+              value="0.00"
               prefix={<DollarOutlined />}
               suffix="credits"
               valueStyle={{ color: '#52c41a' }}
@@ -333,39 +355,80 @@ export default function DashboardPage() {
                   rowKey="taskId"
                   size="small"
                   pagination={false}
+                  scroll={{ x: 1180 }}
                   columns={[
                     {
                       title: 'TaskId',
                       dataIndex: 'taskId',
                       key: 'taskId',
-                      width: 220,
+                      width: 200,
                       ellipsis: true,
                       render: (id: string) => <a onClick={() => navigate(`/tasks/${id}`)}>{id}</a>,
+                    },
+                    {
+                      title: '调用方',
+                      key: 'client',
+                      width: 140,
+                      ellipsis: true,
+                      render: (_: unknown, r: any) => (
+                        <Typography.Text ellipsis={{ tooltip: true }}>
+                          {r.clientName || r.clientId || '—'}
+                        </Typography.Text>
+                      ),
                     },
                     {
                       title: '状态',
                       dataIndex: 'status',
                       key: 'status',
-                      width: 120,
+                      width: 100,
                       render: (s: string) => <StatusTag status={s} />,
                     },
                     {
                       title: '模型',
                       dataIndex: 'model',
                       key: 'model',
+                      width: 200,
                       ellipsis: true,
                     },
                     {
                       title: '厂商',
                       dataIndex: 'provider',
                       key: 'provider',
-                      width: 130,
+                      width: 120,
+                    },
+                    {
+                      title: '失败原因',
+                      key: 'failureReason',
+                      ellipsis: true,
+                      render: (_: unknown, r: any) => (
+                        <Typography.Text ellipsis={{ tooltip: formatTaskFailureReason(r) }}>
+                          {formatTaskFailureReason(r)}
+                        </Typography.Text>
+                      ),
+                    },
+                    {
+                      title: '错误码',
+                      key: 'errorCode',
+                      width: 110,
+                      ellipsis: true,
+                      render: (_: unknown, r: any) => (
+                        <Typography.Text type="secondary" ellipsis={{ tooltip: true }}>
+                          {formatTaskErrorCode(r)}
+                        </Typography.Text>
+                      ),
                     },
                     {
                       title: '创建时间',
                       dataIndex: 'createdAt',
                       key: 'createdAt',
-                      width: 180,
+                      width: 168,
+                      render: (t: string) => formatDateTime(t),
+                    },
+                    {
+                      title: '更新时间',
+                      dataIndex: 'updatedAt',
+                      key: 'updatedAt',
+                      width: 168,
                       render: (t: string) => formatDateTime(t),
                     },
                   ]}

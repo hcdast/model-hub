@@ -30,6 +30,7 @@ import { UsageTrackerService } from '../api-client/usage-tracker.service';
 import { validateParams } from '../common/utils/param-validator';
 import { transformParams } from '../common/utils/param-transformer';
 import { ParamDefinitions } from '../common/interfaces/param-definition.interface';
+import { roundMoney } from '../common/utils/money.util';
 import { BillingAdapter } from '../billing/billing.adapter';
 import { BillingService } from '../billing/billing.service';
 import { InsufficientBalanceException } from '../billing/exceptions/insufficient-balance.exception';
@@ -542,10 +543,19 @@ export class TaskService {
         billingPolicy: billingRecord.billingPolicy,
         usageType: billingRecord.usageType,
         estimatedUsage: billingRecord.estimatedUsage,
-        estimatedCost: billingRecord.estimatedCost,
+        estimatedCost:
+          typeof billingRecord.estimatedCost === 'number'
+            ? roundMoney(billingRecord.estimatedCost)
+            : billingRecord.estimatedCost,
         actualUsage: billingRecord.actualUsage,
-        actualCost: billingRecord.actualCost,
-        unitPrice: billingRecord.unitPrice,
+        actualCost:
+          typeof billingRecord.actualCost === 'number'
+            ? roundMoney(billingRecord.actualCost)
+            : billingRecord.actualCost,
+        unitPrice:
+          typeof billingRecord.unitPrice === 'number'
+            ? roundMoney(billingRecord.unitPrice)
+            : billingRecord.unitPrice,
         currency: billingRecord.currency,
         settledAt: billingRecord.settledAt,
         refundedAt: billingRecord.refundedAt,

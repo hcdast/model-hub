@@ -473,23 +473,10 @@ export default function TaskDetailPage() {
               <Descriptions.Item label="状态">
                 {modelDetail.disabled ? <Tag color="red">已禁用</Tag> : <Tag color="green">启用</Tag>}
               </Descriptions.Item>
-              <Descriptions.Item label="cost_unit_price ($/用量单位)">
-                {modelDetail.cost_unit_price != null ? modelDetail.cost_unit_price : '—'}
-              </Descriptions.Item>
-              <Descriptions.Item label="sale_unit_price ($/credit)">
-                {modelDetail.sale_unit_price != null ? modelDetail.sale_unit_price : '—'}
-              </Descriptions.Item>
-              <Descriptions.Item label="unit_usd_map">
+              <Descriptions.Item label="unit_price_map">
                 <Typography.Paragraph copyable style={{ marginBottom: 0, fontSize: 12 }}>
-                  {modelDetail.unit_usd_map && Object.keys(modelDetail.unit_usd_map).length > 0
-                    ? JSON.stringify(modelDetail.unit_usd_map)
-                    : '—'}
-                </Typography.Paragraph>
-              </Descriptions.Item>
-              <Descriptions.Item label="vendor_unit_usd_map">
-                <Typography.Paragraph copyable style={{ marginBottom: 0, fontSize: 12 }}>
-                  {modelDetail.vendor_unit_usd_map && Object.keys(modelDetail.vendor_unit_usd_map).length > 0
-                    ? JSON.stringify(modelDetail.vendor_unit_usd_map)
+                  {modelDetail.unit_price_map && Object.keys(modelDetail.unit_price_map).length > 0
+                    ? JSON.stringify(modelDetail.unit_price_map, null, 2)
                     : '—'}
                 </Typography.Paragraph>
               </Descriptions.Item>
