@@ -42,6 +42,7 @@ export class RoleManagementController {
         displayName: role.displayName,
         description: role.description,
         permissions: role.permissions,
+        menus: role.menus || [],
         isSystem: role.isSystem,
         enabled: role.enabled,
         createdAt: roleDoc.createdAt,
@@ -51,7 +52,7 @@ export class RoleManagementController {
 
   @Get()
   @RequirePermissions('role:read')
-  @ApiOperation({ summary: '查询角色列表', description: '需要权限: role:read。返回所有角色及其关联的权限列表' })
+  @ApiOperation({ summary: '查询角色列表', description: '需要权限: role:read。返回所有角色及其关联的权限和菜单列表' })
   @ApiResponse({ status: 200, description: '查询成功' })
   @ApiResponse({ status: 403, description: '权限不足' })
   async listRoles() {
@@ -66,6 +67,7 @@ export class RoleManagementController {
           displayName: role.displayName,
           description: role.description,
           permissions: role.permissions,
+          menus: role.menus || [],
           isSystem: role.isSystem,
           enabled: role.enabled,
           createdAt: roleDoc.createdAt,
@@ -92,6 +94,7 @@ export class RoleManagementController {
         displayName: role.displayName,
         description: role.description,
         permissions: role.permissions,
+        menus: role.menus || [],
         isSystem: role.isSystem,
         enabled: role.enabled,
         createdAt: roleDoc.createdAt,
@@ -102,7 +105,7 @@ export class RoleManagementController {
 
   @Put(':name')
   @RequirePermissions('role:update')
-  @ApiOperation({ summary: '更新角色信息', description: '需要权限: role:update。更新权限后会自动清除相关用户的权限缓存' })
+  @ApiOperation({ summary: '更新角色信息', description: '需要权限: role:update。更新权限或菜单后会自动清除相关用户的缓存' })
   @ApiResponse({ status: 200, description: '更新成功' })
   @ApiResponse({ status: 400, description: '权限无效' })
   @ApiResponse({ status: 404, description: '角色不存在' })
@@ -121,6 +124,7 @@ export class RoleManagementController {
         displayName: role.displayName,
         description: role.description,
         permissions: role.permissions,
+        menus: role.menus || [],
         enabled: role.enabled,
         updatedAt: roleDoc.updatedAt,
       },
@@ -158,6 +162,23 @@ export class RoleManagementController {
     return {
       code: 0,
       message: 'Permissions assigned successfully',
+    };
+  }
+
+  @Put(':name/menus')
+  @RequirePermissions('role:update', 'menu:read')
+  @ApiOperation({ summary: '为角色分配菜单', description: '需要权限: role:update AND menu:read。更新后自动清除相关用户的缓存' })
+  @ApiResponse({ status: 200, description: '菜单分配成功' })
+  @ApiResponse({ status: 404, description: '角色不存在' })
+  @ApiResponse({ status: 403, description: '权限不足' })
+  async assignMenus(
+    @Param('name') name: string,
+    @Body('menus') menus: string[],
+  ) {
+    await this.roleManagementService.assignMenus(name, menus);
+    return {
+      code: 0,
+      message: 'Menus assigned successfully',
     };
   }
 

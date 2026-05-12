@@ -2,10 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { SyncPlugin } from '../../common/interfaces/sync-plugin.interface';
 import { FeatureModuleDescriptor } from '../../common/interfaces/feature-module.interface';
 import { MenuRegistryService } from '../services/menu-registry.service';
+import { MenuManagementService } from '../menu-management.service';
 
 /**
  * 菜单同步插件
- * 负责从功能模块描述符中收集菜单配置，注册到 MenuRegistryService。
+ * 负责从功能模块描述符中收集菜单配置，注册到 MenuRegistryService 并持久化到数据库。
  * 执行顺序 order=30，在 PermissionSync(10) 和 AuditAnchor(20) 之后执行。
  */
 @Injectable()
@@ -15,11 +16,14 @@ export class MenuSyncPlugin implements SyncPlugin {
 
   private readonly logger = new Logger(MenuSyncPlugin.name);
 
-  constructor(private readonly menuRegistryService: MenuRegistryService) {}
+  constructor(
+    private readonly menuRegistryService: MenuRegistryService,
+    private readonly menuManagementService: MenuManagementService,
+  ) {}
 
   /**
    * 系统启动时从描述符同步菜单配置
-   * 遍历所有描述符的 menus 配置，调用 menuRegistryService.registerMenuItem() 注册菜单项
+   * 同时注册到内存（MenuRegistryService）和数据库（MenuConfig collection）
    */
   async onSystemStartup(
     descriptors: FeatureModuleDescriptor[],
@@ -30,7 +34,22 @@ export class MenuSyncPlugin implements SyncPlugin {
     for (const desc of descriptors) {
       if (!desc.menus || desc.menus.length === 0) continue;
       for (const menuDef of desc.menus) {
+        // Register to in-memory registry
         this.menuRegistryService.registerMenuItem(menuDef);
+
+        // Persist to database
+        await this.menuManagementService.upsertFromDescriptor({
+          key: menuDef.path,
+          label: menuDef.label,
+          path: menuDef.path,
+          icon: menuDef.icon,
+          sortOrder: menuDef.sortOrder,
+          parentKey: menuDef.parentKey,
+          requiredPermission: menuDef.requiredPermission,
+          associatedPermissions: menuDef.associatedPermissions,
+          moduleKey: desc.moduleKey,
+        });
+
         registered++;
       }
     }

@@ -17,6 +17,9 @@ export class Role {
   @Prop({ type: [String], default: [] })
   permissions!: string[]; // 权限列表，如 ['user:create', 'user:read']
 
+  @Prop({ type: [String], default: [] })
+  menus!: string[]; // 授权菜单 key 列表，如 ['/tasks', '/models']
+
   @Prop({ default: false })
   isSystem!: boolean; // 是否为系统预定义角色
 

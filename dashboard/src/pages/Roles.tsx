@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Table, Card, Button, Space, Tag, message, Modal, Form, Input, Collapse,
-  Checkbox, Badge, Popconfirm, Tooltip,
+  Checkbox, Badge, Popconfirm, Tooltip, Tree, Tabs, Alert,
 } from 'antd';
 import {
-  PlusOutlined, ReloadOutlined, LockOutlined,
+  PlusOutlined, ReloadOutlined, LockOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
-import { roleApi, permissionApi } from '../services/api';
+import { roleApi, permissionApi, menuAdminApi } from '../services/api';
 import PageHeader from '../components/PageHeader';
 
 interface Permission {
@@ -17,6 +17,15 @@ interface Permission {
   module: string;
 }
 
+interface MenuTreeNode {
+  key: string;
+  label: string;
+  path?: string;
+  icon: string;
+  associatedPermissions?: string[];
+  children?: MenuTreeNode[];
+}
+
 export default function RolesPage() {
   const [roles, setRoles] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -24,11 +33,15 @@ export default function RolesPage() {
   // all permissions for checkbox selection
   const [permissions, setPermissions] = useState<Permission[]>([]);
 
+  // menu tree for menu authorization
+  const [menuTree, setMenuTree] = useState<MenuTreeNode[]>([]);
+
   // create modal
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createForm] = Form.useForm();
   const [createSelectedPerms, setCreateSelectedPerms] = useState<string[]>([]);
+  const [createSelectedMenus, setCreateSelectedMenus] = useState<string[]>([]);
 
   // edit modal
   const [editOpen, setEditOpen] = useState(false);
@@ -36,6 +49,7 @@ export default function RolesPage() {
   const [editingRole, setEditingRole] = useState<any>(null);
   const [editForm] = Form.useForm();
   const [editSelectedPerms, setEditSelectedPerms] = useState<string[]>([]);
+  const [editSelectedMenus, setEditSelectedMenus] = useState<string[]>([]);
 
   // group permissions by module
   const groupedPermissions = useMemo(() => {
@@ -67,9 +81,19 @@ export default function RolesPage() {
     }
   }, []);
 
+  const fetchMenuTree = useCallback(async () => {
+    try {
+      const res: any = await menuAdminApi.getTree();
+      setMenuTree(res.data || []);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   useEffect(() => {
     fetchRoles();
     fetchPermissions();
+    fetchMenuTree();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -85,11 +109,13 @@ export default function RolesPage() {
         displayName: values.displayName,
         description: values.description,
         permissions: createSelectedPerms,
+        menus: createSelectedMenus,
       });
       message.success('角色创建成功');
       setCreateOpen(false);
       createForm.resetFields();
       setCreateSelectedPerms([]);
+      setCreateSelectedMenus([]);
       fetchRoles();
     } catch (err: any) {
       message.error(err.response?.data?.message || '创建角色失败');
@@ -106,12 +132,14 @@ export default function RolesPage() {
         displayName: values.displayName,
         description: values.description,
         permissions: editSelectedPerms,
+        menus: editSelectedMenus,
       });
       message.success('角色更新成功');
       setEditOpen(false);
       setEditingRole(null);
       editForm.resetFields();
       setEditSelectedPerms([]);
+      setEditSelectedMenus([]);
       fetchRoles();
     } catch (err: any) {
       message.error(err.response?.data?.message || '更新角色失败');
@@ -126,6 +154,7 @@ export default function RolesPage() {
       description: record.description || '',
     });
     setEditSelectedPerms(record.permissions || []);
+    setEditSelectedMenus(record.menus || []);
     setEditOpen(true);
   };
 
@@ -146,6 +175,47 @@ export default function RolesPage() {
   };
 
   // ---- permission checkbox helpers ----
+
+  /** Convert menu tree to Ant Design Tree data format */
+  const menuTreeData = useMemo(() => {
+    const convert = (nodes: MenuTreeNode[]): any[] =>
+      nodes.map((n) => ({
+        key: n.key,
+        title: n.label,
+        children: n.children && n.children.length > 0 ? convert(n.children) : undefined,
+      }));
+    return convert(menuTree);
+  }, [menuTree]);
+
+  /** Auto-fill permissions from selected menus' associatedPermissions */
+  const autoFillPermissionsFromMenus = (
+    selectedMenus: string[],
+    currentPerms: string[],
+    setPerms: (perms: string[]) => void,
+  ) => {
+    const menuSet = new Set(selectedMenus);
+    const associatedPerms = new Set<string>();
+
+    const collectPerms = (nodes: MenuTreeNode[]) => {
+      for (const node of nodes) {
+        if (menuSet.has(node.key) && node.associatedPermissions) {
+          for (const p of node.associatedPermissions) {
+            associatedPerms.add(p);
+          }
+        }
+        if (node.children) collectPerms(node.children);
+      }
+    };
+    collectPerms(menuTree);
+
+    // Merge: keep existing non-menu perms, add associated perms
+    const newPerms = new Set(currentPerms);
+    for (const p of associatedPerms) {
+      newPerms.add(p);
+    }
+    setPerms(Array.from(newPerms));
+    message.success(`已从菜单关联权限中填充 ${associatedPerms.size} 个权限`);
+  };
 
   const renderPermissionCheckboxes = (
     selected: string[],
@@ -234,6 +304,18 @@ export default function RolesPage() {
       ),
     },
     {
+      title: '菜单数量',
+      key: 'menuCount',
+      width: 120,
+      render: (_: unknown, r: any) => {
+        const count = r.menus?.length ?? 0;
+        const isAll = r.menus?.includes('*');
+        return isAll
+          ? <Tag color="gold">全部</Tag>
+          : <Badge count={count} showZero color="#52c41a" overflowCount={999} />;
+      },
+    },
+    {
       title: '状态',
       key: 'enabled',
       width: 100,
@@ -303,11 +385,11 @@ export default function RolesPage() {
       <Modal
         title="新建角色"
         open={createOpen}
-        onCancel={() => { setCreateOpen(false); createForm.resetFields(); setCreateSelectedPerms([]); }}
+        onCancel={() => { setCreateOpen(false); createForm.resetFields(); setCreateSelectedPerms([]); setCreateSelectedMenus([]); }}
         onOk={handleCreate}
         confirmLoading={creating}
         destroyOnClose
-        width={640}
+        width={720}
       >
         <Form form={createForm} layout="vertical">
           <Form.Item
@@ -327,7 +409,29 @@ export default function RolesPage() {
           <Form.Item name="description" label="描述">
             <Input.TextArea placeholder="请输入角色描述" rows={2} maxLength={500} />
           </Form.Item>
-          <Form.Item label="权限">
+          <Form.Item label="菜单授权">
+            <div style={{ border: '1px solid #d9d9d9', borderRadius: 6, padding: 8, maxHeight: 200, overflow: 'auto' }}>
+              <Tree
+                checkable
+                checkedKeys={createSelectedMenus}
+                onCheck={(keys) => setCreateSelectedMenus(keys as string[])}
+                treeData={menuTreeData}
+              />
+            </div>
+          </Form.Item>
+          <Form.Item label={
+            <Space>
+              接口权限
+              <Button
+                type="link"
+                size="small"
+                icon={<ThunderboltOutlined />}
+                onClick={() => autoFillPermissionsFromMenus(createSelectedMenus, createSelectedPerms, setCreateSelectedPerms)}
+              >
+                从菜单自动填充
+              </Button>
+            </Space>
+          }>
             {renderPermissionCheckboxes(createSelectedPerms, setCreateSelectedPerms)}
           </Form.Item>
         </Form>
@@ -337,11 +441,11 @@ export default function RolesPage() {
       <Modal
         title={`编辑角色 - ${editingRole?.displayName || editingRole?.name || ''}`}
         open={editOpen}
-        onCancel={() => { setEditOpen(false); setEditingRole(null); editForm.resetFields(); setEditSelectedPerms([]); }}
+        onCancel={() => { setEditOpen(false); setEditingRole(null); editForm.resetFields(); setEditSelectedPerms([]); setEditSelectedMenus([]); }}
         onOk={handleEdit}
         confirmLoading={editing}
         destroyOnClose
-        width={640}
+        width={720}
       >
         <Form form={editForm} layout="vertical">
           <Form.Item
@@ -354,7 +458,29 @@ export default function RolesPage() {
           <Form.Item name="description" label="描述">
             <Input.TextArea placeholder="请输入角色描述" rows={2} maxLength={500} />
           </Form.Item>
-          <Form.Item label="权限">
+          <Form.Item label="菜单授权">
+            <div style={{ border: '1px solid #d9d9d9', borderRadius: 6, padding: 8, maxHeight: 200, overflow: 'auto' }}>
+              <Tree
+                checkable
+                checkedKeys={editSelectedMenus}
+                onCheck={(keys) => setEditSelectedMenus(keys as string[])}
+                treeData={menuTreeData}
+              />
+            </div>
+          </Form.Item>
+          <Form.Item label={
+            <Space>
+              接口权限
+              <Button
+                type="link"
+                size="small"
+                icon={<ThunderboltOutlined />}
+                onClick={() => autoFillPermissionsFromMenus(editSelectedMenus, editSelectedPerms, setEditSelectedPerms)}
+              >
+                从菜单自动填充
+              </Button>
+            </Space>
+          }>
             {renderPermissionCheckboxes(editSelectedPerms, setEditSelectedPerms)}
           </Form.Item>
         </Form>

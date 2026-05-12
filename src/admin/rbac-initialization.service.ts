@@ -44,6 +44,7 @@ export class RbacInitializationService implements OnModuleInit {
         displayName: '超级管理员',
         description: '拥有所有权限的超级管理员',
         permissions: [], // super_admin 通过代码逻辑拥有所有权限
+        menus: ['*'], // super_admin 通过通配符显示所有菜单
         isSystem: true,
       },
       {
@@ -64,6 +65,16 @@ export class RbacInitializationService implements OnModuleInit {
           'callback-log:read',
           'system:read',
           'billing:read', 'billing:write',
+          'menu:read',
+        ],
+        menus: [
+          '/', '/tasks', '/queues', '/models', '/model-routing-rules',
+          '/api-clients', '/provider-configs', '/account-pool', '/account-costs', '/provider-health',
+          '/billing/records', '/billing/wallets',
+          '/notification-rules', '/notification-records', '/notifications',
+          '/callback-logs', '/system-info', '/stats',
+          '/link-conversion-config', '/audit-logs',
+          '/permissions', '/menus',
         ],
         isSystem: true,
       },
@@ -81,6 +92,13 @@ export class RbacInitializationService implements OnModuleInit {
           'billing:read',
           'callback-log:read',
           'system:read',
+        ],
+        menus: [
+          '/', '/tasks', '/queues', '/models', '/model-routing-rules',
+          '/notification-rules', '/notification-records', '/notifications',
+          '/callback-logs', '/system-info', '/stats',
+          '/link-conversion-config',
+          '/billing/records',
         ],
         isSystem: true,
       },
@@ -105,6 +123,15 @@ export class RbacInitializationService implements OnModuleInit {
           'callback-log:read',
           'system:read',
         ],
+        menus: [
+          '/', '/tasks', '/queues', '/models', '/model-routing-rules',
+          '/api-clients', '/provider-configs', '/account-pool', '/account-costs', '/provider-health',
+          '/billing/records', '/billing/wallets',
+          '/notification-rules', '/notification-records', '/notifications',
+          '/callback-logs', '/system-info', '/stats',
+          '/link-conversion-config', '/audit-logs',
+          '/permissions', '/users', '/roles',
+        ],
         isSystem: true,
       },
     ];
@@ -112,10 +139,11 @@ export class RbacInitializationService implements OnModuleInit {
     for (const roleData of roles) {
       const existing = await this.roleModel.findOne({ name: roleData.name });
       if (existing) {
-        // Update permissions if role exists
+        // Update permissions and menus if role exists
         existing.permissions = roleData.permissions;
         existing.displayName = roleData.displayName;
         existing.description = roleData.description;
+        existing.menus = roleData.menus;
         await existing.save();
         this.logger.log(`Updated role: ${roleData.name}`);
       } else {

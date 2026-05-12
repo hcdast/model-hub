@@ -45,6 +45,7 @@ export class RoleManagementService {
       displayName: data.displayName,
       description: data.description,
       permissions: data.permissions || [],
+      menus: data.menus || [],
       isSystem: data.isSystem || false,
       enabled: data.enabled !== undefined ? data.enabled : true,
     });
@@ -72,8 +73,12 @@ export class RoleManagementService {
     }
 
     // 检查权限是否有变更
-    const permissionsChanged = data.permissions !== undefined && 
+    const permissionsChanged = data.permissions !== undefined &&
       JSON.stringify(role.permissions.sort()) !== JSON.stringify(data.permissions.sort());
+
+    // 检查菜单是否有变更
+    const menusChanged = data.menus !== undefined &&
+      JSON.stringify((role.menus || []).sort()) !== JSON.stringify(data.menus.sort());
 
     // 更新字段
     if (data.displayName !== undefined) {
@@ -85,14 +90,17 @@ export class RoleManagementService {
     if (data.permissions !== undefined) {
       role.permissions = data.permissions;
     }
+    if (data.menus !== undefined) {
+      role.menus = data.menus;
+    }
     if (data.enabled !== undefined) {
       role.enabled = data.enabled;
     }
 
     const updatedRole = await role.save();
 
-    // 如果权限有变更，清除相关用户的权限缓存
-    if (permissionsChanged) {
+    // 如果权限或菜单有变更，清除相关用户的权限缓存
+    if (permissionsChanged || menusChanged) {
       await this.permissionCacheService.clearRolePermissions(roleName);
     }
 
@@ -156,6 +164,22 @@ export class RoleManagementService {
     await role.save();
 
     // 清除相关用户的权限缓存
+    await this.permissionCacheService.clearRolePermissions(roleName);
+  }
+
+  /**
+   * 为角色分配菜单
+   */
+  async assignMenus(roleName: string, menuKeys: string[]): Promise<void> {
+    const role = await this.roleModel.findOne({ name: roleName });
+    if (!role) {
+      throw new RoleNotFoundException(roleName);
+    }
+
+    role.menus = menuKeys;
+    await role.save();
+
+    // 清除相关用户的权限缓存（菜单变更也需清除，因为 getUserMenus 依赖缓存）
     await this.permissionCacheService.clearRolePermissions(roleName);
   }
 

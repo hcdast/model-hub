@@ -66,8 +66,9 @@ export class AdminAuthService implements OnModuleInit {
 
     this.logger.log(`Admin user logged in: ${username}`);
 
-    // Resolve user permissions from roles
+    // Resolve user permissions and menus from roles
     const permissions = await this.permissionCheckService.getUserPermissions(user._id.toString());
+    const menus = await this.permissionCheckService.getUserMenus(user._id.toString());
 
     return {
       accessToken,
@@ -75,6 +76,7 @@ export class AdminAuthService implements OnModuleInit {
       requirePasswordChange: user.requirePasswordChange || false,
       roles: user.roles,
       permissions,
+      menus,
     };
   }
 

@@ -19,6 +19,8 @@ import { PermissionSyncPlugin } from './plugins/permission-sync.plugin';
 import { AuditAnchorPlugin } from './plugins/audit-anchor.plugin';
 import { MenuSyncPlugin } from './plugins/menu-sync.plugin';
 import { MenuRegistryService } from './services/menu-registry.service';
+import { MenuManagementService } from './menu-management.service';
+import { MenuManagementController } from './menu-management.controller';
 
 /**
  * RBAC模块
@@ -34,6 +36,7 @@ import { MenuRegistryService } from './services/menu-registry.service';
     UserManagementController,
     RoleManagementController,
     PermissionManagementController,
+    MenuManagementController,
   ],
   providers: [
     PermissionService,
@@ -51,6 +54,7 @@ import { MenuRegistryService } from './services/menu-registry.service';
     AuditAnchorPlugin,
     MenuSyncPlugin,
     MenuRegistryService,
+    MenuManagementService,
     {
       provide: 'PERMISSION_SYNC_PLUGIN_INIT',
       useFactory: (
@@ -100,6 +104,7 @@ import { MenuRegistryService } from './services/menu-registry.service';
     AuditAnchorPlugin,
     MenuSyncPlugin,
     MenuRegistryService,
+    MenuManagementService,
   ],
 })
 export class RbacModule {}

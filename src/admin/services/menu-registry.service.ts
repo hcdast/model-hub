@@ -1,5 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import { FeatureMenuDef } from '../../common/interfaces/feature-module.interface';
+import { MenuConfig, MenuConfigDocument } from '../../database/schemas/menu-config.schema';
 
 export interface MenuItem {
   key: string;
@@ -9,6 +12,9 @@ export interface MenuItem {
   sortOrder: number;
   parentKey?: string;
   requiredPermission?: string;
+  associatedPermissions?: string[];
+  enabled?: boolean;
+  moduleKey?: string;
   children?: MenuItem[];
 }
 
@@ -28,7 +34,8 @@ const DEFAULT_GROUPS: Omit<MenuGroup, 'children'>[] = [
   { key: 'provider', label: '厂商管理', icon: 'CloudServerOutlined', sortOrder: 200 },
   { key: 'notification', label: '通知管理', icon: 'BellOutlined', sortOrder: 300 },
   { key: 'system', label: '系统配置', icon: 'SettingOutlined', sortOrder: 400 },
-  { key: 'security', label: '审计与安全', icon: 'SafetyOutlined', sortOrder: 500 },
+  { key: 'access', label: '访问控制', icon: 'TeamOutlined', sortOrder: 450 },
+  { key: 'audit', label: '审计与日志', icon: 'SafetyOutlined', sortOrder: 500 },
 ];
 
 @Injectable()
@@ -36,11 +43,14 @@ export class MenuRegistryService {
   private readonly logger = new Logger(MenuRegistryService.name);
   private readonly menuGroups = new Map<string, MenuGroup>();
 
-  constructor() {
+  constructor(
+    @InjectModel(MenuConfig.name)
+    private readonly menuConfigModel: Model<MenuConfigDocument>,
+  ) {
     this.initDefaultGroups();
   }
 
-  /** Initialize the 6 default menu groups */
+  /** Initialize the default menu groups (see DEFAULT_GROUPS) */
   initDefaultGroups(): void {
     this.menuGroups.clear();
     for (const group of DEFAULT_GROUPS) {
@@ -120,6 +130,47 @@ export class MenuRegistryService {
     return this.sortMenuTree(filtered);
   }
 
+  /**
+   * Get menu tree filtered by user's authorized menu keys.
+   * Items whose key is in the user's menu set are visible.
+   * Parent groups with no visible children are removed.
+   * Wildcard '*' grants access to everything.
+   */
+  getFilteredMenuTreeByKeys(userMenuKeys: string[]): MenuGroup[] {
+    const keySet = new Set(userMenuKeys);
+    const hasWildcard = keySet.has('*');
+
+    const filtered: MenuGroup[] = [];
+
+    for (const group of this.menuGroups.values()) {
+      // A group is visible if its key is in the set, or if wildcard
+      const groupVisible = hasWildcard || keySet.has(group.key);
+
+      if (!groupVisible) {
+        // Check if any children are explicitly authorized
+        const visibleChildren = group.children.filter(
+          (child) => hasWildcard || keySet.has(child.key),
+        );
+        if (visibleChildren.length > 0) {
+          filtered.push({ ...group, children: [...visibleChildren] });
+        }
+        continue;
+      }
+
+      // Group is authorized — show all its children (or filter by individual child keys if needed)
+      if (group.children.length === 0) {
+        filtered.push({ ...group, children: [] });
+      } else {
+        const visibleChildren = group.children.filter(
+          (child) => hasWildcard || keySet.has(child.key),
+        );
+        filtered.push({ ...group, children: [...visibleChildren] });
+      }
+    }
+
+    return this.sortMenuTree(filtered);
+  }
+
   /** Sort groups by sortOrder, and children within each group by sortOrder */
   sortMenuTree(tree: MenuGroup[]): MenuGroup[] {
     const sorted = [...tree].sort((a, b) => a.sortOrder - b.sortOrder);
@@ -127,5 +178,58 @@ export class MenuRegistryService {
       group.children.sort((a, b) => a.sortOrder - b.sortOrder);
     }
     return sorted;
+  }
+
+  /**
+   * Reload menu tree from database.
+   * Called after CRUD operations on menu_configs collection.
+   */
+  async reloadFromDb(): Promise<void> {
+    this.logger.log('从数据库重新加载菜单配置...');
+    this.menuGroups.clear();
+    this.initDefaultGroups();
+
+    const menus = await this.menuConfigModel
+      .find({ enabled: true })
+      .lean()
+      .exec();
+
+    for (const menu of menus) {
+      const menuItem: MenuItem = {
+        key: menu.key,
+        path: menu.path,
+        label: menu.label,
+        icon: menu.icon,
+        sortOrder: menu.sortOrder,
+        parentKey: menu.parentKey,
+        requiredPermission: menu.requiredPermission,
+        associatedPermissions: menu.associatedPermissions,
+        enabled: menu.enabled,
+        moduleKey: menu.moduleKey,
+      };
+
+      if (menu.parentKey && this.menuGroups.has(menu.parentKey)) {
+        this.menuGroups.get(menu.parentKey)!.children.push(menuItem);
+      } else if (!menu.parentKey) {
+        // Top-level group
+        if (this.menuGroups.has(menu.key)) {
+          // Update existing default group metadata
+          const group = this.menuGroups.get(menu.key)!;
+          group.label = menu.label;
+          group.icon = menu.icon;
+          group.sortOrder = menu.sortOrder;
+        } else {
+          this.menuGroups.set(menu.key, {
+            key: menu.key,
+            label: menu.label,
+            icon: menu.icon,
+            sortOrder: menu.sortOrder,
+            children: [],
+          });
+        }
+      }
+    }
+
+    this.logger.log(`菜单重新加载完成：${menus.length} 个菜单项`);
   }
 }

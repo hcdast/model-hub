@@ -15,7 +15,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const res: any = await authApi.login(values.username, values.password);
-      login(res.data.accessToken, values.username, res.data.roles || [], res.data.permissions || []);
+      login(res.data.accessToken, values.username, res.data.roles || [], res.data.permissions || [], res.data.menus || []);
       message.success('登录成功');
       navigate('/');
     } catch {

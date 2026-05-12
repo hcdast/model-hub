@@ -33,7 +33,7 @@ export class AdminMenuController {
   @Get()
   @ApiOperation({
     summary: '获取菜单树',
-    description: '返回当前用户权限过滤后的菜单树',
+    description: '返回当前用户授权的菜单树（基于角色的 menus 字段过滤）',
   })
   @ApiResponse({ status: 200, description: '查询成功' })
   async getMenuTree(
@@ -42,12 +42,20 @@ export class AdminMenuController {
     // 从 JWT 守卫注入的用户信息中获取用户 ID
     const userId = req.user?.userId || req.user?.id;
 
-    // 通过权限检查服务获取用户的所有权限
-    const permissions =
-      await this.permissionCheckService.getUserPermissions(userId);
+    // 通过权限检查服务获取用户的授权菜单 key
+    const userMenus =
+      await this.permissionCheckService.getUserMenus(userId);
 
-    // 根据用户权限过滤菜单树并返回
-    const tree = this.menuRegistryService.getFilteredMenuTree(permissions);
+    // 如果用户没有分配任何菜单，回退到权限过滤（兼容旧数据）
+    if (userMenus.length === 0) {
+      const permissions =
+        await this.permissionCheckService.getUserPermissions(userId);
+      const tree = this.menuRegistryService.getFilteredMenuTree(permissions);
+      return { code: 0, data: tree };
+    }
+
+    // 根据用户授权菜单 key 过滤菜单树
+    const tree = this.menuRegistryService.getFilteredMenuTreeByKeys(userMenus);
     return { code: 0, data: tree };
   }
 }

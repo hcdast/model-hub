@@ -39,7 +39,7 @@ export const userDescriptor: FeatureModuleDescriptor = {
       path: '/users',
       label: '用户管理',
       icon: 'UserOutlined',
-      parentKey: 'security',
+      parentKey: 'access',
       sortOrder: 20,
       requiredPermission: 'user:read',
     },
@@ -67,7 +67,7 @@ export const roleDescriptor: FeatureModuleDescriptor = {
       path: '/roles',
       label: '角色管理',
       icon: 'TeamOutlined',
-      parentKey: 'security',
+      parentKey: 'access',
       sortOrder: 30,
       requiredPermission: 'role:read',
     },
@@ -93,7 +93,7 @@ export const permissionDescriptor: FeatureModuleDescriptor = {
       path: '/permissions',
       label: '权限管理',
       icon: 'KeyOutlined',
-      parentKey: 'security',
+      parentKey: 'access',
       sortOrder: 40,
       requiredPermission: 'permission:read',
     },
@@ -210,7 +210,7 @@ export const auditDescriptor: FeatureModuleDescriptor = {
       path: '/audit-logs',
       label: '审计日志',
       icon: 'FileSearchOutlined',
-      parentKey: 'security',
+      parentKey: 'audit',
       sortOrder: 10,
       requiredPermission: 'audit:read',
     },
@@ -383,7 +383,7 @@ export const callbackLogDescriptor: FeatureModuleDescriptor = {
       path: '/callback-logs',
       label: '回调日志',
       icon: 'FileSearchOutlined',
-      parentKey: 'security',
+      parentKey: 'audit',
       sortOrder: 15,
       requiredPermission: 'callback-log:read',
     },
@@ -478,6 +478,35 @@ export const billingDescriptor: FeatureModuleDescriptor = {
   ],
 };
 
+/** 菜单管理模块描述符 */
+export const menuDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'menu',
+  displayName: '菜单管理',
+  permissions: [
+    {
+      resource: 'menu',
+      actions: ['read', 'create', 'update', 'delete'],
+      displayNames: {
+        read: '查看菜单',
+        create: '创建菜单',
+        update: '更新菜单',
+        delete: '删除菜单',
+      },
+      module: 'menu-management',
+    },
+  ],
+  menus: [
+    {
+      path: '/menus',
+      label: '菜单管理',
+      icon: 'MenuOutlined',
+      parentKey: 'system',
+      sortOrder: 5,
+      requiredPermission: 'menu:read',
+    },
+  ],
+};
+
 /** All built-in module descriptors */
 export const builtInDescriptors: FeatureModuleDescriptor[] = [
   overviewDescriptor,
@@ -496,4 +525,5 @@ export const builtInDescriptors: FeatureModuleDescriptor[] = [
   systemInfoDescriptor,
   billingDescriptor,
   linkConversionDescriptor,
+  menuDescriptor,
 ];

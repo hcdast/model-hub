@@ -28,6 +28,8 @@ export interface FeatureMenuDef {
   sortOrder: number;
   /** 所需权限代码（resource:read） */
   requiredPermission?: string;
+  /** 关联权限列表（提示用，不做自动绑定） */
+  associatedPermissions?: string[];
 }
 
 /**

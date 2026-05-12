@@ -9,7 +9,7 @@ import {
   ClusterOutlined, BellOutlined, FileTextOutlined, NotificationOutlined,
   SettingOutlined, SunOutlined, MoonOutlined, HeartOutlined,
   FileSearchOutlined, SyncOutlined, DatabaseOutlined, DollarOutlined, MailOutlined,
-  LinkOutlined,
+  LinkOutlined, MenuOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from './store/auth';
 import { usePermission } from './hooks/usePermission';
@@ -44,6 +44,7 @@ import WalletManagementPage from './pages/WalletManagement';
 import LinkConversionConfigPage from './pages/LinkConversionConfig';
 import CallbackLogsPage from './pages/CallbackLogs';
 import SystemInfoPage from './pages/SystemInfo';
+import MenusPage from './pages/Menus';
 import NotFoundPage from './pages/NotFound';
 
 const { Header, Sider, Content } = Layout;
@@ -77,6 +78,7 @@ const iconMap: Record<string, React.ReactNode> = {
   DollarOutlined: <DollarOutlined />,
   MailOutlined: <MailOutlined />,
   LinkOutlined: <LinkOutlined />,
+  MenuOutlined: <MenuOutlined />,
 };
 
 /** 解析图标名称为 React 组件，未匹配时使用默认图标 */
@@ -364,6 +366,7 @@ function AppLayout() {
             <Route path="/users" element={<PermissionRoute permission="user:read"><UsersPage /></PermissionRoute>} />
             <Route path="/roles" element={<PermissionRoute permission="role:read"><RolesPage /></PermissionRoute>} />
             <Route path="/permissions" element={<PermissionRoute permission="permission:read"><PermissionsPage /></PermissionRoute>} />
+            <Route path="/menus" element={<PermissionRoute permission="menu:read"><MenusPage /></PermissionRoute>} />
             <Route path="/forbidden" element={<ForbiddenPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>

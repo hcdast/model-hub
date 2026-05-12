@@ -36,6 +36,9 @@ export class MenuConfig {
 
   @Prop()
   moduleKey?: string; // 关联的功能模块 key
+
+  @Prop({ type: [String], default: [] })
+  associatedPermissions!: string[]; // 关联权限列表（提示用，不做自动绑定）
 }
 
 export const MenuConfigSchema = SchemaFactory.createForClass(MenuConfig);

@@ -45,13 +45,21 @@ export default function UsersPage() {
   const fetchUsers = useCallback(async (p = page, ps = pageSize, username = searchUsername) => {
     setLoading(true);
     try {
-      const params: Record<string, any> = { page: p, pageSize: ps };
+      // 后端 GET /users 使用 limit（不是 pageSize），返回 data.users + data.pagination
+      const params: Record<string, any> = { page: p, limit: ps };
       if (username) params.username = username;
       const res: any = await userApi.list(params);
-      setUsers(res.data?.items || []);
-      setTotal(res.data?.total ?? 0);
-      setPage(res.data?.page ?? p);
-      setPageSize(res.data?.pageSize ?? ps);
+      const payload = res.data || {};
+      const list = payload.users ?? payload.items ?? [];
+      const pg = payload.pagination || {};
+      const normalized = list.map((u: any) => ({
+        ...u,
+        _id: u._id ?? u.id,
+      }));
+      setUsers(normalized);
+      setTotal(pg.total ?? payload.total ?? 0);
+      setPage(pg.page ?? payload.page ?? p);
+      setPageSize(pg.limit ?? payload.pageSize ?? ps);
     } catch (err) {
       ErrorHandler.handleApiError(err, '加载用户列表失败');
     }

@@ -17,6 +17,7 @@ api.interceptors.response.use(
       localStorage.removeItem('username');
       localStorage.removeItem('roles');
       localStorage.removeItem('permissions');
+      localStorage.removeItem('menus');
       window.location.href = '/login';
     }
     return Promise.reject(err);
@@ -199,7 +200,19 @@ export const roleApi = {
   delete: (name: string) => api.delete(`/roles/${name}`),
   assignPermissions: (name: string, permissions: string[]) =>
     api.put(`/roles/${name}/permissions`, { permissions }),
+  assignMenus: (name: string, menus: string[]) =>
+    api.put(`/roles/${name}/menus`, { menus }),
   checkInUse: (name: string) => api.get(`/roles/${name}/in-use`),
+};
+
+// ---- 菜单管理 API ----
+export const menuAdminApi = {
+  getTree: () => api.get('/menus'),
+  listFlat: () => api.get('/menus/flat'),
+  get: (key: string) => api.get(`/menus/${encodeURIComponent(key)}`),
+  create: (data: Record<string, any>) => api.post('/menus', data),
+  update: (key: string, data: Record<string, any>) => api.put(`/menus/${encodeURIComponent(key)}`, data),
+  delete: (key: string) => api.delete(`/menus/${encodeURIComponent(key)}`),
 };
 
 // ---- RBAC 权限管理 API ----

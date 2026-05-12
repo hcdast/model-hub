@@ -21,6 +21,12 @@ export class UpdateRoleDto {
   @IsOptional()
   permissions?: string[];
 
+  @ApiPropertyOptional({ description: '授权菜单 key 列表', example: ['/tasks', '/models'], type: [String] })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  menus?: string[];
+
   @ApiPropertyOptional({ description: '是否启用' })
   @IsBoolean()
   @IsOptional()
