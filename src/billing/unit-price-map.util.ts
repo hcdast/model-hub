@@ -61,3 +61,36 @@ export function pickCreditReferenceUnitFromPriceMap(
   }
   return extractFallbackNumericCredit(unitPriceMap);
 }
+
+/** 写入 model_configs 前强校验：必须有 default 档且含定价/毛利所需数值 */
+export function validateMandatoryUnitPriceMap(unitPriceMap: unknown): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  if (unitPriceMap == null || typeof unitPriceMap !== 'object' || Array.isArray(unitPriceMap)) {
+    errors.push('unit_price_map 必须为对象');
+    return { valid: false, errors };
+  }
+  const map = unitPriceMap as Record<string, unknown>;
+  if (Object.keys(map).length === 0) {
+    errors.push('unit_price_map 不能为空');
+    return { valid: false, errors };
+  }
+  const def = map.default;
+  if (def == null || typeof def !== 'object' || Array.isArray(def)) {
+    errors.push('unit_price_map 必须包含 default 且为对象');
+    return { valid: false, errors };
+  }
+  const d = def as Record<string, unknown>;
+  const sale = d.sale_unit_price;
+  const cost = d.cost_unit_price;
+  const credit = d.unit_credit;
+  if (typeof sale !== 'number' || !Number.isFinite(sale) || sale <= 0) {
+    errors.push('default.sale_unit_price 必须为大于 0 的有限数');
+  }
+  if (typeof cost !== 'number' || !Number.isFinite(cost) || cost < 0) {
+    errors.push('default.cost_unit_price 必须为有限数且 >= 0');
+  }
+  if (typeof credit !== 'number' || !Number.isFinite(credit) || credit <= 0) {
+    errors.push('default.unit_credit 必须为大于 0 的有限数');
+  }
+  return { valid: errors.length === 0, errors };
+}

@@ -64,7 +64,7 @@ export function hasChanges(
 }
 
 export function formatMoney(n: number): string {
-  return n.toFixed(4);
+  return n.toFixed(2);
 }
 
 export function formatPercent(n: number): string {

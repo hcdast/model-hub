@@ -221,7 +221,7 @@ export default function WalletManagementPage() {
       key: 'balance',
       width: 130,
       align: 'right' as const,
-      render: (v: number) => (v != null ? v.toFixed(4) : '0.0000'),
+      render: (v: number) => (v != null ? v.toFixed(2) : '0.00'),
     },
     {
       title: '冻结',
@@ -229,7 +229,7 @@ export default function WalletManagementPage() {
       key: 'frozenAmount',
       width: 130,
       align: 'right' as const,
-      render: (v: number) => (v != null ? v.toFixed(4) : '0.0000'),
+      render: (v: number) => (v != null ? v.toFixed(2) : '0.00'),
     },
     {
       title: '可用',
@@ -239,7 +239,7 @@ export default function WalletManagementPage() {
       align: 'right' as const,
       render: (v: number) => (
         <span style={{ color: v > 0 ? '#52c41a' : '#ff4d4f', fontWeight: 500 }}>
-          {v != null ? v.toFixed(4) : '0.0000'}
+          {v != null ? v.toFixed(2) : '0.00'}
         </span>
       ),
     },
@@ -313,7 +313,7 @@ export default function WalletManagementPage() {
       key: 'amount',
       width: 100,
       align: 'right' as const,
-      render: (v: number) => (v != null ? v.toFixed(4) : '-'),
+      render: (v: number) => (v != null ? v.toFixed(2) : '-'),
     },
     {
       title: '变更前',
@@ -321,7 +321,7 @@ export default function WalletManagementPage() {
       key: 'balanceBefore',
       width: 100,
       align: 'right' as const,
-      render: (v: number) => (v != null ? v.toFixed(4) : '-'),
+      render: (v: number) => (v != null ? v.toFixed(2) : '-'),
     },
     {
       title: '变更后',
@@ -329,7 +329,7 @@ export default function WalletManagementPage() {
       key: 'balanceAfter',
       width: 100,
       align: 'right' as const,
-      render: (v: number) => (v != null ? v.toFixed(4) : '-'),
+      render: (v: number) => (v != null ? v.toFixed(2) : '-'),
     },
     {
       title: '关联任务',
@@ -412,12 +412,12 @@ export default function WalletManagementPage() {
             {
               title: '预估费用',
               dataIndex: 'totalEstimatedCost',
-              render: (v: number) => (v != null ? Number(v).toFixed(4) : '—'),
+              render: (v: number) => (v != null ? Number(v).toFixed(2) : '—'),
             },
             {
               title: '实际费用',
               dataIndex: 'totalActualCost',
-              render: (v: number) => (v != null ? Number(v).toFixed(4) : '—'),
+              render: (v: number) => (v != null ? Number(v).toFixed(2) : '—'),
             },
           ]}
         />
@@ -453,7 +453,7 @@ export default function WalletManagementPage() {
                 <Statistic
                   title="总余额"
                   value={wallet?.balance ?? 0}
-                  precision={4}
+                  precision={2}
                   prefix={<WalletOutlined />}
                 />
               </Card>
@@ -463,7 +463,7 @@ export default function WalletManagementPage() {
                 <Statistic
                   title="冻结金额"
                   value={wallet?.frozenAmount ?? 0}
-                  precision={4}
+                  precision={2}
                   prefix={<LockOutlined />}
                   valueStyle={{ color: '#faad14' }}
                 />
@@ -474,7 +474,7 @@ export default function WalletManagementPage() {
                 <Statistic
                   title="可用余额"
                   value={wallet?.available ?? 0}
-                  precision={4}
+                  precision={2}
                   prefix={<DollarOutlined />}
                   valueStyle={{ color: '#52c41a' }}
                 />
@@ -541,15 +541,15 @@ export default function WalletManagementPage() {
             label="充值金额"
             rules={[
               { required: true, message: '请输入充值金额' },
-              { type: 'number', min: 0.0001, message: '金额必须大于 0' },
+              { type: 'number', min: 0.01, message: '金额必须大于 0' },
             ]}
           >
             <InputNumber
               placeholder="请输入充值金额"
               style={{ width: '100%' }}
-              min={0.0001}
-              step={1}
-              precision={4}
+              min={0.01}
+              step={0.01}
+              precision={2}
               addonAfter="credits"
             />
           </Form.Item>

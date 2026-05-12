@@ -1,6 +1,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../redis/redis.constants';
+import { roundMoney } from '../common/utils/money.util';
 
 /** 单日用量统计 */
 export interface UsageStats {
@@ -107,7 +108,7 @@ export class UsageTrackerService {
           successRequests: parseInt(data.success || '0', 10),
           failedRequests: parseInt(data.failed || '0', 10),
           // 从分转换回元
-          totalCost: parseInt(data.totalCost || '0', 10) / 100,
+          totalCost: roundMoney(parseInt(data.totalCost || '0', 10) / 100),
         });
       } catch (error) {
         this.logger.warn(
@@ -149,7 +150,7 @@ export class UsageTrackerService {
           totalRequests: parseInt(data.requests || '0', 10),
           successRequests: parseInt(data.success || '0', 10),
           failedRequests: parseInt(data.failed || '0', 10),
-          totalCost: parseInt(data.totalCost || '0', 10) / 100,
+          totalCost: roundMoney(parseInt(data.totalCost || '0', 10) / 100),
         });
       }
 

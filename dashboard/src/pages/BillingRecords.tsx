@@ -163,7 +163,7 @@ export default function BillingRecordsPage() {
       key: 'estimatedCost',
       width: 110,
       align: 'right' as const,
-      render: (v: number) => (v != null ? v.toFixed(4) : '-'),
+      render: (v: number) => (v != null ? v.toFixed(2) : '-'),
     },
     {
       title: '实际费用',
@@ -171,7 +171,7 @@ export default function BillingRecordsPage() {
       key: 'actualCost',
       width: 110,
       align: 'right' as const,
-      render: (v: number) => (v != null ? v.toFixed(4) : '-'),
+      render: (v: number) => (v != null ? v.toFixed(2) : '-'),
     },
     {
       title: '计费策略',

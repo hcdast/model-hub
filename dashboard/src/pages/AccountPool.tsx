@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Card, Table, Button, Space, Typography, message, Modal, Form,
-  Input, InputNumber, Switch, Tag, Select, Popconfirm, Tooltip, Alert,
+  Input, InputNumber, Switch, Tag, Select, Popconfirm, Tooltip,
   Divider,
 } from 'antd';
-import {
+import type { ColumnsType } from 'antd/es/table';import {
   ReloadOutlined, PlusOutlined, EditOutlined, DeleteOutlined,
   WarningOutlined, MinusCircleOutlined,
 } from '@ant-design/icons';
@@ -122,8 +122,10 @@ export default function AccountPoolPage() {
   useEffect(() => { void fetchProviderConfigs(); }, [fetchProviderConfigs]);
   useEffect(() => { void fetchData(); }, [fetchData]);
 
-  // 快速查找厂商配置
-  const providerConfigMap = new Map(providerConfigs.map((p) => [p.provider_name, p]));
+  const providerConfigMap = useMemo(
+    () => new Map(providerConfigs.map((p) => [p.provider_name, p])),
+    [providerConfigs],
+  );
 
   // 合并厂商名称列表（用于筛选下拉）
   const providerNames = [
@@ -132,19 +134,6 @@ export default function AccountPoolPage() {
       ...items.map((i) => i.provider_name),
     ]),
   ].sort();
-
-  // 检测无账号池条目的厂商（用于显示警告）
-  const providersWithEntries = useMemo(() => {
-    const set = new Set<string>();
-    for (const item of items) set.add(item.provider_name);
-    return set;
-  }, [items]);
-
-  const providersWithoutEntries = useMemo(() => {
-    return providerConfigs
-      .filter((p) => p.enabled && !providersWithEntries.has(p.provider_name))
-      .map((p) => p.provider_name);
-  }, [providerConfigs, providersWithEntries]);
 
   /** 根据选择的 provider 预填充 extra_credentials 模板 */
   const handleProviderChange = (providerName: string) => {
@@ -267,91 +256,184 @@ export default function AccountPoolPage() {
     }
   };
 
-  // 渲染厂商分组头部（含状态标签）
-  const renderProviderGroupHeader = (providerName: string) => {
-    const cfg = providerConfigMap.get(providerName);
-    const isDisabled = cfg && !cfg.enabled;
-    return (
-      <Space size="middle">
-        <Typography.Text strong>{providerName}</Typography.Text>
-        {cfg && (
-          <>
-            <Tag color={cfg.enabled ? 'success' : 'error'}>
-              {cfg.enabled ? '厂商已启用' : '厂商已禁用'}
-            </Tag>
-            {cfg.base_url && (
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                {cfg.base_url}
-              </Typography.Text>
-            )}
-          </>
-        )}
-        {isDisabled && (
-          <Tooltip title="该厂商已被禁用，其下账号可能已被自动停用">
-            <WarningOutlined style={{ color: '#faad14', fontSize: 16 }} />
-          </Tooltip>
-        )}
-      </Space>
-    );
-  };
+  /** 列表行：按厂商归组、组内按别名排序，供单表 + rowSpan 展示 */
+  const displayItems = useMemo(
+    () =>
+      [...items].sort((a, b) => {
+        const c = a.provider_name.localeCompare(b.provider_name);
+        if (c !== 0) return c;
+        return a.account_alias.localeCompare(b.account_alias);
+      }),
+    [items],
+  );
 
-  // 按厂商分组展示
-  const groupedByProvider = items.reduce<Record<string, AccountEntry[]>>((acc, item) => {
-    (acc[item.provider_name] ||= []).push(item);
-    return acc;
-  }, {});
-  const sortedProviders = Object.keys(groupedByProvider).sort();
+  const showAccountBaseUrlCol = useMemo(
+    () => displayItems.some((i) => !!(i.base_url && String(i.base_url).trim())),
+    [displayItems],
+  );
 
-  const columns = [
-    { title: '别名', dataIndex: 'account_alias', width: 150 },
-    { title: 'API Key', dataIndex: 'api_key', width: 120 },
-    {
-      title: '描述', dataIndex: 'description', width: 150, ellipsis: true,
-      render: (v: string) => v || '—',
-    },
-    { title: 'Base URL', dataIndex: 'base_url', ellipsis: true, width: 180, render: (v: string) => v || '—' },
-    {
-      title: '权重', dataIndex: 'weight', width: 70, sorter: (a: AccountEntry, b: AccountEntry) => a.weight - b.weight,
-    },
-    {
-      title: '状态', dataIndex: 'enabled', width: 80,
-      render: (v: boolean) => <Tag color={v ? 'success' : 'default'}>{v ? '启用' : '禁用'}</Tag>,
-    },
-    {
-      title: '熔断', dataIndex: 'health_status', width: 80,
-      render: (v: string) => (
-        <Tag color={healthColorMap[v] || 'default'}>{healthLabelMap[v] || v}</Tag>
-      ),
-    },
-    {
-      title: '日限额', dataIndex: 'daily_cost_limit', width: 90,
-      render: (v: number) => v > 0 ? `¥${v}` : '无限',
-    },
-    {
-      title: '月限额', dataIndex: 'monthly_cost_limit', width: 90,
-      render: (v: number) => v > 0 ? `¥${v}` : '无限',
-    },
-    {
-      title: '操作', width: 200, fixed: 'right' as const,
-      render: (_: unknown, record: AccountEntry) => (
-        <Space size="small">
-          <Tooltip title={record.enabled ? '禁用' : '启用'}>
-            <Switch
-              size="small"
-              checked={record.enabled}
-              onChange={(checked) => void handleToggle(record, checked)}
-            />
-          </Tooltip>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
-            编辑
-          </Button>
-          <Popconfirm title="确认删除此账号？" onConfirm={() => void handleDelete(record)} okText="删除" cancelText="取消">
-            <Button type="link" size="small" danger icon={<DeleteOutlined />}>删除</Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ];
+  const columns = useMemo(() => {
+    const providerCol: ColumnsType<AccountEntry>[0] = {
+      title: '厂商',
+      key: 'provider_group',
+      dataIndex: 'provider_name',
+      width: 200,
+      fixed: 'left',
+      render: (_: unknown, record: AccountEntry, index: number) => {
+        const name = record.provider_name;
+        if (index > 0 && displayItems[index - 1].provider_name === name) {
+          return { children: null, props: { rowSpan: 0 } };
+        }
+        let rowSpan = 1;
+        for (let i = index + 1; i < displayItems.length; i++) {
+          if (displayItems[i].provider_name === name) rowSpan++;
+          else break;
+        }
+        const cfg = providerConfigMap.get(name);
+        const vendorDisabled = cfg && !cfg.enabled;
+        return {
+          children: (
+            <Space direction="vertical" size={4} style={{ minWidth: 168 }}>
+              <Space wrap size={6} align="center">
+                <Typography.Text strong ellipsis={{ tooltip: name }} style={{ maxWidth: 120 }}>
+                  {name}
+                </Typography.Text>
+                {cfg && (
+                  <Tag color={cfg.enabled ? 'success' : 'error'} style={{ marginInlineEnd: 0 }}>
+                    {cfg.enabled ? '已启用' : '已禁用'}
+                  </Tag>
+                )}
+                {vendorDisabled && (
+                  <Tooltip title="该厂商已被禁用，其下账号可能已被自动停用">
+                    <WarningOutlined style={{ color: '#faad14', fontSize: 14 }} />
+                  </Tooltip>
+                )}
+              </Space>
+              {cfg?.base_url ? (
+                <Typography.Text
+                  type="secondary"
+                  ellipsis={{ tooltip: cfg.base_url }}
+                  style={{ fontSize: 12, display: 'block', maxWidth: 184 }}
+                >
+                  {cfg.base_url}
+                </Typography.Text>
+              ) : null}
+              {vendorDisabled && (
+                <Typography.Text type="warning" style={{ fontSize: 12, lineHeight: 1.4 }}>
+                  厂商已禁用，账号已同步停用
+                </Typography.Text>
+              )}
+            </Space>
+          ),
+          props: { rowSpan },
+        };
+      },
+    };
+
+    const base: ColumnsType<AccountEntry> = [
+      providerCol,
+      { title: '别名', dataIndex: 'account_alias', width: 140, ellipsis: true },
+      { title: 'API Key', dataIndex: 'api_key', width: 112, ellipsis: true },
+      {
+        title: '描述',
+        dataIndex: 'description',
+        width: 160,
+        ellipsis: { showTitle: false },
+        render: (v: string) => {
+          if (!v) return <Typography.Text type="secondary">—</Typography.Text>;
+          return (
+            <Tooltip title={v} placement="topLeft">
+              <span>{v}</span>
+            </Tooltip>
+          );
+        },
+      },
+      ...(showAccountBaseUrlCol
+        ? [{
+            title: '账号 Base URL',
+            dataIndex: 'base_url' as const,
+            ellipsis: true,
+            width: 160,
+            render: (v: string) => {
+              const s = v?.trim();
+              if (!s) return <Typography.Text type="secondary">—</Typography.Text>;
+              return (
+                <Tooltip title={s} placement="topLeft">
+                  <span>{s}</span>
+                </Tooltip>
+              );
+            },
+          }]
+        : []),
+      {
+        title: '权重',
+        dataIndex: 'weight',
+        width: 72,
+        sorter: (a: AccountEntry, b: AccountEntry) => a.weight - b.weight,
+      },
+      {
+        title: '状态',
+        dataIndex: 'enabled',
+        width: 72,
+        render: (v: boolean) => <Tag color={v ? 'success' : 'default'}>{v ? '启用' : '禁用'}</Tag>,
+      },
+      {
+        title: '熔断',
+        dataIndex: 'health_status',
+        width: 72,
+        render: (v: string) => (
+          <Tag color={healthColorMap[v] || 'default'}>{healthLabelMap[v] || v}</Tag>
+        ),
+      },
+      {
+        title: '成本限额',
+        key: 'cost_limits',
+        width: 120,
+        render: (_: unknown, r: AccountEntry) => {
+          const d = r.daily_cost_limit > 0;
+          const m = r.monthly_cost_limit > 0;
+          if (!d && !m) {
+            return <Typography.Text type="secondary">—</Typography.Text>;
+          }
+          const parts: string[] = [];
+          if (d) parts.push(`日 ¥${r.daily_cost_limit}`);
+          if (m) parts.push(`月 ¥${r.monthly_cost_limit}`);
+          return <span style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{parts.join(' · ')}</span>;
+        },
+      },
+      {
+        title: '操作',
+        width: 188,
+        fixed: 'right' as const,
+        render: (_: unknown, record: AccountEntry) => (
+          <Space size="small">
+            <Tooltip title={record.enabled ? '禁用' : '启用'}>
+              <Switch
+                size="small"
+                checked={record.enabled}
+                onChange={(checked) => void handleToggle(record, checked)}
+              />
+            </Tooltip>
+            <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
+              编辑
+            </Button>
+            <Popconfirm title="确认删除此账号？" onConfirm={() => void handleDelete(record)} okText="删除" cancelText="取消">
+              <Button type="link" size="small" danger icon={<DeleteOutlined />}>删除</Button>
+            </Popconfirm>
+          </Space>
+        ),
+      },
+    ];
+
+    return base;
+  }, [
+    displayItems,
+    providerConfigMap,
+    showAccountBaseUrlCol,
+    handleToggle,
+    handleDelete,
+    openEdit,
+  ]);
 
   return (
     <div>
@@ -375,56 +457,27 @@ export default function AccountPoolPage() {
         )}
       />
       <Card>
-        {/* 无账号池条目的厂商警告 */}
-        {providersWithoutEntries.length > 0 && (
-          <Alert
-            type="warning"
-            showIcon
-            icon={<WarningOutlined />}
-            message="以下已启用的厂商尚无账号池条目，将无法处理请求"
-            description={
-              <Space wrap>
-                {providersWithoutEntries.map((p) => (
-                  <Tag key={p} color="warning">{p}</Tag>
-                ))}
-              </Space>
-            }
-            style={{ marginBottom: 16 }}
-          />
-        )}
-
-        {/* 按厂商分组展示 */}
-        {sortedProviders.length === 0 && !loading && (
+        {displayItems.length === 0 && !loading && (
           <Typography.Text type="secondary">暂无账号数据</Typography.Text>
         )}
-        {sortedProviders.map((providerName) => {
-          const providerCfg = providerConfigMap.get(providerName);
-          const isProviderDisabled = providerCfg && !providerCfg.enabled;
-          return (
-            <div key={providerName} style={{ marginBottom: 24 }}>
-              <div style={{ marginBottom: 8 }}>
-                {renderProviderGroupHeader(providerName)}
-              </div>
-              {isProviderDisabled && (
-                <Alert
-                  type="warning"
-                  showIcon
-                  message="该厂商已被禁用，其下账号已被自动停用，启用厂商后账号将自动恢复"
-                  style={{ marginBottom: 8 }}
-                />
-              )}
-              <Table<AccountEntry>
-                rowKey="_id"
-                loading={loading}
-                dataSource={groupedByProvider[providerName]}
-                columns={columns}
-                scroll={{ x: 1200 }}
-                pagination={false}
-                size="small"
-              />
-            </div>
-          );
-        })}
+        {(displayItems.length > 0 || loading) && (
+          <Table<AccountEntry>
+            rowKey="_id"
+            loading={loading}
+            dataSource={displayItems}
+            columns={columns}
+            scroll={{ x: showAccountBaseUrlCol ? 1480 : 1320 }}
+            pagination={false}
+            size="small"
+            onRow={(record, index) => {
+              const prev = index != null && index > 0 ? displayItems[index - 1] : undefined;
+              const groupStart = prev != null && prev.provider_name !== record.provider_name;
+              return {
+                style: groupStart ? { borderTop: '2px solid var(--ant-color-split, #f0f0f0)' } : undefined,
+              };
+            }}
+          />
+        )}
         {/* 分页 */}
         {total > 0 && (
           <div style={{ textAlign: 'right', marginTop: 16 }}>

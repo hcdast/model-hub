@@ -11,6 +11,7 @@ import {
 } from './interfaces/billing.interface';
 import { BillingQueryDto } from './dto/billing-query.dto';
 import { BillingSummaryQueryDto } from './dto/billing-summary-query.dto';
+import { roundMoney } from '../common/utils/money.util';
 
 /** 计费汇总结果条目 */
 export interface BillingSummaryItem {
@@ -234,7 +235,7 @@ export class BillingService {
    */
   async listRecords(
     query: BillingQueryDto,
-  ): Promise<{ items: BillingRecordDocument[]; total: number }> {
+  ): Promise<{ items: Record<string, unknown>[]; total: number }> {
     const { page = 1, pageSize = 20, clientId, model, billingPolicy, status, startDate, endDate } = query;
     const skip = (page - 1) * pageSize;
 
@@ -263,15 +264,24 @@ export class BillingService {
       }
     }
 
-    const [items, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       this.billingModel
         .find(filter)
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(pageSize)
+        .lean()
         .exec(),
       this.billingModel.countDocuments(filter).exec(),
     ]);
+
+    const items = rows.map((o) => ({
+      ...o,
+      unitPrice: typeof o.unitPrice === 'number' ? roundMoney(o.unitPrice) : o.unitPrice,
+      estimatedCost: typeof o.estimatedCost === 'number' ? roundMoney(o.estimatedCost) : o.estimatedCost,
+      actualCost:
+        typeof o.actualCost === 'number' ? roundMoney(o.actualCost) : o.actualCost,
+    }));
 
     return { items, total };
   }
@@ -339,7 +349,11 @@ export class BillingService {
     pipeline.push({ $sort: { _id: 1 } });
 
     const results = await this.billingModel.aggregate(pipeline).exec();
-    return results as BillingSummaryItem[];
+    return (results as BillingSummaryItem[]).map((row) => ({
+      ...row,
+      totalEstimatedCost: roundMoney(row.totalEstimatedCost ?? 0),
+      totalActualCost: roundMoney(row.totalActualCost ?? 0),
+    }));
   }
 
   /**
@@ -385,13 +399,17 @@ export class BillingService {
     ]).exec();
 
     const facet = results[0] || { totalSpend: [], byModel: [] };
-    const totalSpend = facet.totalSpend[0]?.total || 0;
+    const totalSpend = roundMoney(facet.totalSpend[0]?.total || 0);
     const topDoc = facet.byModel[0] || null;
 
     return {
       totalSpend,
       topModel: topDoc
-        ? { model: topDoc._id, requestCount: topDoc.requestCount, totalCost: topDoc.totalCost }
+        ? {
+            model: topDoc._id,
+            requestCount: topDoc.requestCount,
+            totalCost: roundMoney(topDoc.totalCost ?? 0),
+          }
         : null,
     };
   }

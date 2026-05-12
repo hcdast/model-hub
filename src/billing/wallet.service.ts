@@ -12,6 +12,7 @@ import { APP_CONFIG } from '../config/config.module';
 import { AppConfig } from '../config/interfaces/config.interface';
 import { TransactionType, WalletBalance } from './interfaces/wallet.interface';
 import { TransactionQueryDto } from './dto/transaction-query.dto';
+import { roundMoney } from '../common/utils/money.util';
 
 /**
  * 钱包服务 —— 为 billingPolicy=internal 的 API Client 管理独立余额。
@@ -62,10 +63,11 @@ export class WalletService {
     if (!wallet) {
       return { balance: 0, frozenAmount: 0, available: 0 };
     }
+    const available = wallet.balance - wallet.frozenAmount;
     return {
-      balance: wallet.balance,
-      frozenAmount: wallet.frozenAmount,
-      available: wallet.balance - wallet.frozenAmount,
+      balance: roundMoney(wallet.balance),
+      frozenAmount: roundMoney(wallet.frozenAmount),
+      available: roundMoney(available),
     };
   }
 
@@ -117,7 +119,16 @@ export class WalletService {
       this.walletModel.countDocuments(match),
     ]);
 
-    return { items, total };
+    const shaped = items.map((row: Record<string, unknown>) => ({
+      ...row,
+      balance: typeof row.balance === 'number' ? roundMoney(row.balance) : row.balance,
+      frozenAmount:
+        typeof row.frozenAmount === 'number' ? roundMoney(row.frozenAmount) : row.frozenAmount,
+      available:
+        typeof row.available === 'number' ? roundMoney(row.available) : row.available,
+    }));
+
+    return { items: shaped, total };
   }
 
   /**
@@ -297,7 +308,7 @@ export class WalletService {
   async listTransactions(
     clientId: string,
     query: TransactionQueryDto,
-  ): Promise<{ items: WalletTransactionDocument[]; total: number }> {
+  ): Promise<{ items: Record<string, unknown>[]; total: number }> {
     const { page = 1, pageSize = 20, type } = query;
     const skip = (page - 1) * pageSize;
 
@@ -307,15 +318,25 @@ export class WalletService {
       filter.type = type;
     }
 
-    const [items, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       this.txModel
         .find(filter)
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(pageSize)
+        .lean()
         .exec(),
       this.txModel.countDocuments(filter).exec(),
     ]);
+
+    const items = rows.map((o) => ({
+      ...o,
+      amount: typeof o.amount === 'number' ? roundMoney(o.amount) : o.amount,
+      balanceBefore:
+        typeof o.balanceBefore === 'number' ? roundMoney(o.balanceBefore) : o.balanceBefore,
+      balanceAfter:
+        typeof o.balanceAfter === 'number' ? roundMoney(o.balanceAfter) : o.balanceAfter,
+    }));
 
     return { items, total };
   }

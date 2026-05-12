@@ -150,7 +150,7 @@ export default function AccountCostPage() {
     {
       title: '成本', dataIndex: 'total_cost', width: 100,
       sorter: (a: DailyCostRow, b: DailyCostRow) => a.total_cost - b.total_cost,
-      render: (v: number) => `¥${v.toFixed(4)}`,
+      render: (v: number) => `¥${v.toFixed(2)}`,
     },
     { title: '请求数', dataIndex: 'request_count', width: 80 },
     { title: '成功', dataIndex: 'success_count', width: 80 },
@@ -175,7 +175,7 @@ export default function AccountCostPage() {
     {
       title: '月成本', dataIndex: 'total_cost', width: 110,
       sorter: (a: MonthlySummary, b: MonthlySummary) => a.total_cost - b.total_cost,
-      render: (v: number) => `¥${v.toFixed(4)}`,
+      render: (v: number) => `¥${v.toFixed(2)}`,
     },
     { title: '总请求', dataIndex: 'total_requests', width: 90 },
     { title: '成功', dataIndex: 'total_success', width: 80 },
@@ -235,7 +235,7 @@ export default function AccountCostPage() {
 
       <Card style={{ marginBottom: 16 }}>
         <Row gutter={24}>
-          <Col span={6}><Statistic title="本月总成本" value={summary.totalCost} precision={4} prefix="¥" /></Col>
+          <Col span={6}><Statistic title="本月总成本" value={summary.totalCost} precision={2} prefix="¥" /></Col>
           <Col span={6}><Statistic title="总请求" value={summary.totalRequests} /></Col>
           <Col span={6}><Statistic title="成功率" value={successRate} suffix="%" valueStyle={{ color: '#52c41a' }} /></Col>
           <Col span={6}><Statistic title="失败数" value={summary.totalFailure} valueStyle={{ color: '#ff4d4f' }} /></Col>

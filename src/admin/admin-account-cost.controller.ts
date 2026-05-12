@@ -20,6 +20,7 @@ import {
 import { AdminJwtGuard } from './guards/admin-jwt.guard';
 import { PermissionGuard } from './guards/permission.guard';
 import { RequirePermissions } from './decorators/require-permissions.decorator';
+import { roundMoney } from '../common/utils/money.util';
 
 @ApiTags('管理后台 - 账号成本')
 @ApiBearerAuth('AdminJwt')
@@ -48,7 +49,7 @@ export class AdminAccountCostController {
     @Query('end_date') endDate?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
-  ) {
+  ): Promise<{ code: number; data: { items: Record<string, unknown>[]; total: number; page: number; pageSize: number } }> {
     const query: Record<string, unknown> = {};
     if (providerName) query.provider_name = providerName;
     if (accountId) query.account_id = accountId;
@@ -62,7 +63,7 @@ export class AdminAccountCostController {
     const p = Math.max(1, parseInt(page, 10) || 1);
     const ps = Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20));
 
-    const [items, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       this.costModel
         .find(query)
         .sort({ date: -1, provider_name: 1 })
@@ -71,6 +72,11 @@ export class AdminAccountCostController {
         .lean(),
       this.costModel.countDocuments(query),
     ]);
+
+    const items = rows.map((row) => ({
+      ...row,
+      total_cost: typeof row.total_cost === 'number' ? roundMoney(row.total_cost) : row.total_cost,
+    }));
 
     return { code: 0, data: { items, total, page: p, pageSize: ps } };
   }
@@ -86,7 +92,7 @@ export class AdminAccountCostController {
     @Query('provider_name') providerName?: string,
     @Query('account_id') accountId?: string,
     @Query('month') month?: string,
-  ) {
+  ): Promise<{ code: number; data: { items: Record<string, unknown>[]; month: string } }> {
     const m = month || new Date().toISOString().slice(0, 7);
 
     const matchStage: Record<string, unknown> = {
@@ -125,6 +131,12 @@ export class AdminAccountCostController {
       { $sort: { provider_name: 1, total_cost: -1 } },
     ]);
 
-    return { code: 0, data: { items: results, month: m } };
+    const items = results.map((row: Record<string, unknown>) => ({
+      ...row,
+      total_cost:
+        typeof row.total_cost === 'number' ? roundMoney(row.total_cost) : row.total_cost,
+    }));
+
+    return { code: 0, data: { items, month: m } };
   }
 }
