@@ -1,7 +1,7 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Table, Card, Button, Space, Tag, message, Modal, Form, Input, InputNumber,
-  Switch, Select, Popconfirm, Tooltip, Tree,
+  Switch, Select, Popconfirm, TreeSelect,
 } from 'antd';
 import {
   PlusOutlined, ReloadOutlined, EditOutlined, DeleteOutlined,
@@ -22,6 +22,19 @@ interface MenuTreeNode {
   moduleKey?: string;
   children: MenuTreeNode[];
 }
+
+/** 侧栏分组 parentKey → 中文名（与后端 DEFAULT_GROUPS 一致） */
+const MENU_GROUP_PARENT_LABELS: Record<string, string> = {
+  overview: '仪表盘',
+  business: '业务接入',
+  'model-routing': '模型路由',
+  billing: '计费与成本',
+  provider: '供应商管理',
+  notification: '通知中心',
+  system: '系统设置',
+  access: '访问控制',
+  audit: '审计与日志',
+};
 
 interface Permission {
   code: string;
@@ -144,10 +157,52 @@ export default function MenusPage() {
     }
   };
 
-  // parent menu options (top-level menus)
-  const parentOptions = flatMenus
-    .filter((m) => !m.parentKey)
-    .map((m) => ({ label: m.label, value: m.key }));
+  // parent menu: 侧栏分组 + 菜单树（与后端 parentKey 语义一致）
+  const parentTreeSelectData = useMemo(() => {
+    const groupNodes = Object.entries(MENU_GROUP_PARENT_LABELS).map(([value, label]) => ({
+      value,
+      title: `${label}（分组）`,
+    }));
+    const menuNodes = (function mapNodes(nodes: MenuTreeNode[]): any[] {
+      return nodes
+        .filter((n) => n.key !== editingMenu?.key)
+        .map((n) => ({
+          value: n.key,
+          title: `${n.label} (${n.key})`,
+          children: n.children?.length ? mapNodes(n.children) : undefined,
+        }));
+    })(menus);
+    return [
+      {
+        value: '__sidebar_groups__',
+        title: '侧栏分组',
+        selectable: false,
+        children: groupNodes,
+      },
+      {
+        value: '__menu_items__',
+        title: '挂载到菜单项下',
+        selectable: false,
+        children: menuNodes.length > 0 ? menuNodes : undefined,
+      },
+    ];
+  }, [menus, editingMenu?.key]);
+
+  const keyToLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    (flatMenus as { key: string; label: string }[]).forEach((row) => {
+      m.set(row.key, row.label);
+    });
+    return m;
+  }, [flatMenus]);
+
+  const parentLabelFor = useCallback(
+    (parentKey?: string) => {
+      if (!parentKey) return '—';
+      return keyToLabel.get(parentKey) || MENU_GROUP_PARENT_LABELS[parentKey] || parentKey;
+    },
+    [keyToLabel],
+  );
 
   // permission options for associatedPermissions
   const permissionOptions = permissions.map((p) => ({
@@ -162,7 +217,20 @@ export default function MenusPage() {
       title: '菜单名称',
       dataIndex: 'label',
       key: 'label',
+      width: 220,
+      ellipsis: true,
+    },
+    {
+      title: '父级',
+      dataIndex: 'parentKey',
+      key: 'parentKey',
       width: 200,
+      ellipsis: true,
+      render: (pk: string | undefined) => (
+        <Tag color={pk && MENU_GROUP_PARENT_LABELS[pk] ? 'purple' : 'default'}>
+          {parentLabelFor(pk)}
+        </Tag>
+      ),
     },
     {
       title: '路由路径',
@@ -233,21 +301,6 @@ export default function MenusPage() {
     },
   ];
 
-  // Flatten tree for table display
-  const flattenTree = (nodes: MenuTreeNode[], level = 0): any[] => {
-    const result: any[] = [];
-    for (const node of nodes) {
-      result.push({ ...node, level });
-      if (node.children && node.children.length > 0) {
-        result.push(...flattenTree(node.children, level + 1));
-      }
-    }
-    return result;
-  };
-
-  const tableData = flattenTree(menus);
-
-  // ---- render ----
 
   return (
     <div>
@@ -264,14 +317,13 @@ export default function MenusPage() {
         <Table
           rowKey="key"
           columns={columns}
-          dataSource={tableData}
+          dataSource={menus}
           loading={loading}
           size="small"
           pagination={false}
-          scroll={{ x: 1200 }}
-          expandable={{
-            childrenColumnName: '__unused__',
-          }}
+          scroll={{ x: 1280 }}
+          defaultExpandAllRows
+          childrenColumnName="children"
         />
 
         {/* 新建菜单弹窗 */}
@@ -297,7 +349,7 @@ export default function MenusPage() {
               label="显示名称"
               rules={[{ required: true, message: '请输入显示名称' }]}
             >
-              <Input placeholder="如：任务管理" maxLength={100} />
+              <Input placeholder="如：用量账单" maxLength={100} />
             </Form.Item>
             <Form.Item name="path" label="路由路径">
               <Input placeholder="如：/tasks" maxLength={200} />
@@ -310,10 +362,16 @@ export default function MenusPage() {
               <Input placeholder="Ant Design 图标名，如 FileTextOutlined" maxLength={100} />
             </Form.Item>
             <Form.Item name="parentKey" label="父级菜单">
-              <Select
+              <TreeSelect
                 allowClear
-                placeholder="选择父级菜单（留空为顶级菜单）"
-                options={parentOptions}
+                showSearch
+                treeDefaultExpandAll
+                treeLine={{ showLeafIcon: false }}
+                placeholder="选择侧栏分组或上级菜单项"
+                treeData={parentTreeSelectData}
+                filterTreeNode={(input, node) =>
+                  String(node?.title ?? '').toLowerCase().includes(input.toLowerCase())}
+                style={{ width: '100%' }}
               />
             </Form.Item>
             <Form.Item name="sortOrder" label="排序权重">
@@ -371,7 +429,7 @@ export default function MenusPage() {
               label="显示名称"
               rules={[{ required: true, message: '请输入显示名称' }]}
             >
-              <Input placeholder="如：任务管理" maxLength={100} />
+              <Input placeholder="如：用量账单" maxLength={100} />
             </Form.Item>
             <Form.Item name="path" label="路由路径">
               <Input placeholder="如：/tasks" maxLength={200} />
@@ -384,10 +442,16 @@ export default function MenusPage() {
               <Input placeholder="Ant Design 图标名" maxLength={100} />
             </Form.Item>
             <Form.Item name="parentKey" label="父级菜单">
-              <Select
+              <TreeSelect
                 allowClear
-                placeholder="选择父级菜单（留空为顶级菜单）"
-                options={parentOptions}
+                showSearch
+                treeDefaultExpandAll
+                treeLine={{ showLeafIcon: false }}
+                placeholder="选择侧栏分组或上级菜单项"
+                treeData={parentTreeSelectData}
+                filterTreeNode={(input, node) =>
+                  String(node?.title ?? '').toLowerCase().includes(input.toLowerCase())}
+                style={{ width: '100%' }}
               />
             </Form.Item>
             <Form.Item name="sortOrder" label="排序权重">

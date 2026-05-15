@@ -182,6 +182,7 @@ export default function RolesPage() {
       nodes.map((n) => ({
         key: n.key,
         title: n.label,
+        path: n.path,
         children: n.children && n.children.length > 0 ? convert(n.children) : undefined,
       }));
     return convert(menuTree);
@@ -409,13 +410,26 @@ export default function RolesPage() {
           <Form.Item name="description" label="描述">
             <Input.TextArea placeholder="请输入角色描述" rows={2} maxLength={500} />
           </Form.Item>
-          <Form.Item label="菜单授权">
-            <div style={{ border: '1px solid #d9d9d9', borderRadius: 6, padding: 8, maxHeight: 200, overflow: 'auto' }}>
+          <Form.Item label="菜单授权（多级）">
+            <div style={{ border: '1px solid #d9d9d9', borderRadius: 6, padding: 8, maxHeight: 320, overflow: 'auto' }}>
               <Tree
                 checkable
+                showLine
+                defaultExpandAll
+                blockNode
                 checkedKeys={createSelectedMenus}
                 onCheck={(keys) => setCreateSelectedMenus(keys as string[])}
                 treeData={menuTreeData}
+                titleRender={(node: any) => (
+                  <div>
+                    <div>{node.title as string}</div>
+                    {node.path && (
+                      <div style={{ fontSize: 11, color: 'var(--ant-color-text-secondary)' }}>
+                        {node.path}
+                      </div>
+                    )}
+                  </div>
+                )}
               />
             </div>
           </Form.Item>
@@ -458,13 +472,26 @@ export default function RolesPage() {
           <Form.Item name="description" label="描述">
             <Input.TextArea placeholder="请输入角色描述" rows={2} maxLength={500} />
           </Form.Item>
-          <Form.Item label="菜单授权">
-            <div style={{ border: '1px solid #d9d9d9', borderRadius: 6, padding: 8, maxHeight: 200, overflow: 'auto' }}>
+          <Form.Item label="菜单授权（多级）">
+            <div style={{ border: '1px solid #d9d9d9', borderRadius: 6, padding: 8, maxHeight: 320, overflow: 'auto' }}>
               <Tree
                 checkable
+                showLine
+                defaultExpandAll
+                blockNode
                 checkedKeys={editSelectedMenus}
                 onCheck={(keys) => setEditSelectedMenus(keys as string[])}
                 treeData={menuTreeData}
+                titleRender={(node: any) => (
+                  <div>
+                    <div>{node.title as string}</div>
+                    {node.path && (
+                      <div style={{ fontSize: 11, color: 'var(--ant-color-text-secondary)' }}>
+                        {node.path}
+                      </div>
+                    )}
+                  </div>
+                )}
               />
             </div>
           </Form.Item>

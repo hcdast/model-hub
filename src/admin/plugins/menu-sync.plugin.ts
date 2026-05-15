@@ -34,9 +34,6 @@ export class MenuSyncPlugin implements SyncPlugin {
     for (const desc of descriptors) {
       if (!desc.menus || desc.menus.length === 0) continue;
       for (const menuDef of desc.menus) {
-        // Register to in-memory registry
-        this.menuRegistryService.registerMenuItem(menuDef);
-
         // Persist to database
         await this.menuManagementService.upsertFromDescriptor({
           key: menuDef.path,
@@ -53,6 +50,9 @@ export class MenuSyncPlugin implements SyncPlugin {
         registered++;
       }
     }
+
+    // 与数据库对齐：内存菜单树统一从 DB 构建（含分组下多级子菜单）
+    await this.menuRegistryService.reloadFromDb();
 
     this.logger.log(`菜单同步完成：共注册 ${registered} 个菜单项`);
   }

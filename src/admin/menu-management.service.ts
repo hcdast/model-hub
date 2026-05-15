@@ -12,6 +12,8 @@ export interface MenuTreeNode {
   path?: string;
   icon: string;
   sortOrder: number;
+  /** 父级菜单 key（分组或上级菜单项） */
+  parentKey?: string;
   requiredPermission?: string;
   associatedPermissions: string[];
   enabled: boolean;
@@ -154,6 +156,7 @@ export class MenuManagementService {
         path: item.path,
         icon: item.icon,
         sortOrder: item.sortOrder,
+        parentKey: item.parentKey,
         requiredPermission: item.requiredPermission,
         associatedPermissions: item.associatedPermissions || [],
         enabled: item.enabled,

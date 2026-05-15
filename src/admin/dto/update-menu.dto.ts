@@ -2,7 +2,7 @@ import { IsString, IsOptional, IsArray, IsBoolean, IsNumber, Matches } from 'cla
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateMenuDto {
-  @ApiPropertyOptional({ description: '显示名称', example: '任务管理' })
+  @ApiPropertyOptional({ description: '显示名称', example: '任务记录' })
   @IsString()
   @IsOptional()
   label?: string;

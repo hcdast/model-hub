@@ -14,7 +14,6 @@ import { AdminAuthService } from './admin-auth.service';
 import { UserManagementController } from './user-management.controller';
 import { RoleManagementController } from './role-management.controller';
 import { PermissionManagementController } from './permission-management.controller';
-import { AuditInterceptor } from './interceptors/audit.interceptor';
 import { PermissionSyncPlugin } from './plugins/permission-sync.plugin';
 import { AuditAnchorPlugin } from './plugins/audit-anchor.plugin';
 import { MenuSyncPlugin } from './plugins/menu-sync.plugin';
@@ -49,7 +48,6 @@ import { MenuManagementController } from './menu-management.controller';
     PermissionGuard,
     AdminJwtGuard,
     AdminAuthService,
-    AuditInterceptor,
     PermissionSyncPlugin,
     AuditAnchorPlugin,
     MenuSyncPlugin,
@@ -99,7 +97,6 @@ import { MenuManagementController } from './menu-management.controller';
     PermissionGuard,
     AdminJwtGuard,
     AdminAuthService,
-    AuditInterceptor,
     PermissionSyncPlugin,
     AuditAnchorPlugin,
     MenuSyncPlugin,

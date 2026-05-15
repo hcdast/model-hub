@@ -49,7 +49,7 @@ export interface MenuGroup {
 const FALLBACK_MENU: MenuGroup[] = [
   {
     key: 'overview',
-    label: '系统总览',
+    label: '仪表盘',
     icon: 'DashboardOutlined',
     sortOrder: 0,
     children: [

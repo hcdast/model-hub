@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { FeatureMenuDef } from '../../common/interfaces/feature-module.interface';
@@ -26,17 +26,20 @@ export interface MenuGroup {
   children: MenuItem[];
 }
 
-/** Default menu group definitions */
+/** Default menu group definitions（与功能描述符 parentKey 对齐） */
 const DEFAULT_GROUPS: Omit<MenuGroup, 'children'>[] = [
-  { key: 'overview', label: '系统总览', icon: 'DashboardOutlined', sortOrder: 0 },
-  { key: 'business', label: '业务管理', icon: 'AppstoreOutlined', sortOrder: 100 },
-  { key: 'billing', label: '计费管理', icon: 'WalletOutlined', sortOrder: 150 },
-  { key: 'provider', label: '厂商管理', icon: 'CloudServerOutlined', sortOrder: 200 },
-  { key: 'notification', label: '通知管理', icon: 'BellOutlined', sortOrder: 300 },
-  { key: 'system', label: '系统配置', icon: 'SettingOutlined', sortOrder: 400 },
+  { key: 'overview', label: '仪表盘', icon: 'DashboardOutlined', sortOrder: 0 },
+  { key: 'business', label: '业务接入', icon: 'AppstoreOutlined', sortOrder: 100 },
+  { key: 'model-routing', label: '模型路由', icon: 'BranchesOutlined', sortOrder: 110 },
+  { key: 'provider', label: '供应商管理', icon: 'CloudServerOutlined', sortOrder: 120 },
+  { key: 'billing', label: '计费与成本', icon: 'WalletOutlined', sortOrder: 130 },
+  { key: 'notification', label: '通知中心', icon: 'BellOutlined', sortOrder: 140 },
+  { key: 'system', label: '系统设置', icon: 'SettingOutlined', sortOrder: 150 },
   { key: 'access', label: '访问控制', icon: 'TeamOutlined', sortOrder: 450 },
   { key: 'audit', label: '审计与日志', icon: 'SafetyOutlined', sortOrder: 500 },
 ];
+
+const DEFAULT_GROUP_KEYS = new Set(DEFAULT_GROUPS.map((g) => g.key));
 
 @Injectable()
 export class MenuRegistryService {
@@ -71,6 +74,7 @@ export class MenuRegistryService {
       sortOrder: item.sortOrder,
       parentKey: item.parentKey,
       requiredPermission: item.requiredPermission,
+      children: [],
     };
 
     if (item.parentKey && this.menuGroups.has(item.parentKey)) {
@@ -81,7 +85,6 @@ export class MenuRegistryService {
           `Menu item "${item.label}" references unknown parentKey "${item.parentKey}", treating as top-level`,
         );
       }
-      // Create a standalone group for orphan items
       this.menuGroups.set(menuItem.key!, {
         key: menuItem.key!,
         label: menuItem.label,
@@ -115,15 +118,10 @@ export class MenuRegistryService {
     const filtered: MenuGroup[] = [];
 
     for (const group of this.menuGroups.values()) {
-      const visibleChildren = group.children.filter((child) => {
-        if (!child.requiredPermission) return true;
-        if (hasWildcard) return true;
-        return permSet.has(child.requiredPermission);
-      });
+      const visibleChildren = this.filterItemsByPermission(group.children, permSet, hasWildcard);
 
       if (visibleChildren.length > 0 || group.children.length === 0) {
-        // Keep groups that have visible children, or groups with no children at all (like overview)
-        filtered.push({ ...group, children: [...visibleChildren] });
+        filtered.push({ ...group, children: visibleChildren });
       }
     }
 
@@ -143,46 +141,91 @@ export class MenuRegistryService {
     const filtered: MenuGroup[] = [];
 
     for (const group of this.menuGroups.values()) {
-      // A group is visible if its key is in the set, or if wildcard
       const groupVisible = hasWildcard || keySet.has(group.key);
+      const visibleChildren = this.filterItemsByKeys(group.children, keySet, hasWildcard);
 
       if (!groupVisible) {
-        // Check if any children are explicitly authorized
-        const visibleChildren = group.children.filter(
-          (child) => hasWildcard || keySet.has(child.key),
-        );
         if (visibleChildren.length > 0) {
-          filtered.push({ ...group, children: [...visibleChildren] });
+          filtered.push({ ...group, children: visibleChildren });
         }
         continue;
       }
 
-      // Group is authorized — show all its children (or filter by individual child keys if needed)
       if (group.children.length === 0) {
         filtered.push({ ...group, children: [] });
       } else {
-        const visibleChildren = group.children.filter(
-          (child) => hasWildcard || keySet.has(child.key),
-        );
-        filtered.push({ ...group, children: [...visibleChildren] });
+        filtered.push({ ...group, children: visibleChildren });
       }
     }
 
     return this.sortMenuTree(filtered);
   }
 
-  /** Sort groups by sortOrder, and children within each group by sortOrder */
+  /** Sort groups by sortOrder, and children within each group by sortOrder (recursive) */
   sortMenuTree(tree: MenuGroup[]): MenuGroup[] {
     const sorted = [...tree].sort((a, b) => a.sortOrder - b.sortOrder);
     for (const group of sorted) {
-      group.children.sort((a, b) => a.sortOrder - b.sortOrder);
+      this.sortMenuItems(group.children);
     }
     return sorted;
+  }
+
+  private sortMenuItems(items: MenuItem[]): void {
+    items.sort((a, b) => a.sortOrder - b.sortOrder);
+    for (const it of items) {
+      if (it.children?.length) {
+        this.sortMenuItems(it.children);
+      }
+    }
+  }
+
+  private filterItemsByPermission(
+    items: MenuItem[],
+    permSet: Set<string>,
+    hasWildcard: boolean,
+  ): MenuItem[] {
+    const out: MenuItem[] = [];
+    for (const item of items) {
+      const selfOk =
+        !item.requiredPermission || hasWildcard || permSet.has(item.requiredPermission);
+      const sub = item.children?.length
+        ? this.filterItemsByPermission(item.children, permSet, hasWildcard)
+        : [];
+      if (selfOk || sub.length > 0) {
+        out.push({
+          ...item,
+          children: sub.length > 0 ? sub : undefined,
+        });
+      }
+    }
+    return out;
+  }
+
+  private filterItemsByKeys(
+    items: MenuItem[],
+    keySet: Set<string>,
+    hasWildcard: boolean,
+  ): MenuItem[] {
+    const out: MenuItem[] = [];
+    for (const item of items) {
+      const selfVisible = hasWildcard || keySet.has(item.key);
+      const sub = item.children?.length
+        ? this.filterItemsByKeys(item.children, keySet, hasWildcard)
+        : [];
+      if (selfVisible || sub.length > 0) {
+        out.push({
+          ...item,
+          children: sub.length > 0 ? sub : undefined,
+        });
+      }
+    }
+    return out;
   }
 
   /**
    * Reload menu tree from database.
    * Called after CRUD operations on menu_configs collection.
+   * 支持：挂在分组下的一级菜单、以及以其它菜单项为父级的多级子菜单。
    */
   async reloadFromDb(): Promise<void> {
     this.logger.log('从数据库重新加载菜单配置...');
@@ -191,8 +234,11 @@ export class MenuRegistryService {
 
     const menus = await this.menuConfigModel
       .find({ enabled: true })
+      .sort({ sortOrder: 1 })
       .lean()
       .exec();
+
+    const menuItemByKey = new Map<string, MenuItem>();
 
     for (const menu of menus) {
       const menuItem: MenuItem = {
@@ -206,14 +252,18 @@ export class MenuRegistryService {
         associatedPermissions: menu.associatedPermissions,
         enabled: menu.enabled,
         moduleKey: menu.moduleKey,
+        children: [],
       };
+      menuItemByKey.set(menu.key, menuItem);
+    }
 
-      if (menu.parentKey && this.menuGroups.has(menu.parentKey)) {
-        this.menuGroups.get(menu.parentKey)!.children.push(menuItem);
-      } else if (!menu.parentKey) {
-        // Top-level group
+    const pendingUnderMenuParent: MenuItem[] = [];
+
+    for (const menu of menus) {
+      const menuItem = menuItemByKey.get(menu.key)!;
+
+      if (!menu.parentKey) {
         if (this.menuGroups.has(menu.key)) {
-          // Update existing default group metadata
           const group = this.menuGroups.get(menu.key)!;
           group.label = menu.label;
           group.icon = menu.icon;
@@ -227,7 +277,34 @@ export class MenuRegistryService {
             children: [],
           });
         }
+        continue;
       }
+
+      if (menu.parentKey && DEFAULT_GROUP_KEYS.has(menu.parentKey)) {
+        this.menuGroups.get(menu.parentKey)!.children.push(menuItem);
+        continue;
+      }
+
+      if (menu.parentKey && menuItemByKey.has(menu.parentKey)) {
+        pendingUnderMenuParent.push(menuItem);
+        continue;
+      }
+
+      this.logger.warn(
+        `菜单 "${menu.label}" (${menu.key}) 的父级 "${menu.parentKey}" 不存在，已跳过注册`,
+      );
+    }
+
+    for (const child of pendingUnderMenuParent) {
+      const parentKey = child.parentKey!;
+      const parent = menuItemByKey.get(parentKey);
+      if (!parent) continue;
+      if (!parent.children) parent.children = [];
+      parent.children.push(child);
+    }
+
+    for (const group of this.menuGroups.values()) {
+      this.sortMenuItems(group.children);
     }
 
     this.logger.log(`菜单重新加载完成：${menus.length} 个菜单项`);

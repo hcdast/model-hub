@@ -2,16 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { SyncPlugin } from '../../common/interfaces/sync-plugin.interface';
-import {
-  FeatureModuleDescriptor,
-  FeaturePermissionDef,
-} from '../../common/interfaces/feature-module.interface';
+import { FeatureModuleDescriptor } from '../../common/interfaces/feature-module.interface';
 import {
   Permission,
   PermissionDocument,
 } from '../../database/schemas/permission.schema';
 import { Role, RoleDocument } from '../../database/schemas/role.schema';
-import { AuditLogService } from '../audit-log.service';
 
 /** Default CRUD actions generated for modules without explicit permissions */
 const DEFAULT_CRUD_ACTIONS = ['read', 'create', 'update', 'delete'];
@@ -34,7 +30,6 @@ export class PermissionSyncPlugin implements SyncPlugin {
     private readonly permissionModel: Model<PermissionDocument>,
     @InjectModel(Role.name)
     private readonly roleModel: Model<RoleDocument>,
-    private readonly auditLogService: AuditLogService,
   ) {}
 
   /**
@@ -44,7 +39,6 @@ export class PermissionSyncPlugin implements SyncPlugin {
    * 3. 注册新权限
    * 4. 标记已移除的权限为 deprecated
    * 5. 更新 super_admin 角色
-   * 6. 记录审计日志
    */
   async onSystemStartup(
     descriptors: FeatureModuleDescriptor[],
@@ -108,22 +102,7 @@ export class PermissionSyncPlugin implements SyncPlugin {
     // Step 5: Update super_admin role with all non-deprecated permission codes
     await this.updateSuperAdminRole(desiredCodes);
 
-    // Step 6: Audit log
     const skippedCount = desiredPermissions.length - registeredCount;
-    await this.auditLogService.log({
-      action: 'permission_sync',
-      operator: 'system',
-      resource: 'permission',
-      result: 'success',
-      detail: {
-        registered: registeredCount,
-        skipped: skippedCount,
-        deprecated: deprecatedCount,
-        reactivated: reactivatedCodes.length,
-        total: desiredPermissions.length,
-      },
-    });
-
     this.logger.log(
       `Permission sync complete: ${registeredCount} registered, ${skippedCount} skipped, ${deprecatedCount} deprecated`,
     );

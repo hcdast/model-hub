@@ -10,7 +10,7 @@ export class CreateMenuDto {
   })
   key!: string;
 
-  @ApiProperty({ description: '显示名称', example: '任务管理' })
+  @ApiProperty({ description: '显示名称', example: '任务记录' })
   @IsString()
   @IsNotEmpty()
   label!: string;
