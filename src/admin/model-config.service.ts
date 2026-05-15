@@ -7,6 +7,7 @@ import { UpdateModelConfigDto } from './dto/update-model-config.dto';
 import { ValidationResult, UniquenessCheckResult, ConflictInfo } from './interfaces/validation.interface';
 import { ModelConfigValidator } from './utils/model-config-validator';
 import { validateParamDefinitions } from '../common/utils/param-definition-validator';
+import { sanitizeParamDefinitions } from '../common/utils/param-definitions-sanitize';
 
 /**
  * 模型配置服务
@@ -40,12 +41,11 @@ export class ModelConfigService {
   ): Promise<UniquenessCheckResult> {
     const conflicts: ConflictInfo[] = [];
 
-    // 检查 model_name + model_type + service 组合唯一性
-    if (config.model_name && config.model_type && config.service) {
+    // model_id + model_type 组合唯一
+    if (config.model_id && config.model_type) {
       const query: any = {
-        model_name: config.model_name,
+        model_id: config.model_id,
         model_type: config.model_type,
-        service: config.service,
       };
 
       // 更新时排除自身
@@ -56,9 +56,9 @@ export class ModelConfigService {
       const existing = await this.modelConfigModel.findOne(query).lean();
       if (existing) {
         conflicts.push({
-          field: 'model_name+model_type+service',
-          value: `${config.model_name}+${config.model_type}+${config.service}`,
-          existingModelName: existing.model_name,
+          field: 'model_id+model_type',
+          value: `${config.model_id}+${config.model_type}`,
+          existingModelName: existing.model_id,
         });
       }
     }
@@ -79,7 +79,7 @@ export class ModelConfigService {
         conflicts.push({
           field: 'provider_model_name',
           value: config.provider_model_name,
-          existingModelName: existing.model_name,
+          existingModelName: existing.model_id,
         });
       }
     }
@@ -97,22 +97,27 @@ export class ModelConfigService {
    * @returns 创建的配置
    */
   async createConfig(dto: CreateModelConfigDto, userId: string): Promise<ModelConfig> {
+    const dtoIn = {
+      ...dto,
+      params: dto.params ? sanitizeParamDefinitions(dto.params) : dto.params,
+    };
+
     // 验证配置数据
-    const validationResult = this.validateConfig(dto);
+    const validationResult = this.validateConfig(dtoIn);
     if (!validationResult.valid) {
       throw new Error(`数据验证失败: ${JSON.stringify(validationResult.errors)}`);
     }
 
     // 校验 params 参数定义结构
-    if (dto.params && Object.keys(dto.params).length > 0) {
-      const paramDefResult = validateParamDefinitions(dto.params);
+    if (dtoIn.params && Object.keys(dtoIn.params).length > 0) {
+      const paramDefResult = validateParamDefinitions(dtoIn.params);
       if (!paramDefResult.valid) {
         throw new Error(`参数定义校验失败: ${JSON.stringify(paramDefResult.errors)}`);
       }
     }
 
     // 检查唯一性
-    const uniquenessResult = await this.checkUniqueness(dto);
+    const uniquenessResult = await this.checkUniqueness(dtoIn);
     if (!uniquenessResult.unique) {
       throw new Error(`配置已存在: ${JSON.stringify(uniquenessResult.conflicts)}`);
     }
@@ -120,7 +125,7 @@ export class ModelConfigService {
     // 创建配置
     const now = Date.now();
     const config = new this.modelConfigModel({
-      ...dto,
+      ...dtoIn,
       create_time: now,
       update_time: now,
     });
@@ -142,8 +147,12 @@ export class ModelConfigService {
       throw new Error('模型配置不存在');
     }
 
-    // 合并配置数据
-    const mergedConfig = { ...existing.toObject(), ...dto };
+    // 合并配置数据（params 写入前去掉废弃字段与错配约束）
+    const dtoSanitized = {
+      ...dto,
+      params: dto.params ? sanitizeParamDefinitions(dto.params) : dto.params,
+    };
+    const mergedConfig = { ...existing.toObject(), ...dtoSanitized };
 
     // 验证配置数据
     const validationResult = this.validateConfig(mergedConfig);
@@ -152,7 +161,7 @@ export class ModelConfigService {
     }
 
     // 校验 params 参数定义结构
-    const paramsToValidate = dto.params ?? mergedConfig.params;
+    const paramsToValidate = dtoSanitized.params ?? mergedConfig.params;
     if (paramsToValidate && Object.keys(paramsToValidate).length > 0) {
       const paramDefResult = validateParamDefinitions(paramsToValidate);
       if (!paramDefResult.valid) {
@@ -171,7 +180,7 @@ export class ModelConfigService {
       id,
       {
         $set: {
-          ...dto,
+          ...dtoSanitized,
           update_time: Date.now(),
         },
       },
@@ -193,13 +202,11 @@ export class ModelConfigService {
   getConfigTemplate(templateType: string): Record<string, any> {
     const templates: Record<string, any> = {
       'image-generation': {
-        model_name: '',
-        model_type: 40001,
+        model_id: '',
+        model_type: 'textToImage',
         provider: '',
         provider_model_name: '',
-        service: '',
-        group: '',
-        label: '',
+        model_name: '',
         description: '',
         tags: [],
         sort: 100,
@@ -215,13 +222,11 @@ export class ModelConfigService {
         params: {},
       },
       'video-generation': {
-        model_name: '',
-        model_type: 42001,
+        model_id: '',
+        model_type: 'textToVideo',
         provider: '',
         provider_model_name: '',
-        service: '',
-        group: '',
-        label: '',
+        model_name: '',
         description: '',
         tags: [],
         sort: 100,
@@ -237,13 +242,11 @@ export class ModelConfigService {
         params: {},
       },
       'face-swap': {
-        model_name: '',
-        model_type: 43001,
+        model_id: '',
+        model_type: 'characterFaceswap',
         provider: '',
         provider_model_name: '',
-        service: '',
-        group: '',
-        label: '',
+        model_name: '',
         description: '',
         tags: [],
         sort: 100,

@@ -26,16 +26,14 @@ export class AdminModelConfigController {
   @RequirePermissions('model:read')
   @ApiOperation({ summary: '模型配置列表（分页）' })
   @ApiQuery({ name: 'provider', required: false })
-  @ApiQuery({ name: 'service', required: false })
-  @ApiQuery({ name: 'model_type', required: false, description: '单个 model_type 数字' })
-  @ApiQuery({ name: 'keyword', required: false, description: '匹配 model_name / label' })
+  @ApiQuery({ name: 'model_type', required: false, description: '能力类型字符串，如 textToVideo' })
+  @ApiQuery({ name: 'keyword', required: false, description: '匹配 model_id / model_name' })
   @ApiQuery({ name: 'includeDisabled', required: false, description: 'true 时包含禁用' })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'pageSize', required: false })
   @ApiResponse({ status: 200, description: '查询成功' })
   async list(
     @Query('provider') provider?: string,
-    @Query('service') service?: string,
     @Query('model_type') modelType?: string,
     @Query('keyword') keyword?: string,
     @Query('includeDisabled') includeDisabled?: string,
@@ -44,16 +42,14 @@ export class AdminModelConfigController {
   ) {
     const query: Record<string, unknown> = {};
     if (provider) query.provider = provider;
-    if (service) query.service = service;
     if (modelType !== undefined && modelType !== '') {
-      const t = parseInt(modelType, 10);
-      if (!Number.isNaN(t)) query.model_type = t;
+      query.model_type = modelType.trim();
     }
     if (includeDisabled !== 'true') query.disabled = { $ne: true };
     if (keyword && keyword.trim()) {
       const esc = keyword.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const re = new RegExp(esc, 'i');
-      query.$or = [{ model_name: re }, { label: re }];
+      query.$or = [{ model_id: re }, { model_name: re }];
     }
 
     const p = Math.max(1, parseInt(page, 10) || 1);
@@ -62,7 +58,7 @@ export class AdminModelConfigController {
     const [items, total] = await Promise.all([
       this.modelConfigModel
         .find(query)
-        .sort({ sort: -1, model_name: 1 })
+        .sort({ sort: -1, model_id: 1 })
         .skip((p - 1) * ps)
         .limit(ps)
         .lean(),
@@ -105,13 +101,13 @@ export class AdminModelConfigController {
 
   @Get('detail')
   @RequirePermissions('model:read')
-  @ApiOperation({ summary: '模型详情（按 model_name 查询）' })
-  @ApiQuery({ name: 'model_name', required: true, description: '完整模型名，含 / 需 URL 编码' })
+  @ApiOperation({ summary: '模型详情（按 model_id 查询）' })
+  @ApiQuery({ name: 'model_id', required: true, description: '完整模型标识，含 / 需 URL 编码' })
   @ApiResponse({ status: 200, description: '查询成功' })
-  async detail(@Query('model_name') modelName?: string) {
-    if (!modelName) return { code: 1001, message: 'model_name is required' };
-    const decoded = decodeURIComponent(modelName);
-    const model = await this.modelConfigModel.findOne({ model_name: decoded }).lean();
+  async detail(@Query('model_id') modelId?: string) {
+    if (!modelId) return { code: 1001, message: 'model_id is required' };
+    const decoded = decodeURIComponent(modelId);
+    const model = await this.modelConfigModel.findOne({ model_id: decoded }).lean();
     if (!model) return { code: 3001, message: 'Model not found' };
     return { code: 0, data: model };
   }
@@ -120,12 +116,12 @@ export class AdminModelConfigController {
   @RequirePermissions('model:update')
   @ApiOperation({ summary: '启用/禁用模型' })
   @ApiResponse({ status: 200, description: '操作成功' })
-  async toggle(@Body() body: { model_name: string; disabled: boolean }) {
-    if (!body.model_name) return { code: 1001, message: 'model_name is required' };
+  async toggle(@Body() body: { model_id: string; disabled: boolean }) {
+    if (!body.model_id) return { code: 1001, message: 'model_id is required' };
     if (typeof body.disabled !== 'boolean') return { code: 1001, message: 'disabled must be boolean' };
 
     const result = await this.modelConfigModel.findOneAndUpdate(
-      { model_name: body.model_name },
+      { model_id: body.model_id },
       { $set: { disabled: body.disabled, update_time: Date.now() } },
       { new: true },
     );
@@ -228,16 +224,16 @@ export class AdminModelConfigController {
 
   @Get('provider-pricing')
   @RequirePermissions('model:read')
-  @ApiOperation({ summary: '获取模型在各厂商的定价信息（用于成本优先路由规则）' })
-  @ApiQuery({ name: 'model_name', required: true, description: '模型名称' })
+  @ApiOperation({ summary: '获取模型在各供应商的定价信息（用于成本优先路由策略）' })
+  @ApiQuery({ name: 'model_id', required: true, description: '模型标识（与创建任务 model 一致）' })
   @ApiResponse({ status: 200, description: '查询成功' })
-  async getProviderPricing(@Query('model_name') modelName?: string) {
-    if (!modelName) return { code: 1001, message: 'model_name is required' };
-    const decoded = decodeURIComponent(modelName);
+  async getProviderPricing(@Query('model_id') modelId?: string) {
+    if (!modelId) return { code: 1001, message: 'model_id is required' };
+    const decoded = decodeURIComponent(modelId);
 
-    // 查询该模型名下所有厂商的配置
+    // 查询该模型标识下所有厂商的配置
     const configs = await this.modelConfigModel
-      .find({ model_name: decoded, disabled: { $ne: true } })
+      .find({ model_id: decoded, disabled: { $ne: true } })
       .select('provider unit_price_map')
       .lean();
 

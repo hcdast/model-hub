@@ -1,5 +1,6 @@
 import { ValidationResult, ValidationError } from '../interfaces/validation.interface';
 import { validateMandatoryUnitPriceMap } from '../../billing/unit-price-map.util';
+import { isModelConfigModelType } from '../../common/utils/model-config-type.util';
 
 /**
  * 模型配置验证工具类
@@ -13,9 +14,9 @@ export class ModelConfigValidator {
   static validateConfig(config: Record<string, any>): ValidationResult {
     const errors: ValidationError[] = [];
 
-    const requiredFields = ['model_name', 'model_type', 'provider', 'label', 'service'];
+    const requiredFields = ['model_id', 'model_type', 'provider', 'model_name'];
     for (const field of requiredFields) {
-      if (!config[field]) {
+    if (config[field] === undefined || config[field] === null || config[field] === '') {
         errors.push({
           field,
           message: `${field} 不能为空`,
@@ -24,12 +25,20 @@ export class ModelConfigValidator {
       }
     }
 
-    if (config.model_type !== undefined && typeof config.model_type !== 'number') {
-      errors.push({
-        field: 'model_type',
-        message: 'model_type 必须是数字类型',
-        value: config.model_type,
-      });
+    if (config.model_type !== undefined) {
+      if (typeof config.model_type !== 'string') {
+        errors.push({
+          field: 'model_type',
+          message: 'model_type 必须是字符串类型',
+          value: config.model_type,
+        });
+      } else if (!isModelConfigModelType(config.model_type)) {
+        errors.push({
+          field: 'model_type',
+          message: `model_type 必须是受支持的能力类型之一`,
+          value: config.model_type,
+        });
+      }
     }
 
     if (config.sort !== undefined && typeof config.sort !== 'number') {

@@ -71,7 +71,7 @@ export class PricingService {
 
     // 缓存未命中或已过期，查询数据库
     const modelConfig = await this.modelConfigModel
-      .findOne({ model_name: model })
+      .findOne({ model_id: model })
       .select('model_type unit_price_map')
       .lean()
       .exec();
@@ -87,7 +87,7 @@ export class PricingService {
     }
 
     // 根据 model_type 推断 usageType
-    const usageType = this.inferUsageType(modelConfig.model_type);
+    const usageType = this.inferUsageType(String(modelConfig.model_type));
 
     const unitPrice = pickCreditReferenceUnitFromPriceMap(
       modelConfig.unit_price_map as Record<string, unknown> | undefined,
@@ -158,33 +158,22 @@ export class PricingService {
   }
 
   /**
-   * 根据 model_type 推断用量类型
-   * - 40001~40099（图像生成/编辑）→ count
-   * - 1500~1599（视频生成/编辑）→ duration
-   * - 2100~2199（动作控制）→ count
-   * - 50001（音乐）→ duration
-   * - 50002（TTS）→ duration
-   * - 其他（LLM 等）→ token
+   * 根据 model_type（camelCase 能力类型）推断用量类型
    */
-  private inferUsageType(modelType: number): UsageType {
-    // 图像类：40001(text-to-image), 40002(image-to-image), 40004(character_swap), 40005(video_upscale)
-    if (modelType >= 40001 && modelType <= 40099) {
-      return UsageType.COUNT;
+  private inferUsageType(modelType: string): UsageType {
+    switch (modelType) {
+      case 'textToImage':
+      case 'imageToImage':
+      case 'characterFaceswap':
+      case 'videoUpscale':
+        return UsageType.COUNT;
+      case 'textToVideo':
+      case 'imageToVideo':
+      case 'videoToVideo':
+        return UsageType.DURATION;
+      default:
+        return UsageType.TOKEN;
     }
-    // 视频类：1501(image-to-video), 1502(text-to-video), 1504(video-to-video), 1505, 1506(reference-to-video)
-    if (modelType >= 1500 && modelType <= 1599) {
-      return UsageType.DURATION;
-    }
-    // 动作控制类
-    if (modelType >= 2100 && modelType <= 2199) {
-      return UsageType.COUNT;
-    }
-    // 音乐/语音合成类
-    if (modelType >= 50001 && modelType <= 50099) {
-      return UsageType.DURATION;
-    }
-    // 其他（LLM 等）→ token
-    return UsageType.TOKEN;
   }
 
 }

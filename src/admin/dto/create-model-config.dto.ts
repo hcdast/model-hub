@@ -8,42 +8,45 @@ import {
   IsOptional,
   MaxLength,
   Min,
+  IsIn,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { MODEL_CONFIG_MODEL_TYPES } from '../../common/constants/model-config-model-type';
 
 /**
  * 创建模型配置 DTO
  */
 export class CreateModelConfigDto {
-  @ApiProperty({ description: '模型名称', example: 'example-model' })
+  @ApiProperty({
+    description: '模型标识，与创建任务请求体 model 一致',
+    example: 'wavespeed-ai/flux-2-pro/text-to-image',
+  })
   @IsString()
   @IsNotEmpty()
-  @MaxLength(100)
-  model_name!: string;
+  @MaxLength(200)
+  model_id!: string;
 
-  @ApiProperty({ description: '模型类型', example: 40001 })
-  @IsNumber()
+  @ApiProperty({
+    description: '能力类型（camelCase），与创建任务 options.featureType 一致',
+    example: 'textToImage',
+    enum: MODEL_CONFIG_MODEL_TYPES,
+  })
+  @IsString()
   @IsNotEmpty()
-  @Min(40000)
-  model_type!: number;
+  @IsIn([...MODEL_CONFIG_MODEL_TYPES])
+  model_type!: string;
 
-  @ApiProperty({ description: '提供商', example: 'Example Provider' })
+  @ApiProperty({ description: 'Adapter 注册名（ProviderRegistry）', example: 'wavespeed-ai' })
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
   provider!: string;
 
-  @ApiProperty({ description: '显示标签', example: 'Example Model' })
+  @ApiProperty({ description: '展示名称', example: 'Flux 2 Pro 文生图' })
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
-  label!: string;
-
-  @ApiProperty({ description: '服务标识', example: 'example' })
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(50)
-  service!: string;
+  model_name!: string;
 
   @ApiProperty({
     description:
@@ -66,11 +69,6 @@ export class CreateModelConfigDto {
   @IsOptional()
   @MaxLength(200)
   provider_model_name?: string;
-
-  @ApiPropertyOptional({ description: '分组', example: 'image-generation' })
-  @IsString()
-  @IsOptional()
-  group?: string;
 
   @ApiPropertyOptional({ description: '描述', example: '这是一个示例模型' })
   @IsString()
