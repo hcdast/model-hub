@@ -23,21 +23,27 @@ export function generateParamDoc(modelConfig: ModelConfig): ModelParamDoc {
       required: def.required,
     };
 
+    if (def.label !== undefined) item.label = def.label;
+    if (def.ui_type !== undefined) item.ui_type = def.ui_type;
     if (def.default !== undefined) item.default = def.default;
     if (def.description !== undefined) item.description = def.description;
     if (def.enum !== undefined) item.enum = def.enum;
     if (def.min !== undefined) item.min = def.min;
     if (def.max !== undefined) item.max = def.max;
-    if (def.configs !== undefined) item.configs = def.configs;
+    if (def.minLength !== undefined) item.minLength = def.minLength;
+    if (def.maxLength !== undefined) item.maxLength = def.maxLength;
+    if (def.minItems !== undefined) item.minItems = def.minItems;
+    if (def.maxItems !== undefined) item.maxItems = def.maxItems;
+    if (def.enumDependsOn !== undefined) item.enumDependsOn = def.enumDependsOn;
 
     params.push(item);
   }
 
   return {
-    model_name: modelConfig.model_name,
+    model_id: modelConfig.model_id,
     model_type: modelConfig.model_type,
     provider: modelConfig.provider,
-    label: modelConfig.label,
+    model_name: modelConfig.model_name,
     params,
   };
 }
@@ -54,7 +60,7 @@ export function generateMarkdownTable(modelConfig: ModelConfig): string {
 
   if (visibleEntries.length === 0) return '';
 
-  const header = `### ${modelConfig.model_name} (${modelConfig.label})`;
+  const header = `### ${modelConfig.model_id} (${modelConfig.model_name})`;
   const tableHeader =
     '| 参数名 | 类型 | 必填 | 默认值 | 可选值 | 说明 |';
   const separator =
@@ -85,6 +91,18 @@ function formatDescription(def: ParamDefinition): string {
     parts.push(`最小值: ${def.min}`);
   } else if (def.max !== undefined) {
     parts.push(`最大值: ${def.max}`);
+  }
+
+  if (def.minLength !== undefined || def.maxLength !== undefined) {
+    parts.push(
+      `长度: ${def.minLength ?? '—'}~${def.maxLength ?? '—'} 字符`,
+    );
+  }
+
+  if (def.minItems !== undefined || def.maxItems !== undefined) {
+    parts.push(
+      `元素个数: ${def.minItems ?? '—'}~${def.maxItems ?? '—'}`,
+    );
   }
 
   return parts.length > 0 ? parts.join(', ') : '-';

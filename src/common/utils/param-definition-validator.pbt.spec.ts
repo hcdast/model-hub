@@ -111,6 +111,24 @@ describe('Property 10: 参数定义校验', () => {
     );
   });
 
+  it('should fail when ui_type is not in allowed list', () => {
+    const params = {
+      foo: { required: true, type: 'string' as const, ui_type: 'not-a-widget' },
+    };
+    const result = validateParamDefinitions(params);
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) => e.paramName === 'foo' && e.field === 'ui_type'),
+    ).toBe(true);
+  });
+
+  it('should pass when ui_type is valid', () => {
+    const params = {
+      bar: { required: false, type: 'string' as const, ui_type: 'textarea' },
+    };
+    expect(validateParamDefinitions(params).valid).toBe(true);
+  });
+
   it('should pass for valid definitions', () => {
     fc.assert(
       fc.property(

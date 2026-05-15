@@ -6,7 +6,7 @@ import { FeatureModuleDescriptor } from '../interfaces/feature-module.interface'
 
 export const overviewDescriptor: FeatureModuleDescriptor = {
   moduleKey: 'overview',
-  displayName: '系统总览',
+  displayName: '仪表盘',
   menus: [
     {
       path: '/',
@@ -121,16 +121,16 @@ export const modelDescriptor: FeatureModuleDescriptor = {
       path: '/models',
       label: '模型配置',
       icon: 'AppstoreOutlined',
-      parentKey: 'business',
-      sortOrder: 30,
+      parentKey: 'model-routing',
+      sortOrder: 20,
       requiredPermission: 'model:read',
     },
     {
       path: '/model-routing-rules',
-      label: '路由规则',
+      label: '路由策略',
       icon: 'BranchesOutlined',
-      parentKey: 'business',
-      sortOrder: 40,
+      parentKey: 'model-routing',
+      sortOrder: 10,
       requiredPermission: 'model:read',
     },
   ],
@@ -138,7 +138,7 @@ export const modelDescriptor: FeatureModuleDescriptor = {
 
 export const taskDescriptor: FeatureModuleDescriptor = {
   moduleKey: 'task',
-  displayName: '任务管理',
+  displayName: '任务记录',
   permissions: [
     {
       resource: 'task',
@@ -155,7 +155,7 @@ export const taskDescriptor: FeatureModuleDescriptor = {
   menus: [
     {
       path: '/tasks',
-      label: '任务管理',
+      label: '任务记录',
       icon: 'UnorderedListOutlined',
       parentKey: 'business',
       sortOrder: 10,
@@ -166,16 +166,16 @@ export const taskDescriptor: FeatureModuleDescriptor = {
 
 export const apiClientDescriptor: FeatureModuleDescriptor = {
   moduleKey: 'api-client',
-  displayName: 'API客户端',
+  displayName: '应用与 API 密钥',
   permissions: [
     {
       resource: 'api-client',
       actions: ['read', 'create', 'update', 'delete'],
       displayNames: {
-        read: '查看API客户端',
-        create: '创建API客户端',
-        update: '更新API客户端',
-        delete: '删除API客户端',
+        read: '查看应用与 API 密钥',
+        create: '创建 API 客户端',
+        update: '更新 API 客户端',
+        delete: '删除 API 客户端',
       },
       module: 'api-client-management',
     },
@@ -183,8 +183,16 @@ export const apiClientDescriptor: FeatureModuleDescriptor = {
   menus: [
     {
       path: '/api-clients',
-      label: 'API 客户端',
-      icon: 'ApiOutlined',
+      label: '应用管理',
+      icon: 'AppstoreOutlined',
+      parentKey: 'business',
+      sortOrder: 5,
+      requiredPermission: 'api-client:read',
+    },
+    {
+      path: '/api-keys',
+      label: 'API 密钥管理',
+      icon: 'KeyOutlined',
       parentKey: 'system',
       sortOrder: 10,
       requiredPermission: 'api-client:read',
@@ -269,7 +277,7 @@ export const queueDescriptor: FeatureModuleDescriptor = {
 
 export const providerDescriptor: FeatureModuleDescriptor = {
   moduleKey: 'provider',
-  displayName: '提供商配置',
+  displayName: '供应商管理',
   permissions: [
     {
       resource: 'provider',
@@ -286,7 +294,7 @@ export const providerDescriptor: FeatureModuleDescriptor = {
   menus: [
     {
       path: '/provider-configs',
-      label: '厂商配置',
+      label: '供应商配置',
       icon: 'CloudServerOutlined',
       parentKey: 'provider',
       sortOrder: 10,
@@ -301,19 +309,11 @@ export const providerDescriptor: FeatureModuleDescriptor = {
       requiredPermission: 'provider:read',
     },
     {
-      path: '/account-costs',
-      label: '成本观测',
-      icon: 'DollarOutlined',
-      parentKey: 'provider',
-      sortOrder: 30,
-      requiredPermission: 'provider:read',
-    },
-    {
       path: '/provider-health',
-      label: 'Provider 健康',
+      label: '供应商健康度',
       icon: 'HeartOutlined',
       parentKey: 'provider',
-      sortOrder: 40,
+      sortOrder: 30,
       requiredPermission: 'provider:read',
     },
   ],
@@ -322,7 +322,7 @@ export const providerDescriptor: FeatureModuleDescriptor = {
 /** 通知管理（与 Notification*Controller 的 notification:* 权限一致） */
 export const notificationDescriptor: FeatureModuleDescriptor = {
   moduleKey: 'notification',
-  displayName: '通知管理',
+  displayName: '通知中心',
   permissions: [
     {
       resource: 'notification',
@@ -355,7 +355,7 @@ export const notificationDescriptor: FeatureModuleDescriptor = {
     },
     {
       path: '/notifications',
-      label: '站内通知',
+      label: '消息中心',
       icon: 'NotificationOutlined',
       parentKey: 'notification',
       sortOrder: 30,
@@ -410,23 +410,23 @@ export const systemInfoDescriptor: FeatureModuleDescriptor = {
       label: '系统信息',
       icon: 'ClusterOutlined',
       parentKey: 'system',
-      sortOrder: 18,
+      sortOrder: 15,
       requiredPermission: 'system:read',
     },
   ],
 };
 
-/** 第三方链接转换配置（管理后台） */
+/** 管理后台与运行时共用的请求转换配置结构（snake_case JSON） */
 export const linkConversionDescriptor: FeatureModuleDescriptor = {
   moduleKey: 'link-conversion',
-  displayName: '链接转换配置',
+  displayName: '请求转换配置',
   permissions: [
     {
       resource: 'link-conversion',
       actions: ['read', 'update'],
       displayNames: {
-        read: '查看链接转换配置',
-        update: '更新链接转换配置',
+        read: '查看请求转换配置',
+        update: '更新请求转换配置',
       },
       module: 'link-conversion-management',
     },
@@ -434,10 +434,10 @@ export const linkConversionDescriptor: FeatureModuleDescriptor = {
   menus: [
     {
       path: '/link-conversion-config',
-      label: '链接转换配置',
+      label: '请求转换配置',
       icon: 'LinkOutlined',
-      parentKey: 'system',
-      sortOrder: 25,
+      parentKey: 'model-routing',
+      sortOrder: 30,
       requiredPermission: 'link-conversion:read',
     },
   ],
@@ -446,7 +446,7 @@ export const linkConversionDescriptor: FeatureModuleDescriptor = {
 /** 计费管理模块描述符 */
 export const billingDescriptor: FeatureModuleDescriptor = {
   moduleKey: 'billing',
-  displayName: '计费管理',
+  displayName: '计费与成本',
   permissions: [
     {
       resource: 'billing',
@@ -461,7 +461,7 @@ export const billingDescriptor: FeatureModuleDescriptor = {
   menus: [
     {
       path: '/billing/records',
-      label: '计费记录',
+      label: '用量账单',
       icon: 'FileTextOutlined',
       parentKey: 'billing',
       sortOrder: 10,
@@ -469,12 +469,23 @@ export const billingDescriptor: FeatureModuleDescriptor = {
     },
     {
       path: '/billing/wallets',
-      label: '钱包管理',
+      label: '余额充值',
       icon: 'WalletOutlined',
       parentKey: 'billing',
       sortOrder: 20,
       requiredPermission: 'billing:read',
     },
+    {
+      path: '/account-costs',
+      label: '成本分析',
+      icon: 'DollarOutlined',
+      parentKey: 'billing',
+      sortOrder: 30,
+      requiredPermission: 'provider:read',
+    },
+  ],
+  audit: [
+    { controllerName: 'AdminBilling', resourceType: 'billing' },
   ],
 };
 
@@ -500,7 +511,7 @@ export const menuDescriptor: FeatureModuleDescriptor = {
       path: '/menus',
       label: '菜单管理',
       icon: 'MenuOutlined',
-      parentKey: 'system',
+      parentKey: 'access',
       sortOrder: 5,
       requiredPermission: 'menu:read',
     },
