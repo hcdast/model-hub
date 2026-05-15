@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type CSSProperties, type ReactNode } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { Layout, Menu, Typography, Avatar, Dropdown, theme, Modal, Form, Input, message, Spin, Badge, Space, ConfigProvider, Button } from 'antd';
+import type { MenuProps } from 'antd';
+import zhCN from 'antd/locale/zh_CN';
 import {
   DashboardOutlined, UnorderedListOutlined, CloudServerOutlined,
   BarChartOutlined, AuditOutlined, UserOutlined, LogoutOutlined,
@@ -9,11 +11,14 @@ import {
   ClusterOutlined, BellOutlined, FileTextOutlined, NotificationOutlined,
   SettingOutlined, SunOutlined, MoonOutlined, HeartOutlined,
   FileSearchOutlined, SyncOutlined, DatabaseOutlined, DollarOutlined, MailOutlined,
-  LinkOutlined, MenuOutlined,
+  LinkOutlined, MenuOutlined, ThunderboltOutlined, ExperimentOutlined, RobotOutlined,
+  LayoutOutlined, ControlOutlined,
 } from '@ant-design/icons';
+import { BrandMark } from './components/BrandMark';
+import { buildAntdTheme } from './theme/antd-theme';
 import { useAuthStore } from './store/auth';
 import { usePermission } from './hooks/usePermission';
-import { useMenuStore, type MenuGroup, type MenuItem } from './store/menu';
+import { useMenuStore, type MenuGroup, type MenuItem as SidebarMenuItem } from './store/menu';
 import { useThemeStore } from './store/theme';
 import { userApi, inAppNotificationApi } from './services/api';
 import LoginPage from './pages/Login';
@@ -49,9 +54,11 @@ import NotFoundPage from './pages/NotFound';
 
 const { Header, Sider, Content } = Layout;
 
-// 图标名称字符串 → React 组件映射表
-// 后端菜单 API 返回图标名称字符串，前端通过此映射表转换为实际组件
-const iconMap: Record<string, React.ReactNode> = {
+/**
+ * 图标名称字符串 → React 组件映射表。
+ * 后端菜单 `icon` 字段须与本表键名一致；可选扩展名：ThunderboltOutlined、ExperimentOutlined、RobotOutlined、LayoutOutlined 等。
+ */
+const iconMap: Record<string, ReactNode> = {
   DashboardOutlined: <DashboardOutlined />,
   UnorderedListOutlined: <UnorderedListOutlined />,
   CloudServerOutlined: <CloudServerOutlined />,
@@ -79,40 +86,97 @@ const iconMap: Record<string, React.ReactNode> = {
   MailOutlined: <MailOutlined />,
   LinkOutlined: <LinkOutlined />,
   MenuOutlined: <MenuOutlined />,
+  ThunderboltOutlined: <ThunderboltOutlined />,
+  ExperimentOutlined: <ExperimentOutlined />,
+  RobotOutlined: <RobotOutlined />,
+  LayoutOutlined: <LayoutOutlined />,
 };
 
-/** 解析图标名称为 React 组件，未匹配时使用默认图标 */
-function resolveIcon(iconName?: string): React.ReactNode {
+/** 解析图标名称为 React 组件，未匹配时使用中性默认图标 */
+function resolveIcon(iconName?: string): ReactNode {
   if (!iconName) return undefined;
-  return iconMap[iconName] ?? <AppstoreOutlined />;
+  return iconMap[iconName] ?? <ControlOutlined />;
+}
+
+function matchesSidebarPath(item: SidebarMenuItem, pathname: string): boolean {
+  if (!item.path) return false;
+  if (item.path === '/') return pathname === '/';
+  return pathname.startsWith(item.path);
+}
+
+function hasMatchUnderItem(item: SidebarMenuItem, pathname: string): boolean {
+  if (matchesSidebarPath(item, pathname)) return true;
+  return item.children?.some((c) => hasMatchUnderItem(c, pathname)) ?? false;
+}
+
+/** 在分组子树中查找与当前路径匹配的叶子路由 path */
+function findLeafPathInItems(items: SidebarMenuItem[], pathname: string): string | null {
+  for (const item of items) {
+    if (item.children?.length) {
+      const nested = findLeafPathInItems(item.children, pathname);
+      if (nested) return nested;
+    }
+    if (matchesSidebarPath(item, pathname)) {
+      return item.path || item.key;
+    }
+  }
+  return null;
+}
+
+/** 子树中是否存在匹配（用于展开父级 SubMenu） */
+function submenuKeysForMatch(items: SidebarMenuItem[], pathname: string): string[] {
+  for (const item of items) {
+    if (!item.children?.length) continue;
+    if (hasMatchUnderItem(item, pathname)) {
+      return [`sub-${item.key}`, ...submenuKeysForMatch(item.children, pathname)];
+    }
+  }
+  return [];
+}
+
+type AntdSidebarItem = NonNullable<MenuProps['items']>[number];
+
+/** 将后端菜单项（可多级）映射为 Ant Design Menu items */
+function mapMenuItemToAntd(item: SidebarMenuItem): AntdSidebarItem {
+  const subs = item.children?.filter(Boolean);
+  if (subs && subs.length > 0) {
+    return {
+      key: `sub-${item.key}`,
+      icon: resolveIcon(item.icon),
+      label: item.label,
+      children: subs.map(mapMenuItemToAntd),
+    };
+  }
+  return {
+    key: item.path || item.key,
+    icon: resolveIcon(item.icon),
+    label: item.label,
+  };
 }
 
 /**
  * 将后端返回的 MenuGroup[] 转换为 Ant Design Menu 组件的 items 格式
- * 一级菜单作为 SubMenu，二级菜单作为 Menu.Item
- * 特殊情况：仅有一个子项的分组会被扁平化为单个菜单项
+ * 一级为分组 SubMenu；分组下支持多级子菜单（子项带 children 时继续嵌套 SubMenu）
  */
-function buildAntdMenuItems(groups: MenuGroup[]) {
+function buildAntdMenuItems(groups: MenuGroup[]): MenuProps['items'] {
   return groups.map((group) => {
-    // 单子项分组：扁平化显示，避免不必要的 SubMenu 嵌套
-    if (group.children.length === 1 && group.children[0].path) {
-      const child = group.children[0];
+    const only = group.children[0];
+    if (
+      group.children.length === 1
+      && only.path
+      && (!only.children || only.children.length === 0)
+    ) {
       return {
-        key: child.path!,
-        icon: resolveIcon(child.icon || group.icon),
-        label: child.label,
+        key: only.path,
+        icon: resolveIcon(only.icon || group.icon),
+        label: only.label,
       };
     }
-    // 多子项分组 → 渲染为 SubMenu（一级菜单），子项为 Menu.Item（二级菜单）
     return {
       key: `group-${group.key}`,
       icon: resolveIcon(group.icon),
       label: group.label,
-      children: group.children.map((item: MenuItem) => ({
-        key: item.path || item.key,
-        icon: resolveIcon(item.icon),
-        label: item.label,
-      })),
+      children: group.children.map(mapMenuItemToAntd),
     };
   });
 }
@@ -120,25 +184,24 @@ function buildAntdMenuItems(groups: MenuGroup[]) {
 /** 根据当前路径查找选中的菜单项 key */
 function findSelectedKey(groups: MenuGroup[], pathname: string): string[] {
   for (const group of groups) {
-    for (const child of group.children) {
-      if (child.path && child.path !== '/' && pathname.startsWith(child.path)) {
-        return [child.path];
-      }
-    }
+    const hit = findLeafPathInItems(group.children, pathname);
+    if (hit) return [hit];
   }
   return ['/'];
 }
 
-/** 根据当前路径查找需要展开的 SubMenu key */
+/** 根据当前路径查找需要展开的 SubMenu key（分组 + 中间级菜单） */
 function findOpenKeys(groups: MenuGroup[], pathname: string): string[] {
+  const keys: string[] = [];
   for (const group of groups) {
-    for (const child of group.children) {
-      if (child.path && child.path !== '/' && pathname.startsWith(child.path)) {
-        return [`group-${group.key}`];
-      }
+    const chain = submenuKeysForMatch(group.children, pathname);
+    // 路径命中分组下任意菜单项（含一级叶子，如 /users），都应展开该分组
+    const hitInGroup = group.children.some((child) => hasMatchUnderItem(child, pathname));
+    if (chain.length > 0 || hitInGroup) {
+      keys.push(`group-${group.key}`, ...chain);
     }
   }
-  return [];
+  return keys;
 }
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -250,11 +313,30 @@ function AppLayout() {
   const { hasPermission } = usePermission();
   const canInAppNotifications = hasPermission('notification:read');
   const { menuGroups, loading: menuLoading, fetchMenu } = useMenuStore();
-  const { token: { colorBgContainer, borderRadiusLG } } = theme.useToken();
+  const {
+    token: {
+      colorBgContainer,
+      borderRadiusLG,
+      colorBgLayout,
+      colorBorderSecondary,
+      colorPrimary,
+      colorText,
+    },
+  } = theme.useToken();
   const toggleTheme = useThemeStore((s) => s.toggle);
   const themeMode = useThemeStore((s) => s.mode);
   const [changePwdOpen, setChangePwdOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [menuOpenKeys, setMenuOpenKeys] = useState<string[]>([]);
+
+  const siderStyle: CSSProperties = {
+    background: 'linear-gradient(180deg, #0f172a 0%, #0c1526 48%, #0a1628 100%)',
+    borderRight: `1px solid ${themeMode === 'dark' ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.18)'}`,
+    boxShadow: '4px 0 24px rgba(15, 23, 42, 0.12)',
+    height: '100%',
+    overflowY: 'auto',
+    flexShrink: 0,
+  };
 
   const fetchUnreadCount = async () => {
     try {
@@ -268,6 +350,10 @@ function AppLayout() {
   }, [fetchMenu]);
 
   useEffect(() => {
+    setMenuOpenKeys(findOpenKeys(menuGroups, location.pathname));
+  }, [menuGroups, location.pathname]);
+
+  useEffect(() => {
     if (!canInAppNotifications) {
       setUnreadCount(0);
       return;
@@ -279,13 +365,30 @@ function AppLayout() {
 
   const antdMenuItems = buildAntdMenuItems(menuGroups);
   const selectedKeys = findSelectedKey(menuGroups, location.pathname);
-  const defaultOpenKeys = findOpenKeys(menuGroups, location.pathname);
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sider width={220} theme="dark" breakpoint="lg" collapsedWidth={60}>
-        <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid rgba(255,255,255,.1)' }}>
-          <Typography.Title level={5} style={{ color: '#fff', margin: 0, whiteSpace: 'nowrap' }}>
+    <Layout
+      style={{
+        height: '100%',
+        maxHeight: '100%',
+        overflow: 'hidden',
+        background: colorBgLayout,
+      }}
+    >
+      <Sider width={232} theme="dark" breakpoint="lg" collapsedWidth={60} style={siderStyle}>
+        <div
+          style={{
+            height: 56,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 10,
+            padding: '0 12px',
+            borderBottom: '1px solid rgba(148, 163, 184, 0.15)',
+          }}
+        >
+          <BrandMark size={26} />
+          <Typography.Title level={5} style={{ color: '#f8fafc', margin: 0, fontWeight: 600, letterSpacing: '-0.02em' }}>
             Model-Hub
           </Typography.Title>
         </div>
@@ -293,19 +396,49 @@ function AppLayout() {
           <div style={{ textAlign: 'center', padding: 24 }}><Spin size="small" /></div>
         ) : (
           <Menu
-            theme="dark" mode="inline"
+            theme="dark"
+            mode="inline"
             selectedKeys={selectedKeys}
-            defaultOpenKeys={defaultOpenKeys}
+            openKeys={menuOpenKeys}
+            onOpenChange={(keys) => setMenuOpenKeys(keys as string[])}
             items={antdMenuItems}
+            style={{ background: 'transparent', borderInlineEnd: 'none' }}
             onClick={({ key }) => {
-              if (!key.startsWith('group-')) navigate(key);
+              if (key.startsWith('group-') || key.startsWith('sub-')) return;
+              navigate(key);
             }}
           />
         )}
       </Sider>
-      <Layout>
-        <Header style={{ padding: '0 24px', background: colorBgContainer, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f0f0f0' }}>
-          <Typography.Text strong>管理后台</Typography.Text>
+      <Layout
+        style={{
+          flex: 1,
+          minWidth: 0,
+          minHeight: 0,
+          height: '100%',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          background: colorBgLayout,
+        }}
+      >
+        <Header
+          style={{
+            flexShrink: 0,
+            padding: '0 20px',
+            height: 56,
+            lineHeight: '56px',
+            background: colorBgContainer,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            borderBottom: `1px solid ${colorBorderSecondary}`,
+            boxShadow: '0 1px 0 rgba(15, 23, 42, 0.04)',
+          }}
+        >
+          <Typography.Text strong style={{ color: colorText, fontSize: 15, letterSpacing: '-0.01em' }}>
+            管理后台
+          </Typography.Text>
           <Space size="middle">
             {canInAppNotifications && (
               <Badge count={unreadCount} size="small" offset={[-2, 2]}>
@@ -321,24 +454,55 @@ function AppLayout() {
               onClick={toggleTheme}
               style={{ fontSize: 18 }}
             />
-            <Dropdown menu={{
-              items: [
-                { key: 'user', label: username || 'admin', icon: <UserOutlined />, disabled: true },
-                { type: 'divider' },
-                { key: 'change-password', label: '修改密码', icon: <LockOutlined />,
-                  onClick: () => setChangePwdOpen(true),
-                },
-                { key: 'logout', label: '退出登录', icon: <LogoutOutlined />, danger: true,
-                  onClick: () => { logout(); navigate('/login'); },
-                },
-              ],
-            }}>
-              <Avatar icon={<UserOutlined />} style={{ cursor: 'pointer', backgroundColor: '#1677ff' }} />
+            <Dropdown
+              menu={{
+                items: [
+                  { key: 'user', label: username || 'admin', icon: <UserOutlined />, disabled: true },
+                  { type: 'divider' },
+                  {
+                    key: 'change-password',
+                    label: '修改密码',
+                    icon: <LockOutlined />,
+                    onClick: () => setChangePwdOpen(true),
+                  },
+                  {
+                    key: 'logout',
+                    label: '退出登录',
+                    icon: <LogoutOutlined />,
+                    danger: true,
+                    onClick: () => {
+                      logout();
+                      navigate('/login');
+                    },
+                  },
+                ],
+              }}
+            >
+              <Avatar icon={<UserOutlined />} style={{ cursor: 'pointer', backgroundColor: colorPrimary }} />
             </Dropdown>
           </Space>
         </Header>
-        <Content style={{ margin: 24, padding: 24, background: colorBgContainer, borderRadius: borderRadiusLG, minHeight: 360 }}>
-          <Routes>
+        <Content
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflow: 'auto',
+            margin: 20,
+            padding: 0,
+            background: 'transparent',
+          }}
+        >
+          <div
+            style={{
+              padding: 24,
+              minHeight: 'calc(100vh - 56px - 40px)',
+              background: colorBgContainer,
+              borderRadius: borderRadiusLG,
+              border: `1px solid ${colorBorderSecondary}`,
+              boxShadow: themeMode === 'dark' ? '0 0 0 1px rgba(255,255,255,0.04) inset' : '0 4px 24px rgba(15, 23, 42, 0.06)',
+            }}
+          >
+            <Routes>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/tasks" element={<PermissionRoute permission="task:read"><TasksPage /></PermissionRoute>} />
             <Route path="/tasks/:taskId" element={<PermissionRoute permission="task:read"><TaskDetailPage /></PermissionRoute>} />
@@ -352,7 +516,8 @@ function AppLayout() {
             <Route path="/account-pool" element={<PermissionRoute permission="provider:read"><AccountPoolPage /></PermissionRoute>} />
             <Route path="/account-costs" element={<PermissionRoute permission="provider:read"><AccountCostPage /></PermissionRoute>} />
             <Route path="/api-clients" element={<PermissionRoute permission="api-client:read"><ApiClientsPage /></PermissionRoute>} />
-            {/* 计费管理路由 */}
+            <Route path="/api-keys" element={<PermissionRoute permission="api-client:read"><ApiClientsPage /></PermissionRoute>} />
+            {/* 计费与成本路由 */}
             <Route path="/billing/records" element={<PermissionRoute permission="billing:read"><BillingRecordsPage /></PermissionRoute>} />
             <Route path="/billing/wallets" element={<PermissionRoute permission="billing:read"><WalletManagementPage /></PermissionRoute>} />
             <Route path="/link-conversion-config" element={<PermissionRoute permission="link-conversion:read"><LinkConversionConfigPage /></PermissionRoute>} />
@@ -370,6 +535,7 @@ function AppLayout() {
             <Route path="/forbidden" element={<ForbiddenPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
+          </div>
         </Content>
       </Layout>
       <ChangePasswordModal open={changePwdOpen} onClose={() => setChangePwdOpen(false)} />
@@ -390,11 +556,7 @@ function GuestGuard({ children }: { children: React.ReactNode }) {
 export default function App() {
   const themeMode = useThemeStore((s) => s.mode);
   return (
-    <ConfigProvider
-      theme={{
-        algorithm: themeMode === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm,
-      }}
-    >
+    <ConfigProvider locale={zhCN} theme={buildAntdTheme(themeMode)}>
       <Routes>
         <Route path="/login" element={<GuestGuard><LoginPage /></GuestGuard>} />
         <Route path="/*" element={<AuthGuard><AppLayout /></AuthGuard>} />

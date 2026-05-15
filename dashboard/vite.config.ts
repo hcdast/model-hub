@@ -21,7 +21,10 @@ export default defineConfig(() => {
   return {
     plugins: [react()],
     resolve: {
-      alias: { '@': resolve(__dirname, 'src') },
+      alias: {
+        '@': resolve(__dirname, 'src'),
+        '@model-hub/common': resolve(__dirname, '../src/common'),
+      },
     },
     server: {
       port: 5173,

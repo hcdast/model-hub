@@ -1,4 +1,4 @@
-import { Breadcrumb, Space, Typography } from 'antd';
+import { Breadcrumb, Space, Typography, theme } from 'antd';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -31,11 +31,19 @@ interface PageHeaderProps {
  * - 次要：`default` + `icon` — 刷新、重置、返回
  */
 export default function PageHeader({ title, subtitle, breadcrumbs, prefix, leftExtra, extra }: PageHeaderProps) {
+  const { token } = theme.useToken();
+
   return (
-    <div style={{ marginBottom: 24 }}>
+    <div
+      style={{
+        marginBottom: token.marginLG,
+        paddingBottom: token.padding,
+        borderBottom: `1px solid ${token.colorBorderSecondary}`,
+      }}
+    >
       {breadcrumbs && breadcrumbs.length > 0 && (
         <Breadcrumb
-          style={{ marginBottom: 8 }}
+          style={{ marginBottom: token.marginXS }}
           items={breadcrumbs.map((b) => ({
             title: b.path ? <Link to={b.path}>{b.title}</Link> : b.title,
           }))}
@@ -47,7 +55,7 @@ export default function PageHeader({ title, subtitle, breadcrumbs, prefix, leftE
           justifyContent: 'space-between',
           alignItems: 'center',
           flexWrap: 'wrap',
-          gap: 12,
+          gap: token.marginSM,
         }}
       >
         <div
@@ -55,17 +63,17 @@ export default function PageHeader({ title, subtitle, breadcrumbs, prefix, leftE
             display: 'flex',
             alignItems: 'center',
             flexWrap: 'wrap',
-            gap: 12,
+            gap: token.marginSM,
             minWidth: 0,
           }}
         >
           {prefix ? <Space wrap>{prefix}</Space> : null}
           <div style={{ minWidth: 0 }}>
-            <Typography.Title level={4} style={{ margin: 0 }}>
+            <Typography.Title level={4} style={{ margin: 0, color: token.colorTextHeading }}>
               {title}
             </Typography.Title>
             {subtitle && (
-              <Typography.Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
+              <Typography.Text type="secondary" style={{ display: 'block', marginTop: token.marginXXS }}>
                 {subtitle}
               </Typography.Text>
             )}

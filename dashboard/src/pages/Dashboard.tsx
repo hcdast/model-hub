@@ -191,7 +191,7 @@ export default function DashboardPage() {
         />
       )}
 
-      {/* 成本观测 — 依赖 stats:read 接口 */}
+      {/* 成本分析 — 依赖 stats:read 接口 */}
       {canStats && (
         <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
           <Col xs={24} sm={12} lg={6}>
@@ -372,7 +372,7 @@ export default function DashboardPage() {
                       ellipsis: true,
                       render: (_: unknown, r: any) => (
                         <Typography.Text ellipsis={{ tooltip: true }}>
-                          {r.clientName || r.clientId || '—'}
+                          {r.clientName || r.apiKey || '—'}
                         </Typography.Text>
                       ),
                     },

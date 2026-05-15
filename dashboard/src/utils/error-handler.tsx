@@ -131,7 +131,7 @@ export class ErrorHandler {
       // 显示所有冲突信息
       const conflictMessages = errorData.conflicts
         .map((c) => {
-          if (c.field === 'model_name+model_type+service') {
+          if (c.field === 'model_id+model_type') {
             return `模型标识 (${c.value}) 已被 "${c.existingModelName}" 使用`;
           } else if (c.field === 'provider_model_name') {
             return `厂商模型名 "${c.value}" 已被 "${c.existingModelName}" 使用`;

@@ -1,4 +1,5 @@
 // 组件导出文件
+export { BrandMark } from './BrandMark';
 export { default as StatCard } from './StatCard';
 export { default as StatusTag } from './StatusTag';
 export { default as CircuitBreakerStateTag } from './CircuitBreakerStateTag';
