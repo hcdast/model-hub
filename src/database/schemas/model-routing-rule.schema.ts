@@ -13,17 +13,18 @@ export type ModelRoutingRuleDocument = HydratedDocument<ModelRoutingRule>;
  */
 @Schema({ timestamps: true, collection: 'model_routing_rules' })
 export class ModelRoutingRule {
+  /** 与创建任务请求体 `model` 一致 */
   @Prop({ required: true, index: true })
-  model_name!: string;
+  model_id!: string;
 
-  /** 空字符串表示匹配任意 client */
+  /** 空字符串表示匹配任意客户端；否则与 api_clients.apiKey 一致 */
   @Prop({ default: '' })
-  client_id!: string;
+  apiKey!: string;
 
   @Prop({ default: true, index: true })
   enabled!: boolean;
 
-  /** 同模型多条规则时，越大越优先；相同时更具体的 client_id 优先 */
+  /** 同模型多条规则时，越大越优先；相同时更具体的 apiKey 优先 */
   @Prop({ default: 0 })
   priority!: number;
 
@@ -73,5 +74,5 @@ export class ModelRoutingRule {
 
 export const ModelRoutingRuleSchema = SchemaFactory.createForClass(ModelRoutingRule);
 
-ModelRoutingRuleSchema.index({ model_name: 1, enabled: 1 });
-ModelRoutingRuleSchema.index({ model_name: 1, client_id: 1, enabled: 1 });
+ModelRoutingRuleSchema.index({ model_id: 1, enabled: 1 });
+ModelRoutingRuleSchema.index({ model_id: 1, apiKey: 1, enabled: 1 });

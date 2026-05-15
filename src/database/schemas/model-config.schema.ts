@@ -9,23 +9,24 @@ export type ModelConfigDocument = HydratedDocument<ModelConfig>;
  */
 @Schema({ timestamps: false, versionKey: false, collection: 'model_configs' })
 export class ModelConfig {
+  /** 与创建任务请求体 `model` 一致（含 `/` 的路径） */
   @Prop({ required: true, index: true })
-  model_name!: string;
+  model_id!: string;
 
+  /** camelCase 能力类型，与 options.featureType 一致 */
   @Prop({ required: true, index: true })
-  model_type!: number;
+  model_type!: string;
 
+  /** ProviderRegistry 中的 Adapter 名 */
   @Prop({ required: true, index: true })
   provider!: string;
 
   @Prop({ unique: true, sparse: true, index: true })
   provider_model_name?: string;
 
-  @Prop({ default: '' })
-  group!: string;
-
+  /** 展示名称 */
   @Prop({ required: true })
-  label!: string;
+  model_name!: string;
 
   @Prop({ default: '' })
   description!: string;
@@ -38,9 +39,6 @@ export class ModelConfig {
 
   @Prop({ default: false })
   disabled!: boolean;
-
-  @Prop({ default: '' })
-  service!: string;
 
   @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
   unit_price_map!: Record<string, any>;
@@ -57,7 +55,7 @@ export class ModelConfig {
 
 export const ModelConfigSchema = SchemaFactory.createForClass(ModelConfig);
 
-ModelConfigSchema.index({ model_name: 1, model_type: 1, service: 1 }, { unique: true });
+ModelConfigSchema.index({ model_id: 1, model_type: 1 }, { unique: true });
 ModelConfigSchema.index({ model_type: 1, disabled: 1, sort: -1 });
 ModelConfigSchema.index({ provider: 1, model_type: 1 });
 ModelConfigSchema.index({ create_time: -1 });
