@@ -19,17 +19,33 @@ export class AdminAuditController {
   @Get()
   @RequirePermissions('audit:read')
   @ApiOperation({ summary: '审计日志列表', description: '查询管理后台操作审计日志' })
-  @ApiQuery({ name: 'action', required: false, description: '操作类型', example: 'ROUTE_SWITCH' })
+  @ApiQuery({ name: 'action', required: false, description: '原始操作标识（如 AdminApiClient.create）' })
+  @ApiQuery({ name: 'operationKind', required: false, description: '变动类型 create|update|delete|reset|read|credit|other' })
   @ApiQuery({ name: 'operator', required: false, description: '操作人' })
+  @ApiQuery({ name: 'resource', required: false, description: '资源/功能模块类型' })
+  @ApiQuery({ name: 'result', required: false, description: '结果 success | failure' })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'pageSize', required: false })
   @ApiResponse({ status: 200, description: '查询成功' })
   async listLogs(
-    @Query('action') action?: string, @Query('operator') operator?: string,
-    @Query('page') page = '1', @Query('pageSize') pageSize = '50',
+    @Query('action') action?: string,
+    @Query('operationKind') operationKind?: string,
+    @Query('operator') operator?: string,
+    @Query('resource') resource?: string,
+    @Query('result') resultFilter?: string,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '50',
   ) {
     const result = await this.auditLogService.list(
-      { action, operator }, parseInt(page, 10) || 1, Math.min(100, parseInt(pageSize, 10) || 50),
+      {
+        action,
+        operationKind,
+        operator,
+        resource,
+        result: resultFilter as 'success' | 'failure' | undefined,
+      },
+      parseInt(page, 10) || 1,
+      Math.min(100, parseInt(pageSize, 10) || 50),
     );
     return { code: 0, data: result };
   }

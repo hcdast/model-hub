@@ -21,6 +21,13 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
   const port = parseInt(process.env.PORT || '3000', 10);
 
+  const trustProxy = process.env.TRUST_PROXY;
+  if (trustProxy === '1' || trustProxy === 'true') {
+    app.set('trust proxy', true);
+  } else if (trustProxy && /^\d+$/.test(trustProxy)) {
+    app.set('trust proxy', parseInt(trustProxy, 10));
+  }
+
   /**
    * 管理端托管 Dashboard SPA：刷新 /models、/model-routing-rules 等深链时必须返回 index.html。
    * 须挂在中间件栈最前，否则会先落到 Nest 404（Cannot GET /xxx）。

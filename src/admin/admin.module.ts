@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { BullModule } from '@nestjs/bull';
 import { DatabaseModule } from '../database/database.module';
 import { ProviderModule } from '../provider/provider.module';
@@ -30,6 +31,7 @@ import { AdminLinkConversionConfigController } from './admin-link-conversion-con
 import { LinkConversionConfigModule } from './link-conversion-config.module';
 import { AdminCallbackLogsController } from './admin-callback-logs.controller';
 import { AdminSystemInfoController } from './admin-system-info.controller';
+import { AuditInterceptor } from './interceptors/audit.interceptor';
 
 @Module({
   imports: [
@@ -68,6 +70,10 @@ import { AdminSystemInfoController } from './admin-system-info.controller';
     ModelConfigService,
     TaskTimelineService,
     TaskTimingService,
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: AuditInterceptor,
+    },
   ],
   exports: [LinkConversionConfigModule],
 })

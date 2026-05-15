@@ -17,6 +17,18 @@ export class AuditLog {
   @Prop()
   ip?: string;
 
+  /** X-Forwarded-For 解析后的代理链（从左到右） */
+  @Prop({ type: [String] })
+  ipChain?: string[];
+
+  /** 原始 X-Forwarded-For 头内容 */
+  @Prop()
+  forwardedForRaw?: string;
+
+  /** 操作类别：create / update / delete / reset / read / other */
+  @Prop()
+  operationKind?: string;
+
   @Prop()
   resource?: string; // 资源类型
 

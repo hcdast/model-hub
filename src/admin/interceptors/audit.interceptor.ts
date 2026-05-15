@@ -8,10 +8,10 @@ import {
 import { Observable, throwError } from 'rxjs';
 import { tap, catchError } from 'rxjs/operators';
 import { AuditLogService } from '../audit-log.service';
-import { Reflector } from '@nestjs/core';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { ErrorCode } from '../../common/constants/error-codes';
 import { AuditAnchorPlugin } from '../plugins/audit-anchor.plugin';
+import { resolveClientIp } from '../../common/utils/client-ip.util';
 
 /**
  * 审计拦截器
@@ -23,82 +23,120 @@ import { AuditAnchorPlugin } from '../plugins/audit-anchor.plugin';
 export class AuditInterceptor implements NestInterceptor {
   constructor(
     private readonly auditService: AuditLogService,
-    private readonly reflector: Reflector,
     /** 审计锚点插件（可选注入，插件未注册时降级为默认行为） */
     @Optional() private readonly auditAnchorPlugin?: AuditAnchorPlugin,
   ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+    if (context.getType() !== 'http') {
+      return next.handle();
+    }
     const request = context.switchToHttp().getRequest();
-    const user = request.user;
+    const path = typeof request?.path === 'string' ? request.path : '';
     const method = request.method;
+    if (!path.startsWith('/api/v1/admin')) {
+      return next.handle();
+    }
+    /** 登录成功/失败均不写入审计（避免密码相关流量落库、减少噪音） */
+    if (method === 'POST' && path === '/api/v1/admin/auth/login') {
+      return next.handle();
+    }
 
-    // 判断是否为写操作
+    const user = request.user;
+
     const isWriteOperation = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
     const handlerName = context.getHandler().name;
     const controllerName = context.getClass().name.replace('Controller', '');
 
-    // 检查当前 GET 请求是否需要审计（通过描述符中的 auditGetActions 配置）
     const isAuditedGetAction =
       method === 'GET' &&
       this.auditAnchorPlugin?.shouldAuditGetAction(controllerName, handlerName);
 
-    // 写操作或被标记的 GET 操作需要审计
     const shouldAudit = isWriteOperation || isAuditedGetAction;
 
     const startTime = Date.now();
     const action = `${controllerName}.${handlerName}`;
-    // 通过 AuditAnchorPlugin 动态解析资源类型
     const resource = this.resolveResourceType(controllerName);
+    const operationKind = this.inferOperationKind(method, handlerName);
+    const ipInfo = resolveClientIp(request);
 
     return next.handle().pipe(
       tap({
         next: (data) => {
           if (!shouldAudit) return;
 
-          // 记录成功操作的审计日志
+          const requestParams = this.buildRequestParams(request);
+          const detail: Record<string, any> = {
+            duration: Date.now() - startTime,
+            method,
+            path: request.path,
+            operationKind,
+            ipChain: ipInfo.ipChain,
+            forwardedForRaw: ipInfo.forwardedForRaw,
+            remoteAddress: ipInfo.remoteAddress,
+          };
+          if (isWriteOperation && data != null) {
+            detail.responseSummary = this.summarizeResponse(data);
+          }
+
+          if (Object.keys(request.params || {}).length > 0) {
+            detail.pathParams = { ...request.params };
+          }
+
           this.auditService.log({
             action,
             operator: user?.username || 'anonymous',
-            ip: request.ip,
+            ip: ipInfo.clientIp,
+            ipChain: ipInfo.ipChain,
+            forwardedForRaw: ipInfo.forwardedForRaw,
+            operationKind,
             resource,
-            resourceId: this.getResourceId(data),
+            resourceId: this.getResourceId(data, request),
             result: 'success',
-            requestParams: this.sanitizeParams(request.body),
+            requestParams,
             userAgent: request.headers['user-agent'],
-            detail: {
-              duration: Date.now() - startTime,
-              method,
-              path: request.path,
-            },
+            detail,
           });
         },
       }),
       catchError((error) => {
-        // 权限拒绝错误始终记录审计日志，不受请求方法限制
         const isPermissionError =
           error instanceof BusinessException &&
           (error.errorCode === ErrorCode.PERMISSION_DENIED ||
-           error.errorCode === ErrorCode.INSUFFICIENT_PERMISSIONS);
+            error.errorCode === ErrorCode.INSUFFICIENT_PERMISSIONS);
 
         if (shouldAudit || isPermissionError) {
-          // 记录失败操作的审计日志
+          const requestParams = this.buildRequestParams(request);
+          const detail: Record<string, any> = {
+            duration: Date.now() - startTime,
+            method,
+            path: request.path,
+            operationKind,
+            ipChain: ipInfo.ipChain,
+            forwardedForRaw: ipInfo.forwardedForRaw,
+            remoteAddress: ipInfo.remoteAddress,
+            statusCode: error.status || 500,
+            errorCode: error instanceof BusinessException ? error.errorCode : undefined,
+          };
+
+          if (Object.keys(request.params || {}).length > 0) {
+            detail.pathParams = { ...request.params };
+          }
+
           this.auditService.log({
             action,
             operator: user?.username || 'anonymous',
-            ip: request.ip,
+            ip: ipInfo.clientIp,
+            ipChain: ipInfo.ipChain,
+            forwardedForRaw: ipInfo.forwardedForRaw,
+            operationKind,
             resource,
+            resourceId: this.getResourceId(undefined, request),
             result: 'failure',
             errorMessage: error.message,
-            requestParams: this.sanitizeParams(request.body),
+            requestParams,
             userAgent: request.headers['user-agent'],
-            detail: {
-              duration: Date.now() - startTime,
-              method,
-              path: request.path,
-              statusCode: error.status || 500,
-              errorCode: error instanceof BusinessException ? error.errorCode : undefined,
-            },
+            detail,
           });
         }
 
@@ -107,34 +145,128 @@ export class AuditInterceptor implements NestInterceptor {
     );
   }
 
+  private inferOperationKind(method: string, handlerName: string): string {
+    const h = handlerName.toLowerCase();
+    if (h.includes('credit') || h.includes('recharge') || h.includes('topup')) {
+      return 'credit';
+    }
+    if (method === 'DELETE') return 'delete';
+    if (method === 'PUT' || method === 'PATCH') return 'update';
+    if (method === 'POST') {
+      if (h.includes('reset')) return 'reset';
+      return 'create';
+    }
+    if (method === 'GET') return 'read';
+    return 'other';
+  }
+
   /**
-   * 动态解析资源类型
-   * 优先通过 AuditAnchorPlugin 从描述符配置中获取，
-   * 插件不可用时降级为控制器名称小写。
+   * 合并 body 与 query（脱敏），便于审计「涉及哪些入参」。
    */
+  private buildRequestParams(request: any): Record<string, any> | undefined {
+    const body = this.sanitizeParams(request.body);
+    const query =
+      request.query && typeof request.query === 'object' && Object.keys(request.query).length > 0
+        ? this.sanitizeParams(request.query)
+        : undefined;
+    if (!body && !query) return undefined;
+    const merged: Record<string, any> = {};
+    if (body) merged.body = body;
+    if (query) merged.query = query;
+    return merged;
+  }
+
+  /** 响应体浅层摘要，避免整包落库过大；密钥类字段不落库明文 */
+  private summarizeResponse(data: any, depth = 0): any {
+    if (depth > 2 || data == null) return data;
+    if (typeof data !== 'object') return data;
+    if (Array.isArray(data)) {
+      return { _type: 'array', length: data.length };
+    }
+    const keys = Object.keys(data).slice(0, 48);
+    const out: Record<string, any> = {};
+    for (const k of keys) {
+      if (this.isSensitiveSummaryKey(k)) {
+        out[k] = '***REDACTED***';
+        continue;
+      }
+      const v = (data as any)[k];
+      if (v != null && typeof v === 'object' && !Array.isArray(v) && depth < 2) {
+        out[k] = this.summarizeResponse(v, depth + 1);
+      } else if (Array.isArray(v)) {
+        out[k] = { _type: 'array', length: v.length };
+      } else {
+        out[k] = v;
+      }
+    }
+    return out;
+  }
+
+  /** 审计摘要中禁止写入明文的字段名（含嵌套 key） */
+  private isSensitiveSummaryKey(key: string): boolean {
+    const n = key.toLowerCase().replace(/_/g, '');
+    if (
+      n === 'apikey' ||
+      n === 'plainkey' ||
+      n === 'secret' ||
+      n === 'secrethash' ||
+      n === 'password' ||
+      n === 'passwordhash' ||
+      n === 'token' ||
+      n === 'accesstoken' ||
+      n === 'refreshtoken' ||
+      n === 'authorization'
+    ) {
+      return true;
+    }
+    return n.includes('password') || n.includes('secret') || n.endsWith('token');
+  }
+
   private resolveResourceType(controllerName: string): string {
     if (this.auditAnchorPlugin) {
       return this.auditAnchorPlugin.getResourceType(controllerName);
     }
-    // 降级策略：插件未注入时使用控制器名称小写
     return controllerName.toLowerCase();
   }
 
-  /**
-   * 从响应数据中提取资源 ID
-   */
-  private getResourceId(data: any): string | undefined {
+  private getResourceId(data: any, request: any): string | undefined {
+    const pick = (obj: Record<string, unknown> | undefined, keys: string[]) => {
+      if (!obj) return undefined;
+      for (const k of keys) {
+        const v = obj[k];
+        if (v !== undefined && v !== null && String(v).trim() !== '') {
+          return String(v);
+        }
+      }
+      return undefined;
+    };
+
+    const fromParams = pick(request?.params, [
+      'apiKey',
+      'taskId',
+      'id',
+      'key',
+      'model_id',
+    ]);
+    if (fromParams) return fromParams;
+
     if (!data) return undefined;
     if (typeof data === 'object') {
-      return data.id || data._id || data.data?.id || data.data?._id;
+      const inner = (data as any).data;
+      if (inner && typeof inner === 'object') {
+        const nested =
+          inner.apiKey ??
+          inner.id ??
+          inner._id ??
+          (inner as any).model_id;
+        if (nested !== undefined && nested !== null) return String(nested);
+      }
+      const id = (data as any).id || (data as any)._id;
+      if (id) return String(id);
     }
     return undefined;
   }
 
-  /**
-   * 清理请求参数中的敏感字段
-   * 将密码、密钥等敏感信息替换为 ***REDACTED***
-   */
   private sanitizeParams(params: any): Record<string, any> | undefined {
     if (!params) return undefined;
 
@@ -146,6 +278,7 @@ export class AuditInterceptor implements NestInterceptor {
       'newPassword',
       'token',
       'apiKey',
+      'plainKey',
       'secret',
     ];
 

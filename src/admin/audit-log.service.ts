@@ -5,12 +5,16 @@ import {
   AuditLog,
   AuditLogDocument,
 } from '../database/schemas/audit-log.schema';
+import { enrichAuditLogRecord } from './utils/enrich-audit-log.util';
 
 export interface AuditLogData {
   action: string;
   operator: string;
   detail?: Record<string, any>;
   ip?: string;
+  ipChain?: string[];
+  forwardedForRaw?: string;
+  operationKind?: string;
   resource?: string;
   resourceId?: string;
   result?: 'success' | 'failure';
@@ -23,6 +27,8 @@ export interface AuditLogFilters {
   action?: string;
   operator?: string;
   resource?: string;
+  /** 与列表「变动类型」一致：create / update / delete / reset / read / credit / other */
+  operationKind?: string;
   result?: 'success' | 'failure';
   startDate?: Date;
   endDate?: Date;
@@ -87,6 +93,12 @@ export class AuditLogService {
     if (filters.resource) {
       query.resource = filters.resource;
     }
+    if (filters.operationKind) {
+      query.$or = [
+        { operationKind: filters.operationKind },
+        { 'detail.operationKind': filters.operationKind },
+      ];
+    }
     if (filters.result) {
       query.result = filters.result;
     }
@@ -100,7 +112,7 @@ export class AuditLogService {
       }
     }
 
-    const [items, total] = await Promise.all([
+    const [rawItems, total] = await Promise.all([
       this.logModel
         .find(query)
         .sort({ createdAt: -1 })
@@ -109,6 +121,8 @@ export class AuditLogService {
         .lean(),
       this.logModel.countDocuments(query),
     ]);
+
+    const items = rawItems.map((row) => enrichAuditLogRecord(row as Record<string, any>));
 
     return { items, total, page, pageSize };
   }
