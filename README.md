@@ -52,7 +52,7 @@ Akool 统一 AI 模型接入中台 —— 集成多家第三方 AI 模型厂商�
 
 ```bash
 NODE_ENV=development
-PORT=6000
+PORT=7000
 PROCESS_TYPE=api                   # api | worker | scheduler | admin-server（开发可选 monolith）
 
 NACOS_ENABLE=true
@@ -150,17 +150,17 @@ npm run seed:models:apply -- --force
 
 创建任务联调参数示例（含 AGI 字段对照、分厂商 curl、**142 条全量 `model_name` 附录表**）见：**[docs/create-task-demos.md](docs/create-task-demos.md)**。更新枚举并重新生成种子后，可执行 **`npm run docs:task-demos-appendix`** 同步 `docs/_task-demo-appendix.generated.md`。
 
-启动成功后访问：
+启动成功后访问（端口以根目录 `ecosystem.config.js` 为准，可用环境变量 `PORT` 覆盖）：
 
 | 服务 | 地址 |
 |------|------|
-| 业务 API | `http://localhost:6000/v1/tasks` |
-| Swagger 文档（API） | `http://localhost:6000/apidoc` |
-| 管理后台页面 | `http://localhost:6003` |
-| 管理后台 API | `http://localhost:6003/api/v1/admin/...` |
-| Swagger 文档（Admin） | `http://localhost:6003/apidoc` |
-| 健康检查 | `http://localhost:6000/health/liveness` |
-| Prometheus 指标 | `http://localhost:6000/metrics` |
+| 业务 API | `http://localhost:7000/v1/tasks` |
+| Swagger 文档（API） | `http://localhost:7000/apidoc` |
+| 管理后台页面 | `http://localhost:7003` |
+| 管理后台 API | `http://localhost:7003/api/v1/admin/...` |
+| Swagger 文档（Admin） | `http://localhost:7003/apidoc` |
+| 健康检查 | `http://localhost:7000/health/liveness` |
+| Prometheus 指标 | `http://localhost:7000/metrics` |
 
 ### 管理后台默认账号
 
@@ -178,10 +178,10 @@ npm run seed:models:apply -- --force
 ```
 ecosystem.config.js (PM2 启动 4 个进程)
   │
-  ├─ PROCESS_TYPE=api          PORT=6000 ──→ main.js ──→ AppModule(api)
-  ├─ PROCESS_TYPE=worker       PORT=6001 ──→ main.js ──→ AppModule(worker)
-  ├─ PROCESS_TYPE=scheduler    PORT=6002 ──→ main.js ──→ AppModule(scheduler)
-  └─ PROCESS_TYPE=admin-server PORT=6003 ──→ main.js ──→ AppModule(admin-server)
+  ├─ PROCESS_TYPE=api          PORT=7000 ──→ main.js ──→ AppModule(api)
+  ├─ PROCESS_TYPE=worker       PORT=7001 ──→ main.js ──→ AppModule(worker)
+  ├─ PROCESS_TYPE=scheduler    PORT=7002 ──→ main.js ──→ AppModule(scheduler)
+  └─ PROCESS_TYPE=admin-server PORT=7003 ──→ main.js ──→ AppModule(admin-server)
 ```
 
 ### 模块加载矩阵
@@ -209,10 +209,10 @@ ecosystem.config.js (PM2 启动 4 个进程)
 
 | 进程 | PROCESS_TYPE | PM2 端口 | 模式 | 职责 |
 |------|-------------|---------|------|------|
-| **model-hub-api** | `api` | 6000 | cluster | 接收业务方 HTTP 请求，任务 CRUD，通过 QueueRouterService 按功能/厂商入队 |
-| **model-hub-worker** | `worker` | 6001 | cluster | 消费 12 个 Bull 队列，调用厂商 API 提交任务，RateLimiter 限流/并发控制 |
-| **model-hub-scheduler** | `scheduler` | 6002 | fork | Cron 定时轮询厂商任务状态，分布式锁防多实例竞争，定时统计聚合 |
-| **model-hub-admin-server** | `admin-server` | 6003 | fork | 管理后台 API + React SPA 托管，独立 JWT 鉴权 |
+| **model-hub-api** | `api` | 7000 | cluster | 接收业务方 HTTP 请求，任务 CRUD，通过 QueueRouterService 按功能/厂商入队 |
+| **model-hub-worker** | `worker` | 7001 | fork | 消费 12 个 Bull 队列，调用厂商 API 提交任务，RateLimiter 限流/并发控制 |
+| **model-hub-scheduler** | `scheduler` | 7002 | fork | Cron 定时轮询厂商任务状态，分布式锁防多实例竞争，定时统计聚合 |
+| **model-hub-admin-server** | `admin-server` | 7003 | fork | 管理后台 API + React SPA 托管，独立 JWT 鉴权 |
 
 ### 关键设计点
 
@@ -261,10 +261,10 @@ cd dashboard && npm run dev    # → http://localhost:5173
 Windows PowerShell：
 
 ```powershell
-$env:PROCESS_TYPE="api"; $env:PORT="6000"; npm run start:dev
-$env:PROCESS_TYPE="worker"; $env:PORT="6001"; npm run start:dev
-$env:PROCESS_TYPE="scheduler"; $env:PORT="6002"; npm run start:dev
-$env:PROCESS_TYPE="admin-server"; $env:PORT="6003"; npm run start:dev
+$env:PROCESS_TYPE="api"; $env:PORT="7000"; npm run start:dev
+$env:PROCESS_TYPE="worker"; $env:PORT="7001"; npm run start:dev
+$env:PROCESS_TYPE="scheduler"; $env:PORT="7002"; npm run start:dev
+$env:PROCESS_TYPE="admin-server"; $env:PORT="7003"; npm run start:dev
 ```
 
 ## 生产部署（PM2）
@@ -295,13 +295,13 @@ pm2 stop ecosystem.config.js
 
 ## 核心 API
 
-### 业务 API（端口 6000）
+### 业务 API（默认端口 7000，见 `ecosystem.config.js`）
 
-所有业务接口需携带 `X-API-Key` Header。完整文档见 Swagger：`http://localhost:6000/apidoc`
+所有业务接口需携带 `X-API-Key` Header。完整文档见 Swagger：`http://localhost:7000/apidoc`
 
 ```bash
 # 创建任务
-curl -X POST http://localhost:6000/v1/tasks \
+curl -X POST http://localhost:7000/v1/tasks \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-api-key" \
   -H "X-Idempotency-Key: unique-key-123" \
@@ -313,58 +313,68 @@ curl -X POST http://localhost:6000/v1/tasks \
   }'
 
 # 查询任务
-curl http://localhost:6000/v1/tasks/{taskId} -H "X-API-Key: your-api-key"
+curl http://localhost:7000/v1/tasks/{taskId} -H "X-API-Key: your-api-key"
 
 # 任务列表
-curl "http://localhost:6000/v1/tasks?status=SUCCESS&page=1&pageSize=20" -H "X-API-Key: your-api-key"
+curl "http://localhost:7000/v1/tasks?status=SUCCESS&page=1&pageSize=20" -H "X-API-Key: your-api-key"
 
 # 取消任务
-curl -X POST http://localhost:6000/v1/tasks/{taskId}/cancel -H "X-API-Key: your-api-key"
+curl -X POST http://localhost:7000/v1/tasks/{taskId}/cancel -H "X-API-Key: your-api-key"
 ```
 
-### 管理后台 API（端口 6003）
+### 管理后台 API（默认端口 7003）
 
-管理后台使用 JWT Bearer Token 鉴权。完整文档见 Swagger：`http://localhost:6003/apidoc`
+管理后台使用 JWT Bearer Token 鉴权。完整文档见 Swagger：`http://localhost:7003/apidoc`
 
 ```bash
 # 登录
-curl -X POST http://localhost:6003/api/v1/admin/auth/login \
+curl -X POST http://localhost:7003/api/v1/admin/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username": "admin", "password": "changeme123"}'
 
 # 以下接口均需 Authorization: Bearer <token>
 
 # Dashboard 总览
-curl http://localhost:6003/api/v1/admin/overview -H "Authorization: Bearer <token>"
+curl http://localhost:7003/api/v1/admin/overview -H "Authorization: Bearer <token>"
 
 # 任务列表
-curl "http://localhost:6003/api/v1/admin/tasks?status=FAILED&page=1" -H "Authorization: Bearer <token>"
+curl "http://localhost:7003/api/v1/admin/tasks?status=FAILED&page=1" -H "Authorization: Bearer <token>"
 
 # 任务时间线
-curl http://localhost:6003/api/v1/admin/tasks/{taskId}/timeline -H "Authorization: Bearer <token>"
+curl http://localhost:7003/api/v1/admin/tasks/{taskId}/timeline -H "Authorization: Bearer <token>"
 
 # 任务时长指标
-curl http://localhost:6003/api/v1/admin/tasks/{taskId}/timing -H "Authorization: Bearer <token>"
+curl http://localhost:7003/api/v1/admin/tasks/{taskId}/timing -H "Authorization: Bearer <token>"
 
 # 回调重放
-curl -X POST http://localhost:6003/api/v1/admin/tasks/{taskId}/replay-callback -H "Authorization: Bearer <token>"
+curl -X POST http://localhost:7003/api/v1/admin/tasks/{taskId}/replay-callback -H "Authorization: Bearer <token>"
 
 # 队列监控
-curl http://localhost:6003/api/v1/admin/queues/stats -H "Authorization: Bearer <token>"
+curl http://localhost:7003/api/v1/admin/queues/stats -H "Authorization: Bearer <token>"
 
 # 每日统计
-curl "http://localhost:6003/api/v1/admin/stats/daily?dateFrom=2026-04-01&dateTo=2026-04-07" -H "Authorization: Bearer <token>"
+curl "http://localhost:7003/api/v1/admin/stats/daily?dateFrom=2026-04-01&dateTo=2026-04-07" -H "Authorization: Bearer <token>"
 
 # 审计日志
-curl http://localhost:6003/api/v1/admin/audit-logs -H "Authorization: Bearer <token>"
+curl http://localhost:7003/api/v1/admin/audit-logs -H "Authorization: Bearer <token>"
+
+# 当前用户侧边栏菜单树（仅需登录）
+curl http://localhost:7003/api/v1/admin/menu -H "Authorization: Bearer <token>"
+
+# 菜单配置 CRUD（需 menu:read / menu:create 等）
+curl http://localhost:7003/api/v1/admin/menus -H "Authorization: Bearer <token>"
+
+# 用量账单 / 余额（钱包）（需 billing:read）
+curl "http://localhost:7003/api/v1/admin/billing/records?page=1&pageSize=20" -H "Authorization: Bearer <token>"
+curl http://localhost:7003/api/v1/admin/billing/wallets -H "Authorization: Bearer <token>"
 ```
 
 ### 健康检查 & 监控
 
 ```bash
-curl http://localhost:6000/health/liveness     # 存活检查
-curl http://localhost:6000/health/readiness    # 就绪检查（含 MongoDB 连通性）
-curl http://localhost:6000/metrics             # Prometheus 指标
+curl http://localhost:7000/health/liveness     # 存活检查
+curl http://localhost:7000/health/readiness    # 就绪检查（含 MongoDB 连通性）
+curl http://localhost:7000/metrics             # Prometheus 指标
 ```
 
 ## 环境变量说明（.env）
@@ -374,7 +384,7 @@ curl http://localhost:6000/metrics             # Prometheus 指标
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `NODE_ENV` | `development` | 运行环境（对应 `config/${NODE_ENV}.json`） |
-| `PORT` | `6000` | HTTP 监听端口 |
+| `PORT` | `7000`（PM2 默认与 `ecosystem.config.js` 一致） | HTTP 监听端口 |
 | `PROCESS_TYPE` | `api` | 进程类型：api / worker / scheduler / admin-server |
 | `NACOS_ENABLE` | `true` | 是否启用 Nacos（`false` 时读本地 JSON） |
 | `NACOS_SERVER_ADDR` | - | Nacos 服务地址 |
@@ -431,7 +441,13 @@ model-hub/
 │   │       ├── account-pool-entry.schema.ts    # ★ 账号池条目（密钥唯一来源）
 │   │       ├── account-cost-daily.schema.ts    # ★ 账号每日成本聚合
 │   │       ├── provider-runtime-config.schema.ts  # 厂商全局配置（不含密钥）
-│   │       └── model-config.schema.ts          # 模型配置
+│   │       ├── model-config.schema.ts          # 模型配置
+│   │       ├── model-routing-rule.schema.ts    # 模型路由策略（model_routing_rules）
+│   │       ├── api-client.schema.ts            # 业务 API 客户端
+│   │       ├── role.schema.ts / permission.schema.ts / menu-config.schema.ts  # RBAC + 菜单
+│   │       ├── billing-record.schema.ts / wallet.schema.ts / wallet-transaction.schema.ts
+│   │       ├── notification-rule.schema.ts / notification-record.schema.ts / in-app-notification.schema.ts
+│   │       └── link-conversion-settings.schema.ts
 │   ├── redis/                          # Redis 模块
 │   │   ├── redis.module.ts             # ioredis 连接
 │   │   ├── redis.constants.ts          # REDIS_CLIENT 注入 Token
@@ -488,7 +504,10 @@ model-hub/
 │   │   ├── callback.module.ts
 │   │   ├── callback.processor.ts       # 回调投递 + 重试 + 死信
 │   │   └── callback-signature.service.ts  # HMAC-SHA256 签名
-│   ├── stats/                          # 统计模块
+│   ├── billing/                        # 计费与钱包（预扣/结算/退款等）
+│   │   ├── billing.module.ts
+│   │   ├── billing.service.ts
+│   │   └── wallet.service.ts
 │   │   ├── stats.module.ts
 │   │   ├── stats.service.ts            # MongoDB Aggregation 每日聚合
 │   │   ├── stats-aggregation.scheduler.ts  # 每日 01:00 定时聚合
@@ -500,17 +519,19 @@ model-hub/
 │   ├── health/                         # 健康检查
 │   │   ├── health.module.ts
 │   │   └── health.controller.ts        # liveness + readiness
-│   ├── admin/                          # 管理后台 API
-│   │   ├── admin.module.ts
-│   │   ├── admin-auth.controller.ts    # POST /auth/login
-│   │   ├── admin-auth.service.ts       # JWT 签发/验证 + bcrypt + 自动建默认用户
-│   │   ├── admin-task.controller.ts    # 任务管理（列表/详情/时间线/时长/回调重放）
-│   │   ├── admin-stats.controller.ts   # 统计监控（总览/每日/队列）
-│   │   ├── admin-audit.controller.ts   # 审计日志
-│   │   ├── audit-log.service.ts
-│   │   ├── guards/admin-jwt.guard.ts   # Bearer Token 鉴权
-│   │   ├── guards/roles.guard.ts       # RBAC 角色校验
-│   │   └── decorators/roles.decorator.ts
+│   ├── admin/                          # 管理后台 API（JWT + 细粒度权限）
+│   │   ├── admin.module.ts / rbac.module.ts
+│   │   ├── admin-auth.controller.ts / admin-auth.service.ts
+│   │   ├── admin-task.controller.ts / admin-stats.controller.ts / admin-audit.controller.ts
+│   │   ├── admin-model-config.controller.ts / admin-model-routing.controller.ts
+│   │   ├── admin-provider-config.controller.ts / admin-account-pool.controller.ts / admin-account-cost.controller.ts
+│   │   ├── admin-api-client.controller.ts / admin-billing.controller.ts
+│   │   ├── admin-menu.controller.ts（当前用户菜单树）/ menu-management.controller.ts（菜单 CRUD）
+│   │   ├── user-management.controller.ts / role-management.controller.ts / permission-management.controller.ts
+│   │   ├── provider-health.controller.ts / admin-callback-logs.controller.ts / admin-link-conversion-config.controller.ts
+│   │   ├── admin-system-info.controller.ts
+│   │   ├── guards/（admin-jwt、permission、roles）/ decorators/（require-permissions 等）
+│   │   └── services/menu-registry.service.ts、permission-check.service.ts 等
 │   ├── dashboard/                      # 前端静态资源托管
 │   │   └── dashboard.module.ts         # ServeStaticModule → dashboard/dist
 │   └── common/                         # 公共层
@@ -530,19 +551,17 @@ model-hub/
 │       ├── main.tsx                    # 入口（Ant Design ConfigProvider 中文）
 │       ├── App.tsx                     # 路由 + 侧边栏布局 + AuthGuard
 │       ├── services/api.ts             # Axios 封装 + 全部 API 调用
-│       ├── store/auth.ts               # Zustand 登录状态管理
-│       ├── components/
-│       │   ├── StatCard.tsx            # 指标卡片
-│       │   └── StatusTag.tsx           # 状态彩色标签
-│       └── pages/
-│           ├── Login.tsx               # 登录页
-│           ├── Dashboard.tsx           # 总览页（4 张指标卡 + 统计）
-│           ├── Tasks.tsx               # 任务列表（表格 + 筛选 + 分页）
-│           ├── TaskDetail.tsx          # 任务详情（基础信息 + 时长 + 时间线）
-│           ├── Queues.tsx              # 队列监控（按功能分组卡片，10s 刷新）
-│           ├── Models.tsx              # 模型配置（列表/详情/启用开关）
-│           ├── Stats.tsx               # 统计报表（日期筛选 + 聚合表格）
-│           └── AuditLogs.tsx           # 审计日志
+│       ├── store/auth.ts / store/menu.ts / store/theme.ts
+│       ├── hooks/usePermission.ts
+│       ├── components/ …
+│       └── pages/                      # 各业务页（任务、模型、计费、RBAC、菜单等）
+│           ├── Login.tsx / Dashboard.tsx / Tasks.tsx / TaskDetail.tsx / Queues.tsx
+│           ├── Models.tsx / CreateModelConfig.tsx / EditModelConfig.tsx / ModelRoutingRules.tsx
+│           ├── ProviderConfigs.tsx / ProviderHealth.tsx / AccountPool.tsx / AccountCost.tsx
+│           ├── BillingRecords.tsx / WalletManagement.tsx / ApiClients.tsx / LinkConversionConfig.tsx
+│           ├── Stats.tsx / AuditLogs.tsx / CallbackLogs.tsx / SystemInfo.tsx
+│           ├── NotificationRules.tsx / NotificationRecords.tsx / InAppNotifications.tsx
+│           ├── Users.tsx / Roles.tsx / Permissions.tsx / Menus.tsx / Forbidden.tsx
 │
 ├── config/
 │   ├── development.json                # 本地开发配置（NACOS_ENABLE=false 时使用）
@@ -559,8 +578,9 @@ model-hub/
 │   ├── collect-model-configs.cjs       # 模型配置采集
 │   └── ...                             # 其他运维脚本
 ├── docs/
-│   ├── technical-design.md             # 技术方案文档（v2.6；含统一密钥管理架构）
-│   └── project-architecture.md         # 项目架构清单
+│   ├── technical-design.md             # 技术方案（设计为主；运行时细节以 README + 代码为准）
+│   ├── project-architecture.md         # 架构清单（部分为规划稿，与仓库不一致时以代码为准）
+│   └── todo.md                         # Spec 顺序与待办备忘
 ├── ecosystem.config.js                 # PM2 多进程配置（api/worker/scheduler/admin-server）
 ├── .env.example                        # 环境变量模板（仅 Nacos 连接参数）
 ├── package.json
@@ -592,18 +612,45 @@ model-hub/
 
 新增厂商只需实现 `IProviderAdapter` 接口并在 `ProviderModule` 注册，无需改动上层代码。
 
+## 管理后台与权限
+
+- **鉴权**：业务 API 使用 `X-API-Key`；管理后台使用 JWT（`Authorization: Bearer`），细粒度权限由 `PermissionGuard` + `@RequirePermissions('resource:action')` 控制；`super_admin` 角色拥有全部能力。
+- **侧边栏菜单**：`GET /api/v1/admin/menu` 返回按当前用户过滤后的分组菜单（一级分组如 **仪表盘、业务接入、模型路由、供应商管理、计费与成本、通知中心、系统设置** 等）；菜单项注册见 `MenuRegistryService` 与 `src/common/descriptors/index.ts`，启动时由 **`MenuSyncPlugin`** 同步到 MongoDB **`menu_configs`**（与「菜单管理」页配合）。修改菜单文案或层级后，可执行 `npm run build && npm run sync:docs` 更新本文档与 `docs/` 中带 `<!-- AUTO:... -->` 的章节。
+- **菜单管理 API**：`GET|POST|PUT|DELETE /api/v1/admin/menus`（需 `menu:*` 权限），对应前端 `dashboard/src/pages/Menus.tsx`。
+- **角色**：`roles` 集合支持权限码列表与授权菜单 key；详见 `role-management.service.ts`、`permission-check.service.ts`。
+
 ## 管理后台页面
 
-| 页面 | 路由 | 功能 |
-|------|------|------|
-| 登录 | `/login` | 用户名/密码登录 |
-| 总览 | `/` | 核心指标卡片（任务量/成功率/队列深度/处理中），30s 自动刷新 |
-| 任务管理 | `/tasks` | 表格 + 状态筛选 + 分页 → 详情（时长指标 + 时间线 + 回调重放） |
-| 队列监控 | `/queues` | 按功能分组的队列状态卡片，10s 自动刷新 |
-| 模型配置 | `/models` | 分页列表、provider/关键词筛选、详情 JSON、启用/禁用开关 |
-| API 客户端 | `/api-clients` | 创建/列表/启用禁用/轮换密钥（业务 `X-API-Key` 来源） |
-| 统计报表 | `/stats` | 日期范围 + 功能类型筛选 + 聚合统计表格 |
-| 审计日志 | `/audit-logs` | 操作日志列表 + 按类型搜索 |
+> 下列「页面」名称与侧栏展示一致；**实际分组与排序** 以 `GET /api/v1/admin/menu` 返回为准。
+
+| 页面 | 路由 | 权限（示例） | 功能 |
+|------|------|--------------|------|
+| 登录 | `/login` | — | 用户名/密码登录 |
+| 总览 | `/` | — | 核心指标；菜单由后端下发 |
+| 应用管理 | `/api-clients` | `api-client:read` 等 | 业务应用与客户端列表 |
+| API 密钥管理 | `/api-keys` | `api-client:read` 等 | 与「应用管理」同一页面，侧栏独立入口 |
+| 任务记录 | `/tasks`、`/tasks/:taskId` | `task:read` 等 | 列表、详情、时间线、回调重放等 |
+| 队列监控 | `/queues` | `queue:read` | 队列状态卡片 |
+| 路由策略 | `/model-routing-rules` | `model:read` | 模型路由策略 CRUD |
+| 模型配置 | `/models`、`/models/create`、`/models/edit/:id` | `model:read` 等 | 列表、创建、编辑 |
+| 请求转换配置 | `/link-conversion-config` | `link-conversion:read` | 请求转换（原链接转存）设置 |
+| 供应商配置 | `/provider-configs` | `provider:read` | 供应商全局配置 |
+| 供应商健康度 | `/provider-health` | `provider:read` | 健康与熔断 |
+| 账号池 | `/account-pool` | `provider:read` | 密钥与账号条目 |
+| 成本分析 | `/account-costs` | `provider:read` | 账号成本聚合（侧栏归「计费与成本」） |
+| 用量账单 | `/billing/records` | `billing:read` | 计费流水 |
+| 余额充值 | `/billing/wallets` | `billing:read` | 余额与手工调账等 |
+| 统计报表 | `/stats` | `stats:read` | 每日统计等 |
+| 审计日志 | `/audit-logs` | `audit:read` | 操作审计 |
+| 通知规则/记录/消息中心 | `/notification-rules` 等 | `notification:read` | 通知子系统 |
+| 回调日志 | `/callback-logs` | `callback-log:read` | 回调投递日志 |
+| 系统信息 | `/system-info` | `system:read` | 运行信息 |
+| 用户管理 | `/users` | `user:read` 等 | 后台用户 CRUD |
+| 角色管理 | `/roles` | `role:read` 等 | 角色与菜单/权限绑定 |
+| 权限管理 | `/permissions` | `permission:read` | 权限定义 |
+| 菜单管理 | `/menus` | `menu:read` 等 | `menu_configs` 维护 |
+
+路由定义见 `dashboard/src/App.tsx`。
 
 ## 常用命令
 
@@ -618,6 +665,7 @@ npm run start:prod       # 生产模式
 pm2 start ecosystem.config.js  # PM2 启动全部服务
 npm test                 # 单元测试
 npm run lint             # ESLint 检查
+npm run sync:docs        # 根据 src/common/descriptors 更新 docs 中带 AUTO 标记的章节（建议先 npm run build）
 npm run migrate:clientid # 将 tasks / idempotency_records 的 tenantId 迁移为 clientId
 npm run migrate:secrets  # ★ 将 provider_runtime_configs 中的密钥迁移到 account_pool_entries
 npm run cleanup:provider-secrets  # ★ 迁移验证后，清理 provider_runtime_configs 中的密钥字段

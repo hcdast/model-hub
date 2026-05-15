@@ -3,6 +3,10 @@
 > 本文档为开发团队提供直接可落地的项目结构、模块清单、类/接口命名、Schema 定义、配置文件模板等。  
 > 配合 `technical-design.md` 使用。
 
+### 与当前仓库的一致性说明
+
+下文部分目录树、Controller 命名与「按进程拆 worker」等描述来自早期规划稿，**若与仓库不一致，以根目录 `README.md`、`ecosystem.config.js`、`src/app.module.ts`、各 `*.controller.ts` 及 `dashboard/src/App.tsx` 为准**。PM2 默认端口以 `ecosystem.config.js` 为准（当前为 api **7000**、admin-server **7003**）。
+
 ---
 
 ## 目录
@@ -218,8 +222,8 @@ model-hub/
 │   │   ├── queue-admin.service.ts         # ★ 动态队列注册/统计查询
 │   │   ├── dashboard-overview.controller.ts  # ☆ 总览页数据接口
 │   │   ├── dashboard-overview.service.ts     # ☆ 总览指标聚合
-│   │   ├── task-admin.controller.ts       # ☆ 任务管理（列表/详情/时间线/时长）
-│   │   ├── task-admin.service.ts          # ☆ 任务管理业务逻辑
+│   │   ├── task-admin.controller.ts       # ☆ 任务记录（列表/详情/时间线/时长）
+│   │   ├── task-admin.service.ts          # ☆ 任务记录业务逻辑
 │   │   ├── auth-admin.controller.ts       # ☆ 管理后台登录/刷新 Token
 │   │   ├── auth-admin.service.ts          # ☆ JWT 签发/校验/用户查询
 │   │   ├── user-admin.controller.ts       # ☆ 用户管理 CRUD
@@ -660,7 +664,7 @@ export class DashboardOverviewController {
 }
 ```
 
-### 3.8 ☆ TaskAdminController（v2.1 新增 - 任务管理）
+### 3.8 ☆ TaskAdminController（v2.1 新增 - 任务记录）
 
 ```typescript
 // src/admin/task-admin.controller.ts
@@ -1010,7 +1014,7 @@ export class Task extends Document {
   scene?: string;
 
   @Prop()
-  routeId?: string;                       // ★ 命中的路由规则 ID
+  routeId?: string;                       // ★ 命中的路由策略 ID
 
   @Prop({ required: true, enum: TaskStatus, default: TaskStatus.PENDING, index: true })
   status: TaskStatus;
@@ -2221,15 +2225,11 @@ pm2 logs --lines 50
 
 ### 11.8 Docker 配置
 
-### 11.8 Docker 配置
+> **说明**：管理后台前端构建与部署流程详见 [technical-design.md - 管理后台设计](./technical-design.md#24-管理后台设计)。
 
-**Dockerfile**：
+**Dockerfile**（多阶段构建示意；`backend-builder` / `dashboard-builder` 等前置阶段略）：
 
 ```dockerfile
-### ☆ 管理后台构建与部署
-
-> 详细的管理后台构建步骤请参考 [technical-design.md - 管理后台部署](./technical-design.md#24-管理后台设计)
-
 # Stage 3: 生产镜像
 FROM node:18-alpine
 WORKDIR /app
@@ -2796,7 +2796,7 @@ chore: 构建/辅助工具
 - 核心模块代码覆盖率 > 80%
 
 <!-- AUTO:overview:START -->
-### 系统总览 (overview)
+### 仪表盘 (overview)
 
 #### 菜单配置
 
@@ -2818,7 +2818,7 @@ chore: 构建/辅助工具
 
 | 路径 | 标签 | 父级 | 排序 |
 |------|------|------|------|
-| /users | 用户管理 | security | 20 |
+| /users | 用户管理 | access | 20 |
 <!-- AUTO:user:END -->
 
 <!-- AUTO:role:START -->
@@ -2834,7 +2834,7 @@ chore: 构建/辅助工具
 
 | 路径 | 标签 | 父级 | 排序 |
 |------|------|------|------|
-| /roles | 角色管理 | security | 30 |
+| /roles | 角色管理 | access | 30 |
 <!-- AUTO:role:END -->
 
 <!-- AUTO:permission:START -->
@@ -2850,7 +2850,7 @@ chore: 构建/辅助工具
 
 | 路径 | 标签 | 父级 | 排序 |
 |------|------|------|------|
-| /permissions | 权限管理 | security | 40 |
+| /permissions | 权限管理 | access | 40 |
 <!-- AUTO:permission:END -->
 
 <!-- AUTO:model:START -->
@@ -2866,12 +2866,12 @@ chore: 构建/辅助工具
 
 | 路径 | 标签 | 父级 | 排序 |
 |------|------|------|------|
-| /models | 模型配置 | business | 30 |
-| /model-routing-rules | 路由规则 | business | 40 |
+| /models | 模型配置 | model-routing | 20 |
+| /model-routing-rules | 路由策略 | model-routing | 10 |
 <!-- AUTO:model:END -->
 
 <!-- AUTO:task:START -->
-### 任务管理 (task)
+### 任务记录 (task)
 
 #### 权限定义
 
@@ -2883,11 +2883,11 @@ chore: 构建/辅助工具
 
 | 路径 | 标签 | 父级 | 排序 |
 |------|------|------|------|
-| /tasks | 任务管理 | business | 10 |
+| /tasks | 任务记录 | business | 10 |
 <!-- AUTO:task:END -->
 
 <!-- AUTO:api-client:START -->
-### API客户端 (api-client)
+### 应用与 API 密钥 (api-client)
 
 #### 权限定义
 
@@ -2899,7 +2899,8 @@ chore: 构建/辅助工具
 
 | 路径 | 标签 | 父级 | 排序 |
 |------|------|------|------|
-| /api-clients | API 客户端 | system | 10 |
+| /api-clients | 应用管理 | business | 5 |
+| /api-keys | API 密钥管理 | system | 10 |
 <!-- AUTO:api-client:END -->
 
 <!-- AUTO:audit:START -->
@@ -2915,7 +2916,7 @@ chore: 构建/辅助工具
 
 | 路径 | 标签 | 父级 | 排序 |
 |------|------|------|------|
-| /audit-logs | 审计日志 | security | 10 |
+| /audit-logs | 审计日志 | audit | 10 |
 <!-- AUTO:audit:END -->
 
 <!-- AUTO:stats:START -->
@@ -2934,6 +2935,30 @@ chore: 构建/辅助工具
 | /stats | 统计报表 | system | 20 |
 <!-- AUTO:stats:END -->
 
+<!-- AUTO:billing:START -->
+### 计费与成本 (billing)
+
+#### 权限定义
+
+| 资源 | 操作 | 所属模块 |
+|------|------|---------|
+| billing | read, write | billing-management |
+
+#### 菜单配置
+
+| 路径 | 标签 | 父级 | 排序 |
+|------|------|------|------|
+| /billing/records | 用量账单 | billing | 10 |
+| /billing/wallets | 余额充值 | billing | 20 |
+| /account-costs | 成本分析 | billing | 30 |
+
+#### 审计配置
+
+| 控制器 | 资源类型 |
+|--------|---------|
+| AdminBilling | billing |
+<!-- AUTO:billing:END -->
+
 <!-- AUTO:queue:START -->
 ### 队列管理 (queue)
 
@@ -2941,7 +2966,7 @@ chore: 构建/辅助工具
 
 | 资源 | 操作 | 所属模块 |
 |------|------|---------|
-| queue | read, execute | queue-management |
+| queue | read | queue-management |
 
 #### 菜单配置
 
@@ -2951,7 +2976,7 @@ chore: 构建/辅助工具
 <!-- AUTO:queue:END -->
 
 <!-- AUTO:provider:START -->
-### 提供商配置 (provider)
+### 供应商管理 (provider)
 
 #### 权限定义
 
@@ -2963,37 +2988,89 @@ chore: 构建/辅助工具
 
 | 路径 | 标签 | 父级 | 排序 |
 |------|------|------|------|
-| /provider-configs | 厂商配置 | provider | 10 |
+| /provider-configs | 供应商配置 | provider | 10 |
 | /account-pool | 账号池 | provider | 20 |
-| /account-costs | 成本观测 | provider | 30 |
+| /provider-health | 供应商健康度 | provider | 30 |
 <!-- AUTO:provider:END -->
 
-<!-- AUTO:notification-rule:START -->
-### 通知规则 (notification-rule)
+<!-- AUTO:notification:START -->
+### 通知中心 (notification)
+
+#### 权限定义
+
+| 资源 | 操作 | 所属模块 |
+|------|------|---------|
+| notification | read, create, update, delete | notification-management |
 
 #### 菜单配置
 
 | 路径 | 标签 | 父级 | 排序 |
 |------|------|------|------|
 | /notification-rules | 通知规则 | notification | 10 |
-<!-- AUTO:notification-rule:END -->
-
-<!-- AUTO:notification-record:START -->
-### 通知记录 (notification-record)
-
-#### 菜单配置
-
-| 路径 | 标签 | 父级 | 排序 |
-|------|------|------|------|
 | /notification-records | 通知记录 | notification | 20 |
-<!-- AUTO:notification-record:END -->
+| /notifications | 消息中心 | notification | 30 |
+<!-- AUTO:notification:END -->
 
-<!-- AUTO:in-app-notification:START -->
-### 站内通知 (in-app-notification)
+<!-- AUTO:callback-log:START -->
+### 回调日志 (callback-log)
+
+#### 权限定义
+
+| 资源 | 操作 | 所属模块 |
+|------|------|---------|
+| callback-log | read | callback-log-management |
 
 #### 菜单配置
 
 | 路径 | 标签 | 父级 | 排序 |
 |------|------|------|------|
-| /notifications | 站内通知 | notification | 30 |
-<!-- AUTO:in-app-notification:END -->
+| /callback-logs | 回调日志 | audit | 15 |
+<!-- AUTO:callback-log:END -->
+
+<!-- AUTO:system-info:START -->
+### 系统信息 (system-info)
+
+#### 权限定义
+
+| 资源 | 操作 | 所属模块 |
+|------|------|---------|
+| system | read | system-info-management |
+
+#### 菜单配置
+
+| 路径 | 标签 | 父级 | 排序 |
+|------|------|------|------|
+| /system-info | 系统信息 | system | 15 |
+<!-- AUTO:system-info:END -->
+
+<!-- AUTO:link-conversion:START -->
+### 请求转换配置 (link-conversion)
+
+#### 权限定义
+
+| 资源 | 操作 | 所属模块 |
+|------|------|---------|
+| link-conversion | read, update | link-conversion-management |
+
+#### 菜单配置
+
+| 路径 | 标签 | 父级 | 排序 |
+|------|------|------|------|
+| /link-conversion-config | 请求转换配置 | model-routing | 30 |
+<!-- AUTO:link-conversion:END -->
+
+<!-- AUTO:menu:START -->
+### 菜单管理 (menu)
+
+#### 权限定义
+
+| 资源 | 操作 | 所属模块 |
+|------|------|---------|
+| menu | read, create, update, delete | menu-management |
+
+#### 菜单配置
+
+| 路径 | 标签 | 父级 | 排序 |
+|------|------|------|------|
+| /menus | 菜单管理 | access | 5 |
+<!-- AUTO:menu:END -->

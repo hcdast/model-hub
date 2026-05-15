@@ -1,13 +1,15 @@
 # Model-Hub 技术方案文档
 
-> 版本：v2.6  
-> 最后更新：2026-04-29  
+> 版本：v2.7（文档同步）  
+> 最后更新：2026-05-12  
 > 状态：设计阶段  
+> **与实现对齐**：默认 HTTP 端口、管理后台路由前缀、RBAC（`PermissionGuard` + `RequirePermissions`）、计费/钱包、菜单（`menu_configs` + `/api/v1/admin/menu` 与 `/api/v1/admin/menus`）等**运行时细节**以当前仓库代码及根目录 `README.md`、`ecosystem.config.js` 为准；本文档侧重方案与设计取舍。  
+> 变更：v2.7（续）已重写 **§24 管理后台**、补充 **§4.5 计费**、**§5.1 BillingModule**、**§8.11 运营数据模型**、**§14.2 管理端权限**，与当前 Controller / Schema 对齐。  
 > 变更：v2.6 统一密钥管理 — `provider_runtime_configs` 移除 `api_key`，所有密钥收敛到 `account_pool_entries`  
 > 变更：v2.5 Dashboard 总览页新增全部数据统计模块（历史累计任务统计）  
 > 变更：v2.4 轮询查询失败优雅重试机制（retryable/non-retryable 分类处理 + 退避调度）  
 > 变更：v2.3 完善错误日志系统、补充厂商适配器开发指南、添加故障排查手册  
-> 变更：v2.2 路由规则 `model_routing_rules` 落地（fixed / weighted / primary_fallback）、管理端 CRUD；补充「主挂了再切备」TODO  
+> 变更：v2.2 路由策略 `model_routing_rules` 落地（fixed / weighted / primary_fallback）、管理端 CRUD；补充「主挂了再切备」TODO  
 > 变更：v2.1 新增管理后台设计（前后端同项目不同服务）  
 > 变更：v2.0 新增多服务商热切换、按功能队列隔离、队列统计、数据聚合、时长跟踪、任务时间线
 
@@ -19,17 +21,19 @@
 2. [需求分析](#2-需求分析)
 3. [系统架构设计](#3-系统架构设计)
 4. [核心流程设计](#4-核心流程设计)
+    - [4.5 计费与任务闭环](#45-计费与任务闭环) ★ v2.7 新增
 5. [NestJS 模块设计](#5-nestjs-模块设计)
 6. [多服务商热切换设计](#6-多服务商热切换设计) ★ v2.0 新增，v2.2 与实现对齐
     - [6.8 TODO：主挂了再切备（健康感知故障转移）](#68-todo主挂了再切备健康感知故障转移)
 7. [Provider Adapter 统一抽象层](#7-provider-adapter-统一抽象层)
 8. [数据模型设计（MongoDB）](#8-数据模型设计mongodb)
     - [8.10 统一密钥管理架构](#810-统一密钥管理架构) ★ v2.6 新增
+    - [8.11 计费、RBAC 与运营相关集合](#811-计费rbac-与运营相关集合) ★ v2.7 新增
 9. [按功能队列隔离设计](#9-按功能队列隔离设计) ★ v2.0 重构
 10. [统一 API 设计](#10-统一-api-设计)
 11. [任务状态机设计](#11-任务状态机设计)
 12. [定时轮询策略](#12-定时轮询策略)
-    - [11.5 轮询查询失败优雅重试](#115-轮询查询失败优雅重试--v24-新增) ★ v2.4 新增
+    - [12.5 轮询查询失败优雅重试](#125-轮询查询失败优雅重试--v24-新增) ★ v2.4 新增
 13. [回调可靠性设计](#13-回调可靠性设计)
 14. [安全方案](#14-安全方案)
 15. [可观测与告警](#15-可观测与告警)
@@ -43,6 +47,8 @@
 23. [任务处理日志时间线](#23-任务处理日志时间线) ★ v2.0 新增
 24. [管理后台设计](#24-管理后台设计) ★ v2.1 新增
 25. [附录：术语表](#25-附录术语表)
+
+> **小节编号**：自 v2.7 起，各章 `## N` 下的三级标题统一为 `### N.1 … N.k`（与章节号 **N** 对齐）；历史正文中的「§M.x」指第 **M** 章第 **x** 节。
 
 ---
 
@@ -344,6 +350,19 @@ Callback Queue     Callback Dispatcher     Client
 7. 非 2xx / 超时 / 网络错误 → Bull 自动重试
 8. 超过最大重试次数 → 进入死信队列，任务回调状态改 `CALLBACK_DEAD_LETTER`
 
+### 4.5 计费与任务闭环
+
+对配置了 **`billingPolicy=internal` / `external`** 的 API Client，任务生命周期中与计费相关的逻辑由 **`BillingModule`**（`BillingService` / `WalletService`）与任务、用量采集配合完成（具体调用点以 `task.service.ts`、`usage-tracker` 及相关拦截逻辑为准）：
+
+| 环节 | 说明 |
+|------|------|
+| **记录** | `billing_records` 按任务维度记录预估/实际用量、单价、状态（如 `estimated` / `pre_deducted` / `settled` / `refunded` / `failed`） |
+| **钱包** | `internal` 策略使用 `wallets` 维护 `balance` 与 `frozenAmount`（预扣与结算） |
+| **流水** | `wallet_transactions` 记录充值、扣费、解冻等流水（供对账与审计） |
+| **管理端** | `GET /api/v1/admin/billing/records|summary|wallets/...` 提供查询与手工调账入口（权限 `billing:*`） |
+
+`exempt` 策略不写入计费记录。外部业务方调用仍只依赖 **`X-API-Key`**；计费为平台内部治理能力。
+
 ---
 
 ## 5. NestJS 模块设计
@@ -362,7 +381,8 @@ AppModule
 ├── PollingModule         # 定时轮询调度
 ├── CallbackModule        # 回调投递与重试
 ├── StatsModule           # 数据聚合统计
-├── AdminModule           # ★ 管理后台 API（路由切换/队列管理/任务管理）
+├── BillingModule         # ★ v2.7：用量账单、钱包、预扣/结算（与任务/API Client 策略联动）
+├── AdminModule           # ★ 管理后台 API（JWT + 细粒度权限 + RBAC/菜单）
 ├── DashboardModule       # ★ 管理后台静态资源服务（serve SPA）
 ├── HealthModule          # 健康检查（liveness + readiness）
 └── ObservabilityModule   # 日志、Metrics、Tracing
@@ -498,7 +518,7 @@ ConfigModule.forRootAsync({
 #### ProviderModule
 - `ProviderRegistry`：管理所有已注册 Adapter
 - `ProviderFactory`：根据 provider 名称获取 Adapter 实例
-- `ProviderConfigService`：管理厂商配置（API Key、Endpoint、限流参数）
+- `ProviderConfigService`：管理供应商配置（API Key、Endpoint、限流参数）
 - 各厂商 Adapter 实现类
 
 #### PollingModule
@@ -564,7 +584,7 @@ ConfigModule.forRootAsync({
 
 #### （2）MongoDB `model_configs`（**次优**）
 
-- 当**无命中**路由规则时：若存在 `model_configs` 且 `service` 非空，则经 `mapModelConfigServiceToProvider(service)` 映射为 Adapter 名（`wavespeed` → `wavespeed-ai` 等）。
+- 当**无命中**路由策略时：若存在 `model_configs` 且 `service` 非空，则经 `mapModelConfigServiceToProvider(service)` 映射为 Adapter 名（`wavespeed` → `wavespeed-ai` 等）。
 
 #### （3）模型路径兜底
 
@@ -587,7 +607,7 @@ ConfigModule.forRootAsync({
 - **队列**：与 [§9 按功能队列隔离设计](#9-按功能队列隔离设计) 一致；解析出的 `provider` 决定进入哪条厂商子队列。
 - **时间线**：`TASK_CREATED` 可携带 `routingSource`、`routeId`，便于排障与审计。
 
-### 6.4 管理接口（路由规则）
+### 6.4 管理接口（路由策略）
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -925,7 +945,7 @@ class AkoolAdapter implements IProviderAdapter {
 2. 实现 `IProviderAdapter` 接口
 3. 在 `provider.module.ts` 中注册 Adapter
 4. 在配置中添加厂商 API Key、Endpoint、限流参数
-5. 在 `model_routing_rules` 集合中配置路由规则（或依赖 `model_configs.service` 映射）
+5. 在 `model_routing_rules` 集合中配置路由策略（或依赖 `model_configs.service` 映射）
 6. **无需**改动 Controller / TaskService / Queue / Callback 任何代码
 7. 可通过管理接口灰度切流量到新厂商
 
@@ -1148,7 +1168,7 @@ class AkoolAdapter implements IProviderAdapter {
 }
 ```
 
-### 8.5 model_routing_rules 集合（★ v2.2 落地，多服务商路由规则）
+### 8.5 model_routing_rules 集合（★ v2.2 落地，多服务商路由策略）
 
 > 与 §6 一致；**替代**早期文档中的 `model_routes` 草案。
 
@@ -1367,6 +1387,20 @@ class AkoolAdapter implements IProviderAdapter {
 4. 验证所有厂商请求正常
 5. 执行清理脚本：`npm run cleanup:provider-secrets`（从 provider_runtime_configs 中移除密钥字段）
 6. 设置 `secret_migration_complete: true`
+
+### 8.11 计费、RBAC 与运营相关集合
+
+以下集合支撑计费、访问控制与菜单配置；字段细节以 `src/database/schemas/*.schema.ts` 为准。
+
+| 集合 | 用途 |
+|------|------|
+| **`billing_records`** | 每笔任务关联的计费记录：`taskId`、`clientId`、`model`、`billingPolicy`（internal/external）、用量与费用、状态流转 |
+| **`wallets`** | 按 `clientId` 唯一的钱包：`balance`、`frozenAmount`、低余额阈值等 |
+| **`wallet_transactions`** | 钱包资金流水（充值、扣费、解冻等） |
+| **`api_clients`** | 业务侧 API Key 客户端：`clientId`、密钥哈希、**`billingPolicy`**、限流与模型白名单等 |
+| **`roles`** | 角色定义：权限码列表、绑定的菜单 key 列表、描述等 |
+| **`permissions`** | 权限定义：`code`（如 `task:read`）、所属模块等 |
+| **`menu_configs`** | 侧边栏菜单项：`key`、`label`、`path`、`parentKey`、`requiredPermission`、`sortOrder`、`enabled` 等 |
 
 ---
 
@@ -1597,7 +1631,7 @@ POST /v1/admin/queues
 
 ## 10. 统一 API 设计
 
-### 9.1 提交任务
+### 10.1 提交任务
 
 ```
 POST /v1/tasks
@@ -1648,7 +1682,7 @@ X-Trace-Id: <trace_id>          (可选)
 }
 ```
 
-### 9.2 查询任务
+### 10.2 查询任务
 
 ```
 GET /v1/tasks/:taskId
@@ -1678,7 +1712,7 @@ X-API-Key: <api_key>
 }
 ```
 
-### 9.3 查询任务列表
+### 10.3 查询任务列表
 
 ```
 GET /v1/tasks?status=SUCCESS&model=text-to-image/sd-xl&page=1&pageSize=20
@@ -1699,7 +1733,7 @@ X-API-Key: <api_key>
 }
 ```
 
-### 9.4 取消任务
+### 10.4 取消任务
 
 ```
 POST /v1/tasks/:taskId/cancel
@@ -1719,14 +1753,14 @@ X-API-Key: <api_key>
 }
 ```
 
-### 9.5 回调重放（管理端）
+### 10.5 回调重放（管理端）
 
 ```
 POST /v1/admin/tasks/:taskId/replay-callback
 X-Service-Token: <service_token>
 ```
 
-### 9.6 错误码定义
+### 10.6 错误码定义
 
 | 错误码 | HTTP Status | 说明 |
 |--------|-------------|------|
@@ -1744,7 +1778,7 @@ X-Service-Token: <service_token>
 | 5001 | 500 | 内部错误 |
 | 5002 | 503 | 服务不可用 |
 
-### 9.7 回调 Payload 格式
+### 10.7 回调 Payload 格式
 
 业务方收到的 POST 请求：
 
@@ -1781,7 +1815,7 @@ X-ModelHub-Event: task.completed
 
 ## 11. 任务状态机设计
 
-### 10.1 状态定义
+### 11.1 状态定义
 
 | 状态 | 说明 | 进入条件 |
 |------|------|----------|
@@ -1793,7 +1827,7 @@ X-ModelHub-Event: task.completed
 | `TIMEOUT` | 任务超时 | 超过最大轮询次数或时长 |
 | `CANCELLED` | 任务已取消 | 用户请求取消 |
 
-### 10.2 合法状态流转
+### 11.2 合法状态流转
 
 ```
                             ┌──────────────┐
@@ -1822,7 +1856,7 @@ X-ModelHub-Event: task.completed
       └───────┘    └──────┘  └────────┘
 ```
 
-### 10.3 状态流转约束
+### 11.3 状态流转约束
 
 ```typescript
 const VALID_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
@@ -1836,7 +1870,7 @@ const VALID_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
 };
 ```
 
-### 10.4 并发安全保障
+### 11.4 并发安全保障
 
 使用**条件更新 + 乐观锁**避免并发覆盖：
 
@@ -1866,7 +1900,7 @@ async transitionStatus(taskId: string, fromStatus: TaskStatus, toStatus: TaskSta
 
 ## 12. 定时轮询策略
 
-### 11.1 轮询调度器
+### 12.1 轮询调度器
 
 ```typescript
 @Injectable()
@@ -1887,7 +1921,7 @@ class PollingScheduler {
 }
 ```
 
-### 11.2 动态轮询间隔
+### 12.2 动态轮询间隔
 
 ```typescript
 // 根据任务已等待时间动态调整轮询间隔
@@ -1907,7 +1941,7 @@ function calculateNextPollInterval(task: Task): number {
 }
 ```
 
-### 11.3 批量轮询实现
+### 12.3 批量轮询实现
 
 ```typescript
 async pollPendingTasks() {
@@ -1930,18 +1964,18 @@ async pollPendingTasks() {
 }
 ```
 
-### 11.4 超时与异常处理
+### 12.4 超时与异常处理
 
 - **任务超时**：`pollCount >= maxPollCount` 或 `elapsed >= maxDuration` → 标记 `TIMEOUT`
 - **厂商 429**：该厂商所有任务 `nextPollAt` 延后 60s
 - **厂商 5xx**：延后 30s + 触发熔断计数
 - **熔断**：连续 N 次失败后暂停该厂商轮询 5 分钟
 
-### 11.5 轮询查询失败优雅重试 ★ v2.4 新增
+### 12.5 轮询查询失败优雅重试 ★ v2.4 新增
 
 > **背景**：`queryTask` 调用厂商 API 查询任务状态时，可能因厂商临时故障（502/503/429 等）抛出异常。v2.4 之前，异常直接 re-throw，`nextPollAt` 和 `pollCount` 均未更新，导致下一个 30s cron 周期立即重新拉取该任务"暴力重试"，产生大量 ERROR 日志且无退避。
 
-#### 设计原则
+#### 12.5.1 设计原则
 
 | 原则 | 说明 |
 |------|------|
@@ -1951,10 +1985,7 @@ async pollPendingTasks() {
 | **退避策略** | `backoffMs = min(currentPollInterval × 2, maxIntervalMs)`，给上游恢复时间 |
 | **及时释放资源** | 异常时提前释放并发令牌（`concToken`），避免占用并发槽位 |
 
-#### 处理流程
-
-```
-queryTask(providerTaskId) 抛出异常
+#### 12.5.2 处理流程
     │
     ├── 释放并发令牌（concToken）
     │
@@ -1986,9 +2017,7 @@ queryTask(providerTaskId) 抛出异常
          └── 发射 system.task_failed + provider_error 事件  │
 ```
 
-#### 各 Adapter `mapError` 可重试判定（已有实现）
-
-| Adapter | 可重试条件 | 错误码格式 |
+#### 12.5.3 各 Adapter `mapError` 可重试判定（已有实现）
 |---------|-----------|-----------|
 | WaveSpeed | `status === 429 \|\| status >= 500` | `WAVESPEED_502` |
 | Cloudwise | `status === 429 \|\| status >= 500` | `CLOUDWISE_503` |
@@ -1998,20 +2027,14 @@ queryTask(providerTaskId) 抛出异常
 | Tencent | `RequestLimitExceeded \|\| InternalError` | `TENCENT_RequestLimitExceeded` |
 | Wan | `status === 429 \|\| status >= 500` | `WAN_502` |
 
-#### 与现有机制的对比
-
-| 阶段 | 重试机制 | 退避策略 | 说明 |
+#### 12.5.4 与现有机制的对比
 |------|---------|---------|------|
 | **提交阶段**（FeatureQueueProcessor） | Bull 队列自动重试 | Bull 内置指数退避 | `retryable` 时 throw → Bull 重试 |
 | **轮询阶段**（PollingService）★ v2.4 | `deferNextPoll` 推迟 | `pollInterval × 2`，上限 `maxIntervalMs` | 不消耗 pollCount |
 | **轮询限流** | `deferNextPoll` 推迟 | 固定 500ms / 1000ms | QPS/并发超限时 |
 | **回调阶段**（CallbackProcessor） | Bull 队列自动重试 | 指数退避，超限进死信 | `maxRetries` 配置 |
 
-#### 关键代码（`polling.service.ts` `pollSingleTask` catch 块）
-
-```typescript
-try {
-  queryResult = await adapter.queryTask(providerTaskId);
+#### 12.5.5 关键代码（`polling.service.ts` `pollSingleTask` catch 块）
 } catch (err: any) {
   // 提前释放并发令牌
   if (concToken) {
@@ -2041,7 +2064,7 @@ try {
 
 ## 13. 回调可靠性设计
 
-### 12.1 签名算法
+### 13.1 签名算法
 
 ```typescript
 function generateSignature(secret: string, timestamp: number, body: string): string {
@@ -2062,7 +2085,7 @@ headers = {
 };
 ```
 
-### 12.2 回调发送
+### 13.2 回调发送
 
 ```typescript
 async sendCallback(taskId: string) {
@@ -2088,7 +2111,7 @@ async sendCallback(taskId: string) {
 }
 ```
 
-### 12.3 重试策略
+### 13.3 重试策略
 
 | 重试次数 | 延迟时间 | 累计等待 |
 |---------|---------|---------|
@@ -2099,14 +2122,14 @@ async sendCallback(taskId: string) {
 | 第 5 次 | 6 小时 | 7 小时 21 分 |
 | 第 6 次 | 24 小时 | 31 小时 21 分 |
 
-### 12.4 死信处理
+### 13.4 死信处理
 
 - 超过 6 次重试后，任务回调状态标记为 `DEAD_LETTER`
 - 进入 `dead-letter` 队列保留
 - 提供管理端接口 `POST /v1/admin/tasks/:taskId/replay-callback` 手动重放
 - 告警通知运维人员
 
-### 12.5 安全防护
+### 13.5 安全防护
 
 - **URL 白名单**：可配置允许回调的域名列表
 - **SSRF 防护**：禁止回调到内网地址（`10.x`、`192.168.x`、`127.0.0.1`、`localhost`）
@@ -2117,7 +2140,7 @@ async sendCallback(taskId: string) {
 
 ## 14. 安全方案
 
-### 13.1 输入校验
+### 14.1 输入校验
 
 ```typescript
 // 使用 class-validator + class-transformer
@@ -2157,15 +2180,25 @@ class CreateTaskDto {
 }
 ```
 
-### 13.2 鉴权方案
+### 14.2 鉴权方案
 
 | 场景 | 方案 | Header |
 |------|------|--------|
 | 外部业务方 | API Key 鉴权 | `X-API-Key` |
 | 内部微服务 | Service Token | `X-Service-Token` |
-| 管理端 | JWT + RBAC | `Authorization: Bearer` |
+| 管理端 | JWT + **细粒度权限** | `Authorization: Bearer` |
 
-### 13.3 限流策略
+#### 管理端权限模型（与实现对齐）
+
+- **认证**：`AdminJwtGuard` 校验 JWT，载荷中含用户标识及角色列表等。
+- **授权**：多数管理接口使用 **`PermissionGuard`** + 装饰器 **`@RequirePermissions('resource:action')`**（如 `task:read`、`billing:read`、`menu:create`）。权限字符串来自 **`permissions`** 集合，由角色引用。
+- **超级管理员**：角色名包含 **`super_admin`** 时视为拥有全部能力（与前端 `PermissionRoute` 一致）；权限列表含 **`*`** 时视为通配。
+- **菜单可见性**：侧边栏由 **`GET /api/v1/admin/menu`** 返回；优先按角色绑定的 **菜单 key** 过滤（`MenuRegistryService.getFilteredMenuTreeByKeys`）；若无绑定菜单则回退为按权限码过滤（`getFilteredMenuTree`）。持久化见 **`menu_configs`** 集合及 **菜单管理 API** ` /api/v1/admin/menus`。
+- **审计**：敏感操作应记入 `audit_logs`（具体埋点以各 Service 为准）。
+
+> 早期「仅 `admin` / `operator` / `viewer` + `RolesGuard`」的三角色模型已被 **多角色 + 权限码 + 可选菜单 key** 替代；遗留文档提及 `RolesGuard` 处请以本段为准。
+
+### 14.3 限流策略
 
 ```typescript
 // 全局限流
@@ -2179,7 +2212,7 @@ class TaskController { ... }
 async createTask() { ... }
 ```
 
-### 13.4 日志脱敏
+### 14.4 日志脱敏
 
 ```typescript
 // 敏感字段列表
@@ -2191,7 +2224,7 @@ function sanitizeLog(data: any): any {
 }
 ```
 
-### 13.5 CORS 配置
+### 14.5 CORS 配置
 
 ```typescript
 app.enableCors({
@@ -2346,7 +2379,7 @@ Error: Rate limit exceeded
 
 ## 16. 部署与扩展策略
 
-### 15.1 部署架构
+### 16.1 部署架构
 
 ```
   ┌──────────────────────────────────────────────────────────────────┐
@@ -2389,7 +2422,7 @@ Error: Rate limit exceeded
   └──────────────────────────────────────────────┘
 ```
 
-### 15.2 进程分类
+### 16.2 进程分类
 
 | 进程类型 | 职责 | 可扩展 | PM2 实例数 | 端口 |
 |---------|------|--------|-----------|------|
@@ -2402,7 +2435,7 @@ Error: Rate limit exceeded
 | `worker-callback` | 回调队列消费 | 水平扩展 | 1~N | - |
 | `scheduler` | 定时轮询 + 统计聚合 | 单实例+分布式锁 | 1~2 | - |
 
-### 15.3 PM2 配置
+### 16.3 PM2 配置
 
 ```javascript
 // ecosystem.config.js
@@ -2472,7 +2505,7 @@ module.exports = {
 };
 ```
 
-### 15.4 Docker 化（含管理后台前端构建）
+### 16.4 Docker 化（含管理后台前端构建）
 
 ```dockerfile
 # Stage 1: 构建前端
@@ -2506,7 +2539,7 @@ EXPOSE 3000 3001
 CMD ["pm2-runtime", "ecosystem.config.js"]
 ```
 
-### 15.5 扩展策略
+### 16.5 扩展策略
 
 | 场景 | 策略 |
 |------|------|
@@ -2522,7 +2555,7 @@ CMD ["pm2-runtime", "ecosystem.config.js"]
 
 ## 17. 测试策略
 
-### 16.1 测试金字塔
+### 17.1 测试金字塔
 
 | 层级 | 覆盖内容 | 工具 | 覆盖率要求 |
 |------|---------|------|-----------|
@@ -2532,7 +2565,7 @@ CMD ["pm2-runtime", "ecosystem.config.js"]
 | **压测** | 吞吐量、延迟、稳定性 | k6 / Artillery | - |
 | **故障演练** | Redis 断连、厂商超时 | 手动注入 | - |
 
-### 16.2 单元测试重点
+### 17.2 单元测试重点
 
 - 状态机流转合法性
 - Adapter 请求/响应映射
@@ -2541,7 +2574,7 @@ CMD ["pm2-runtime", "ecosystem.config.js"]
 - 轮询间隔计算
 - 输入校验 DTO
 
-### 16.3 集成测试重点
+### 17.3 集成测试重点
 
 - 任务创建到入队全流程
 - Worker 消费并更新状态
@@ -2550,7 +2583,7 @@ CMD ["pm2-runtime", "ecosystem.config.js"]
 - 并发状态更新冲突处理
 - 死信队列处理
 
-### 16.4 压测场景
+### 17.4 压测场景
 
 - 提交接口峰值：5000 TPS 持续 5 分钟
 - 队列积压恢复：堆积 10 万 Job 后观察恢复时间
@@ -2597,11 +2630,11 @@ CMD ["pm2-runtime", "ecosystem.config.js"]
 - [ ] 管理后台后端服务（admin-server，独立 PROCESS_TYPE）
 - [ ] 管理后台前端搭建（React + Ant Design + Vite）
 - [ ] Dashboard 总览页（核心指标 + 趋势图表）
-- [ ] 任务管理页（列表/详情/时间线/时长甘特图/回调重放）
+- [ ] 任务记录页（列表/详情/时间线/时长甘特图/回调重放）
 - [ ] 队列监控页（实时面板 + 历史趋势 + 队列管理操作）
 - [ ] 路由管理页（对接 `model_routing_rules` CRUD；灰度权重/主备表单，见 §24.5.4）
 - [ ] 统计报表页（每日/每月统计 + 厂商对比 + 导出）
-- [ ] 系统设置页（厂商配置/告警规则/用户管理/操作日志）
+- [ ] 系统设置页（供应商配置/告警规则/用户管理/操作日志）
 - [ ] 管理后台独立鉴权（JWT 登录 + RBAC 角色）
 - [ ] 前端构建集成（Vite build → NestJS ServeStatic 托管）
 
@@ -3341,25 +3374,29 @@ import { join } from 'path';
 export class DashboardModule {}
 ```
 
-访问方式：
-- 管理后台页面：`http://admin-host:3001/`
-- 管理后台 API：`http://admin-host:3001/api/v1/admin/...`
+访问方式（**默认端口以 `ecosystem.config.js` 为准**，当前 admin-server 为 **7003**；可用环境变量 `PORT` 覆盖）：
+
+- 管理后台页面：`http://<admin-host>:7003/`
+- 管理后台 API：`http://<admin-host>:7003/api/v1/admin/...`
+- 开发环境前端独立调试：`vite` 代理 `/api` 到上述后端（见 `dashboard/vite.config.ts`）
 
 ### 24.4 管理后台功能模块总览
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Model-Hub 管理后台                            │
-├──────────┬──────────┬──────────┬──────────┬──────────┬──────────────┤
-│  总览    │  任务    │  队列    │  路由    │  统计    │  系统        │
-│ Dashboard│ 管理     │ 监控     │ 管理     │ 报表     │ 设置        │
-├──────────┼──────────┼──────────┼──────────┼──────────┼──────────────┤
-│ 核心指标 │ 任务列表 │ 实时状态 │ 路由列表 │ 每日统计 │ 厂商配置    │
-│ 趋势图表 │ 任务详情 │ 历史趋势 │ 权重配置 │ 每月统计 │ 告警规则    │
-│ 告警通知 │ 时间线   │ 队列管理 │ 灰度切换 │ 厂商对比 │ 操作日志    │
-│ 快捷操作 │ 回调重放 │ 积压告警 │ 切换历史 │ 导出报表 │ 用户管理    │
-└──────────┴──────────┴──────────┴──────────┴──────────┴──────────────┘
-```
+当前产品能力按 **仪表盘、业务接入、模型路由、供应商管理、计费与成本、通知中心、系统设置**，以及 **访问控制、审计与日志** 等分组组织（侧边栏由 **`GET /api/v1/admin/menu`** 下发，与 `menu_configs` 及功能模块注册一致）。核心域如下：
+
+| 域 | 主要内容 |
+|----|-----------|
+| **总览** | Dashboard 指标、今日与全量任务统计、队列深度与处理中任务；成本总览见 `GET .../cost-overview` |
+| **任务** | 列表/筛选/详情/时间线/时长/回调重放/取消/优先级 |
+| **队列** | 实时快照、历史趋势、指定队列 **waiting/active Job 列表**（`GET .../queues/:queueName/jobs`） |
+| **模型与路由** | `model_configs` 列表与 CRUD、分档定价、启用开关；**路由策略** `model_routing_rules`；**请求转换配置** `link_conversion_settings` |
+| **供应商** | `provider_runtime_configs`、**账号池** `account_pool_entries`、**供应商健康度/熔断** |
+| **计费与成本** | 用量账单（`billing_records`）、汇总、余额充值（钱包）与流水、手工充值（`billing:*`）；**成本分析**（`account_cost_daily` 等） |
+| **应用与密钥** | 应用管理（`/api-clients`）、系统设置下的 **API 密钥管理**（`/api-keys`，同页）；轮换、计费策略、限流与白名单、用量查询 |
+| **通知** | 通知规则/记录、**消息中心**（`notification:*`） |
+| **系统** | 系统信息、统计报表、回调日志（`system:*`、`stats:*`、`callback-log:*`） |
+| **访问控制** | 用户、角色、权限、**菜单管理**（`user:*`、`role:*`、`permission:*`、`menu:*`） |
+| **审计** | `audit_logs` 查询 |
 
 ### 24.5 页面设计详细
 
@@ -3470,7 +3507,7 @@ export class DashboardModule {}
 - 跳转到队列积压页
 - 跳转到厂商路由切换
 
-#### 24.5.2 任务管理页
+#### 24.5.2 任务记录页
 
 **任务列表（表格 + 筛选）：**
 
@@ -3546,14 +3583,12 @@ POST /api/v1/admin/tasks/:taskId/replay-callback
 ```
 
 **历史趋势：**
-- 选择队列 → 展示 24h / 7d 的深度/吞吐量折线图
-- 对应 `GET /api/v1/admin/queues/stats/history`
+- 选择队列 → 展示指定时间区间的深度/吞吐量（`GET /api/v1/admin/queues/stats/history`，需 `queueName`、`from`、`to`）
 
-**队列管理：**
-- 新增厂商级子队列（动态注册）
-- 暂停/恢复队列
-- 清空死信队列
-- 对应 `POST /api/v1/admin/queues`、`POST /api/v1/admin/queues/:name/pause`
+**队列 Job 透视：**
+- `GET /api/v1/admin/queues/:queueName/jobs`：分页查看指定队列 **waiting** 或 **active** 中的 Job，附带 `taskId`、`model`、`clientId` 等（需 `queue:read`）
+
+> **说明**：早期文档中的「动态注册子队列 / pause / resume / 清空死信」等管理接口**未在**当前 `AdminStatsController` 中提供；若后续实现，需单独增加 Controller 并在此节更新。
 
 #### 24.5.4 路由管理页（与 v2.2 `model_routing_rules` 对齐）
 
@@ -3585,57 +3620,24 @@ PUT    /api/v1/admin/model-routing-rules/:id
 DELETE /api/v1/admin/model-routing-rules/:id
 ```
 
-**管理端前端（v2.2 已接入）：** Dashboard 侧栏 **「路由规则」**，路由路径 `/model-routing-rules`，实现文件 `dashboard/src/pages/ModelRoutingRules.tsx`（列表 / 新建 / 编辑 / 删除，表单覆盖 fixed、weighted、primary_fallback）。
+**管理端前端（v2.2 已接入）：** Dashboard 侧栏 **「路由策略」**，路由路径 `/model-routing-rules`，实现文件 `dashboard/src/pages/ModelRoutingRules.tsx`（列表 / 新建 / 编辑 / 删除，表单覆盖 fixed、weighted、primary_fallback）。
 
 #### 24.5.5 统计报表页
 
-**每日统计（Tab 1）：**
-- 日期选择器（单日 / 范围）
-- 筛选：功能类型、厂商、模型
-- 表格：每日各维度的任务量 / 成功率 / 各时长指标
-- 图表：趋势折线图（可叠加多指标）
+- **每日聚合**：`GET /api/v1/admin/stats/daily`（`stats:read`），支持日期范围与 `featureType` / `provider` 等筛选；前端 `dashboard/src/pages/Stats.tsx`。
+- **成本总览**：`GET /api/v1/admin/cost-overview`（`stats:read`），与计费模块联动展示当日成本类指标。
+- **导出**：若需 CSV/Excel，可由前端基于已拉取数据生成（非必须依赖后端专用导出接口）。
 
-**每月统计（Tab 2）：**
-- 月份选择器
-- 同上结构
+> **说明**：管理端 **未提供** `GET /stats/monthly`、`GET /stats/compare`；若产品需要「每月统计 / 厂商对比」独立接口，应在 `AdminStatsController` 或独立报表服务中新增后再更新本文档。
 
-**厂商对比（Tab 3）：**
-- 选择模型 → 展示不同厂商的并排对比
-- 对比维度：成功率、P50/P95/P99 时长、任务量
-- 雷达图 + 对比表格
-- 辅助路由切换决策
+#### 24.5.6 系统与运营子页（路由见 `App.tsx`）
 
-**导出功能：**
-- CSV / Excel 导出按钮
-- 通过前端 `xlsx` 库生成，不需后端额外接口
+除任务、队列、模型、路由策略、统计外，当前 SPA 还包含（均需登录；路由级权限见各 `PermissionRoute` 的 `permission` 属性）：
 
-**对应 API：**
-```
-GET /api/v1/admin/stats/daily
-GET /api/v1/admin/stats/monthly
-GET /api/v1/admin/stats/compare
-```
-
-#### 24.5.6 系统设置页
-
-**厂商配置管理：**
-- 查看当前已注册的厂商列表
-- 厂商状态（健康 / 降级 / 熔断）
-- 限流参数查看
-
-**告警规则管理：**
-- 查看/编辑告警阈值
-- 告警历史记录
-- 告警通知渠道配置
-
-**操作日志（审计）：**
-- 记录所有管理后台操作（路由切换、回调重放、队列操作等）
-- 操作人 / 时间 / 操作类型 / 详情
-
-**用户管理（基础）：**
-- 管理后台用户列表
-- 角色权限（admin / viewer）
-- 登录日志
+- 供应商配置、供应商健康度、账号池、**成本分析**（`/account-costs`）  
+- 应用管理（`/api-clients`）、API 密钥管理（`/api-keys`）、用量账单、余额充值、**请求转换配置**  
+- 通知规则 / 通知记录 / **消息中心**、回调日志、系统信息  
+- 用户、角色、权限、**菜单管理** 等访问控制页  
 
 ### 24.6 管理后台鉴权方案
 
@@ -3646,103 +3648,135 @@ GET /api/v1/admin/stats/compare
     │
     ├── POST /api/v1/admin/auth/login
     │   Body: { username, password }
-    │   Response: { accessToken, refreshToken, user }
+    │   Response: { accessToken, user, ... }（具体字段以 AdminAuthService 为准）
     │
-    ├── JWT Token 存储在前端 localStorage
+    ├── JWT 存前端（如 localStorage）+ Zustand 等状态
     │
     ├── 后续请求携带 Authorization: Bearer <accessToken>
     │
-    └── Token 过期 → POST /api/v1/admin/auth/refresh
+    └── POST /api/v1/admin/auth/logout（需登录）— 登出并清理服务端权限缓存
 ```
 
-**RBAC 角色：**
+**授权模型（与 §14.2 一致）：**
 
-| 角色 | 权限 |
-|------|------|
-| `admin` | 全部操作：路由切换、队列管理、回调重放、用户管理 |
-| `operator` | 查看 + 操作：查看所有页面、执行回调重放、队列暂停/恢复 |
-| `viewer` | 只读：查看所有页面，不能执行任何修改操作 |
-
-```typescript
-// src/admin/guards/admin-jwt.guard.ts
-@Injectable()
-export class AdminJwtGuard extends AuthGuard('admin-jwt') {}
-
-// src/admin/decorators/roles.decorator.ts
-export const Roles = (...roles: AdminRole[]) => SetMetadata('roles', roles);
-
-// src/admin/guards/roles.guard.ts
-@Injectable()
-export class RolesGuard implements CanActivate {
-  canActivate(context: ExecutionContext): boolean {
-    const requiredRoles = this.reflector.get<AdminRole[]>('roles', context.getHandler());
-    const user = context.switchToHttp().getRequest().user;
-    return requiredRoles.includes(user.role);
-  }
-}
-```
+- 接口级：`AdminJwtGuard` + **`PermissionGuard`** + **`@RequirePermissions('resource:action')`**
+- 角色数据：`roles` 集合；用户 `admin_users.roles: string[]` 支持多角色
+- **`super_admin`** 与权限 **`*`**：前端与后端均作全量放行约定
+- 菜单级：`GET /api/v1/admin/menu`；配置 CRUD：`/menus`（`menu:*`）
 
 ### 24.7 管理后台 API 清单
 
-> Admin Server 所有 API 统一前缀 `/api/v1/admin`，使用 `AdminJwtGuard` 鉴权。
+> 统一前缀：**`/api/v1/admin`**。下列路径均为 **相对该前缀**（即完整 URL 为 `http://<host>:<port>/api/v1/admin/...`）。  
+> **权限**列对应 `@RequirePermissions` 的首参（实际以各 Controller 为准）；登录、部分健康接口除外。
 
-| 模块 | 方法 | 路径 | 权限 | 说明 |
-|------|------|------|------|------|
-| **Auth** | POST | `/auth/login` | 无 | 登录 |
-| **Auth** | POST | `/auth/refresh` | 无 | 刷新 Token |
-| **Auth** | GET | `/auth/me` | all | 获取当前用户信息 |
-| **Dashboard** | GET | `/dashboard/overview` | all | 总览核心指标 |
-| **Dashboard** | GET | `/dashboard/trends` | all | 24h 趋势数据 |
-| **Tasks** | GET | `/tasks` | all | 任务列表（分页+筛选） |
-| **Tasks** | GET | `/tasks/:taskId` | all | 任务详情 |
-| **Tasks** | GET | `/tasks/:taskId/timing` | all | 任务时长 |
-| **Tasks** | GET | `/tasks/:taskId/timeline` | all | 任务时间线 |
-| **Tasks** | POST | `/tasks/:taskId/replay-callback` | operator+ | 回调重放 |
-| **Tasks** | POST | `/tasks/:taskId/cancel` | operator+ | 取消任务 |
-| **Queues** | GET | `/queues/stats` | all | 队列实时状态 |
-| **Queues** | GET | `/queues/stats/history` | all | 队列历史趋势 |
-| **Queues** | POST | `/queues` | admin | 注册新队列 |
-| **Queues** | POST | `/queues/:name/pause` | operator+ | 暂停队列 |
-| **Queues** | POST | `/queues/:name/resume` | operator+ | 恢复队列 |
-| **Queues** | DELETE | `/queues/:name/dead-letter` | admin | 清空死信 |
-| **Routes** | GET | `/routes` | all | 路由列表 |
-| **Routes** | GET | `/routes/:routeId` | all | 路由详情 |
-| **Routes** | POST | `/routes/:routeId/switch` | admin | 切换厂商 |
-| **Routes** | POST | `/routes/:routeId/rollback` | admin | 回退路由 |
-| **Routes** | GET | `/routes/:routeId/history` | all | 切换历史 |
-| **Stats** | GET | `/stats/daily` | all | 每日统计 |
-| **Stats** | GET | `/stats/monthly` | all | 每月统计 |
-| **Stats** | GET | `/stats/compare` | all | 厂商对比 |
-| **Providers** | GET | `/providers` | all | 厂商列表与状态 |
-| **Providers** | GET | `/providers/:name/health` | all | 厂商健康状态 |
-| **AuditLogs** | GET | `/audit-logs` | admin | 操作日志列表 |
-| **Users** | GET | `/users` | admin | 用户列表 |
-| **Users** | POST | `/users` | admin | 创建用户 |
-| **Users** | PUT | `/users/:id` | admin | 更新用户 |
-| **Users** | DELETE | `/users/:id` | admin | 删除用户 |
+#### 认证
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| POST | `/auth/login` | 无 | 登录 |
+| POST | `/auth/logout` | JWT | 登出 |
+
+#### 菜单
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| GET | `/menu` | JWT | 当前用户可见菜单树 |
+| GET/POST/PUT/DELETE | `/menus`、`/menus/flat`、`/menus/:key` | `menu:*` | 菜单配置 CRUD |
+
+#### 总览 / 统计 / 队列
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| GET | `/overview` | `stats:read` | Dashboard 总览 |
+| GET | `/cost-overview` | `stats:read` | 今日成本总览 |
+| GET | `/stats/daily` | `stats:read` | 每日聚合报表 |
+| GET | `/queues/stats` | `queue:read` | 队列实时快照 |
+| GET | `/queues/stats/history` | `queue:read` | 队列历史 |
+| GET | `/queues/:queueName/jobs` | `queue:read` | 队列内 Job 列表 |
+
+#### 任务
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| GET | `/tasks` | `task:read` | 任务列表 |
+| GET | `/tasks/:taskId` | `task:read` | 详情 |
+| GET | `/tasks/:taskId/timing` | `task:read` | 时长 |
+| GET | `/tasks/:taskId/timeline` | `task:read` | 时间线 |
+| POST | `/tasks/:taskId/replay-callback` | `task:update` | 回调重放 |
+| POST | `/tasks/:taskId/cancel` | `task:update` | 取消 |
+| PUT | `/tasks/:taskId/priority` | `task:update` | 调整优先级 |
+
+#### 模型与路由
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| GET/POST/PUT… | `/models` 及子路径 | `model:*` | 模型配置、定价、模板等 |
+| GET/POST/PUT/DELETE | `/model-routing-rules` | `model:*` | 路由策略 CRUD |
+| POST | `/model-routing-rules/simulate` | `model:read` | 路由仿真（不写库、不入队） |
+| GET/PUT | `/link-conversion-config` | `link-conversion:*` | 请求转换配置（侧栏归「模型路由」分组） |
+
+#### 供应商、账号池、成本分析
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| GET/PUT… | `/provider-configs/...` | `provider:*` | 供应商全局配置 |
+| GET/POST/PUT/DELETE | `/account-pool/...` | `provider:*` | 账号池 |
+| GET | `/account-costs`、`/account-costs/monthly` | `provider:*` | 成本分析（侧栏归「计费与成本」分组） |
+
+#### 供应商健康度
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| GET/POST/PUT/DELETE | `/provider-health/...` | `provider:*` | 概览、单供应商、历史、熔断覆盖与配置 |
+
+#### 应用与 API 密钥
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| GET/POST/PATCH | `/api-clients`、`/api-keys`、`/api-clients/...` | `api-client:*` | 应用管理 / API 密钥管理（同页）、轮换、策略、限流、白名单 |
+| GET | `/api-clients/usage/summary`、`/:apiKey/usage` | `api-client:*` | 用量 |
+
+#### 计费与成本
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| GET | `/billing/records` | `billing:read` | 用量账单 |
+| GET | `/billing/summary` | `billing:read` | 汇总 |
+| GET | `/billing/wallets`、`/billing/wallets/:clientId` | `billing:read` | 余额（钱包） |
+| GET | `/billing/wallets/:clientId/transactions` | `billing:read` | 流水 |
+| POST | `/billing/wallets/:clientId/credit` | `billing:write` | 手工充值 |
+
+#### 用户 / 角色 / 权限
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| CRUD | `/users`、`/users/:id`、密码与角色子路径 | `user:*` | 用户管理 |
+| CRUD | `/roles`、`/roles/:name`、`/roles/:name/permissions`、`/roles/:name/menus` | `role:*` | 角色 |
+| CRUD | `/permissions`、`/permissions/batch`、`/permissions/modules` | `permission:*` | 权限 |
+
+#### 其它
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| GET | `/callback-logs` | `callback-log:read` | 回调日志 |
+| GET | `/audit-logs` 等 | `audit:read` | 审计 |
+| GET | `/system-info` | `system:read` | 系统信息 |
+
+完整与最新列表以 **Swagger**（`/apidoc`，admin-server 进程）为准。
 
 ### 24.8 前端路由设计
 
-```typescript
-const routes = [
-  { path: '/login',              component: LoginPage,          auth: false },
-  { path: '/',                   component: DashboardPage,      auth: true,  roles: ['admin','operator','viewer'] },
-  { path: '/tasks',              component: TaskListPage,       auth: true,  roles: ['admin','operator','viewer'] },
-  { path: '/tasks/:taskId',      component: TaskDetailPage,     auth: true,  roles: ['admin','operator','viewer'] },
-  { path: '/queues',             component: QueueMonitorPage,   auth: true,  roles: ['admin','operator','viewer'] },
-  { path: '/routes',             component: RouteManagePage,    auth: true,  roles: ['admin','operator','viewer'] },
-  { path: '/stats',              component: StatsReportPage,    auth: true,  roles: ['admin','operator','viewer'] },
-  { path: '/stats/compare',      component: ProviderComparePage,auth: true,  roles: ['admin','operator','viewer'] },
-  { path: '/settings/providers', component: ProviderConfigPage, auth: true,  roles: ['admin'] },
-  { path: '/settings/alerts',    component: AlertConfigPage,    auth: true,  roles: ['admin'] },
-  { path: '/settings/users',     component: UserManagePage,     auth: true,  roles: ['admin'] },
-  { path: '/audit-logs',         component: AuditLogPage,       auth: true,  roles: ['admin'] },
-];
-```
+路由由 **`react-router-dom`** 声明在 **`dashboard/src/App.tsx`**。登录页 `/login` 无鉴权；其余路径包在 **`AuthGuard`** 内。业务页使用 **`PermissionRoute`**，按 **`permission`** 字符串（与后端 `@RequirePermissions` 对齐，如 `task:read`）校验；**`super_admin`** 或权限含 **`*`** 时放行。
+
+**主要路径（节选）：** `/`、`/tasks`、`/tasks/:taskId`、`/queues`、`/models`、`/models/create`、`/models/edit/:id`、`/model-routing-rules`、`/link-conversion-config`、`/provider-configs`、`/provider-health`、`/account-pool`、`/account-costs`、`/api-clients`、`/api-keys`、`/billing/records`、`/billing/wallets`、`/stats`、`/audit-logs`、`/notification-rules`、`/notification-records`、`/notifications`、`/callback-logs`、`/system-info`、`/users`、`/roles`、`/permissions`、`/menus`、`/forbidden`。
+
+侧边栏菜单项由 **`GET /api/v1/admin/menu`** 动态生成，**非**硬编码静态路由表；上表为实际注册的路由路径，供联调与权限设计对照。
 
 ### 24.9 前端组件设计
 
-**布局组件：**
+**布局：** `Layout` + `Sider` + `Header` + `Content`（Ant Design）。侧栏 **`Menu`** 的 `items` 来自 **`useMenuStore`**（请求 `/menu` 后由 `buildAntdMenuItems` 转换）；顶栏含主题切换、**消息中心**入口、用户下拉（修改密码 / 退出）。
+
+以下为**示意**布局（实际侧栏条目由菜单 API 返回，随权限变化）：
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -3753,16 +3787,15 @@ const routes = [
 ├──────────┬──────────────────────────────────────────┤
 │ Sidebar  │  Content Area                             │
 │          │                                           │
-│ 📊 总览  │  ┌────────────────────────────────────┐   │
-│ 📋 任务  │  │                                    │   │
-│ 📦 队列  │  │       Page Content                 │   │
-│ 🔀 路由  │  │                                    │   │
-│ 📈 统计  │  │                                    │   │
-│ ⚙ 设置  │  │                                    │   │
-│   ├ 厂商 │  │                                    │   │
-│   ├ 告警 │  └────────────────────────────────────┘   │
-│   └ 用户 │                                           │
-│ 📝 日志  │                                           │
+│ 📊 仪表盘  │  ┌────────────────────────────────────┐   │
+│ 业务接入… │  │                                    │   │
+│ 模型路由… │  │       Page Content                 │   │
+│ 供应商…   │  │                                    │   │
+│ 计费成本… │  │                                    │   │
+│ 通知中心… │  └────────────────────────────────────┘   │
+│ 系统设置… │                                           │
+│ 访问控制… │                                           │
+│ 审计日志… │                                           │
 │          │                                           │
 ├──────────┴──────────────────────────────────────────┤
 │  Footer: Model-Hub v2.1 | 连接状态: ● 正常            │
@@ -3791,17 +3824,19 @@ const routes = [
 
 ### 24.10 管理后台数据模型补充
 
-#### admin_users 集合
+#### admin_users 集合（与 `admin-user.schema.ts` 对齐）
 
 ```typescript
 {
-  userId: string;               // UUID
-  username: string;             // 登录用户名（unique）
-  passwordHash: string;         // bcrypt 哈希
-  displayName: string;          // 显示名
-  role: 'admin' | 'operator' | 'viewer';
+  username: string;             // unique
+  passwordHash: string;
+  roles: string[];              // 多角色，如 ['super_admin'] 或业务角色名
   enabled: boolean;
+  requirePasswordChange?: boolean;
   lastLoginAt?: Date;
+  email?: string;
+  displayName?: string;
+  deletedAt?: Date;             // 软删除
   createdAt: Date;
   updatedAt: Date;
 }
@@ -3839,14 +3874,14 @@ const routes = [
 **开发阶段：**
 
 ```bash
-# 终端 1：启动后端 admin-server（热更新）
+# 终端 1：启动后端 admin-server（热更新；端口默认 7003，见 ecosystem.config.js）
 PROCESS_TYPE=admin-server npm run start:dev
 
-# 终端 2：启动前端 dev server（Vite，自动代理 API 到 3001）
+# 终端 2：启动前端 dev server（Vite，将 /api 代理到本机 admin-server）
 cd dashboard && npm run dev
 ```
 
-**Vite 代理配置：**
+**Vite 代理配置（`dashboard/vite.config.ts` 中 `/api` 的 `target` 需指向本机后端；仓库当前默认示例为 `http://localhost:3000`，若仅启动 `admin-server` 且 `PORT=7003` 请改为 `http://localhost:7003`）：**
 ```typescript
 // dashboard/vite.config.ts
 export default defineConfig({
@@ -3854,7 +3889,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: 'http://localhost:3000',
         changeOrigin: true,
       },
     },
@@ -3929,7 +3964,7 @@ CMD ["pm2-runtime", "ecosystem.config.js"]
 | **Normalized Request** | 标准化后的统一请求格式 |
 | **featureType** | ★ 功能类型（image_generate / image_to_video / character_swap / video_upscale） |
 | **Hot-Switch** | ★ 多服务商热切换，运行时修改路由不停服 |
-| **Route** | ★ 模型路由规则，决定请求路由到哪个厂商 |
+| **Route** | ★ 模型路由策略，决定请求路由到哪个供应商 |
 | **Timeline** | ★ 任务处理时间线，完整记录任务生命周期各事件 |
 | **Queue Snapshot** | ★ 队列快照，定时采集的队列排队/消费状态 |
 | **Daily/Monthly Stats** | ★ 按天/月的任务数据聚合统计 |
@@ -3938,7 +3973,7 @@ CMD ["pm2-runtime", "ecosystem.config.js"]
 | **totalE2eMs** | ★ 端到端总时长（Hub 完成时间 - 请求到达时间） |
 
 <!-- AUTO:overview:START -->
-### 系统总览 (overview)
+### 仪表盘 (overview)
 
 模块 `overview` 暂无技术设计文档。
 <!-- AUTO:overview:END -->
@@ -3968,13 +4003,13 @@ CMD ["pm2-runtime", "ecosystem.config.js"]
 <!-- AUTO:model:END -->
 
 <!-- AUTO:task:START -->
-### 任务管理 (task)
+### 任务记录 (task)
 
 模块 `task` 暂无技术设计文档。
 <!-- AUTO:task:END -->
 
 <!-- AUTO:api-client:START -->
-### API客户端 (api-client)
+### 应用与 API 密钥 (api-client)
 
 模块 `api-client` 暂无技术设计文档。
 <!-- AUTO:api-client:END -->
@@ -3998,25 +4033,43 @@ CMD ["pm2-runtime", "ecosystem.config.js"]
 <!-- AUTO:queue:END -->
 
 <!-- AUTO:provider:START -->
-### 提供商配置 (provider)
+### 供应商管理 (provider)
 
 模块 `provider` 暂无技术设计文档。
 <!-- AUTO:provider:END -->
 
-<!-- AUTO:notification-rule:START -->
-### 通知规则 (notification-rule)
+<!-- AUTO:notification:START -->
+### 通知中心 (notification)
 
-模块 `notification-rule` 暂无技术设计文档。
-<!-- AUTO:notification-rule:END -->
+模块 `notification` 暂无技术设计文档。
+<!-- AUTO:notification:END -->
 
-<!-- AUTO:notification-record:START -->
-### 通知记录 (notification-record)
+<!-- AUTO:callback-log:START -->
+### 回调日志 (callback-log)
 
-模块 `notification-record` 暂无技术设计文档。
-<!-- AUTO:notification-record:END -->
+模块 `callback-log` 暂无技术设计文档。
+<!-- AUTO:callback-log:END -->
 
-<!-- AUTO:in-app-notification:START -->
-### 站内通知 (in-app-notification)
+<!-- AUTO:system-info:START -->
+### 系统信息 (system-info)
 
-模块 `in-app-notification` 暂无技术设计文档。
-<!-- AUTO:in-app-notification:END -->
+模块 `system-info` 暂无技术设计文档。
+<!-- AUTO:system-info:END -->
+
+<!-- AUTO:billing:START -->
+### 计费与成本 (billing)
+
+模块 `billing` 暂无技术设计文档。
+<!-- AUTO:billing:END -->
+
+<!-- AUTO:link-conversion:START -->
+### 请求转换配置 (link-conversion)
+
+模块 `link-conversion` 暂无技术设计文档。
+<!-- AUTO:link-conversion:END -->
+
+<!-- AUTO:menu:START -->
+### 菜单管理 (menu)
+
+模块 `menu` 暂无技术设计文档。
+<!-- AUTO:menu:END -->
