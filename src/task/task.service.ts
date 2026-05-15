@@ -19,10 +19,7 @@ import { TaskDocument, Task } from '../database/schemas/task.schema';
 import { FilterQuery, Model } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
 import { ModelConfig, ModelConfigDocument } from '../database/schemas/model-config.schema';
-import {
-  listKnownServiceKeys,
-  mapModelConfigServiceToProvider,
-} from './model-service-provider.map';
+import { resolveConfigModelTypeForLookup } from '../common/utils/model-config-type.util';
 import { ProviderRoutingService } from './provider-routing.service';
 import { ErrorLogger } from '../common/utils/error-logger.util';
 import { ApiClientService } from '../api-client/api-client.service';
@@ -59,15 +56,15 @@ export class TaskService {
     private readonly resourceMetadataEnqueue: TaskResourceMetadataEnqueueService,
   ) {}
 
-  async createTask(clientId: string, dto: CreateTaskDto, idempotencyKey?: string) {
+  async createTask(apiKey: string, dto: CreateTaskDto, idempotencyKey?: string) {
     const receivedAt = new Date();
 
     if (idempotencyKey) {
-      const existingTaskId = await this.idempotencyService.check(clientId, idempotencyKey);
+      const existingTaskId = await this.idempotencyService.check(apiKey, idempotencyKey);
       if (existingTaskId) {
         const existing = await this.taskRepo.findByTaskId(existingTaskId);
         if (existing) {
-          this.logger.log(`Idempotent request: clientId=${clientId}, key=${idempotencyKey}, taskId=${existingTaskId}`);
+          this.logger.log(`Idempotent request: apiKey=${apiKey}, key=${idempotencyKey}, taskId=${existingTaskId}`);
           return this.toResponse(existing);
         }
       }
@@ -76,25 +73,28 @@ export class TaskService {
     let provider: string;
     let featureType: string;
     let routeId: string | undefined;
-    let routingSource: 'routing_rule' | 'model_config_service' | 'model_path';
+    let routingSource: 'routing_rule' | 'model_config_provider' | 'model_path';
     let providerModel: string | undefined; // 实际发送给提供商的模型标识
     let routingMetrics: Record<string, any> | undefined; // latency/cost 策略的路由决策指标
 
     // 先计算 featureType，用于后续查询 model_configs
     featureType = this.resolveTaskFeatureType(dto.model, dto.options);
-    const modelType = this.featureTypeToModelType(featureType);
+    const configModelType = resolveConfigModelTypeForLookup(
+      featureType,
+      dto.options?.featureType as string | undefined,
+    );
 
-    // 查询 model_configs 时同时匹配 model_name 和 model_type
-    const cfg = await this.modelConfigModel.findOne({ 
-      model_name: dto.model,
-      ...(modelType ? { model_type: modelType } : {})
+    // 查询 model_configs：model_id 与 dto.model 一致，model_type 为 camelCase 能力类型（可缺省则仅按 model_id）
+    const cfg = await this.modelConfigModel.findOne({
+      model_id: dto.model,
+      ...(configModelType ? { model_type: configModelType } : {}),
     }).lean();
-    
+
     if (cfg?.disabled) {
       ErrorLogger.logWarning(
         this.logger,
         'Model is disabled',
-        { clientId, model: dto.model, modelType },
+        { apiKey, model: dto.model, modelType: configModelType },
       );
       throw new BadRequestException(`Model is disabled: ${dto.model}`);
     }
@@ -102,10 +102,12 @@ export class TaskService {
     // 如果配置中有 provider_model_name，使用它作为发送给提供商的模型标识
     if (cfg?.provider_model_name) {
       providerModel = cfg.provider_model_name;
-      this.logger.log(`Using provider_model_name: ${providerModel} for model: ${dto.model}, type: ${modelType}`);
+      this.logger.log(
+        `Using provider_model_name: ${providerModel} for model: ${dto.model}, type: ${configModelType}`,
+      );
     }
 
-    const ruleHit = await this.providerRouting.tryResolveFromRules(dto.model, clientId);
+    const ruleHit = await this.providerRouting.tryResolveFromRules(dto.model, apiKey);
     if (ruleHit) {
       provider = ruleHit.provider;
       routeId = ruleHit.routeId || undefined;
@@ -115,23 +117,21 @@ export class TaskService {
         `Provider from model_routing_rules routeId=${routeId} → ${provider}, model=${dto.model}`,
       );
     } else {
-      const svcRaw = cfg?.service != null ? String(cfg.service).trim() : '';
-      if (cfg && svcRaw !== '') {
-        const mapped = mapModelConfigServiceToProvider(cfg.service);
-        if (!mapped) {
+      const cfgProvider = cfg?.provider != null ? String(cfg.provider).trim() : '';
+      if (cfg && cfgProvider !== '') {
+        if (!this.providerRegistry.hasAdapter(cfgProvider)) {
           ErrorLogger.logWarning(
             this.logger,
-            `No Model-Hub adapter for model_configs.service="${svcRaw}"`,
-            { clientId, model: dto.model, service: svcRaw },
+            `No Model-Hub adapter for model_configs.provider="${cfgProvider}"`,
+            { apiKey, model: dto.model, provider: cfgProvider },
           );
           throw new BadRequestException(
-            `No Model-Hub adapter for model_configs.service="${svcRaw}" (model: ${dto.model}). `
-            + `Supported service: ${listKnownServiceKeys().join(', ')}`,
+            `Unsupported provider from model_configs: "${cfgProvider}" (model: ${dto.model})`,
           );
         }
-        provider = mapped;
-        routingSource = 'model_config_service';
-        this.logger.log(`Provider from model_configs.service=${svcRaw} → ${provider}, model=${dto.model}`);
+        provider = cfgProvider;
+        routingSource = 'model_config_provider';
+        this.logger.log(`Provider from model_configs.provider=${cfgProvider}, model=${dto.model}`);
       } else {
         const fb = this.resolveProviderFromModel(dto.model);
         provider = fb.provider;
@@ -143,7 +143,7 @@ export class TaskService {
       ErrorLogger.logWarning(
         this.logger,
         'Unsupported provider',
-        { clientId, model: dto.model, provider },
+        { apiKey, model: dto.model, provider },
       );
       throw new BadRequestException(`Unsupported provider: ${provider}`);
     }
@@ -176,13 +176,13 @@ export class TaskService {
     const pollingCfg = this.config.polling;
 
     // 优先级解析：显式指定 > ApiClient defaultPriority > 50
-    const resolvedPriority = await this.resolvePriority(dto.priority, clientId);
+    const resolvedPriority = await this.resolvePriority(dto.priority, apiKey);
 
     // === 计费初始化：在任务入库之前调用，确保余额充足 ===
     try {
       await this.billingAdapter.initBilling({
         taskId,
-        clientId,
+        apiKey,
         model: dto.model,
         provider,
         featureType,
@@ -203,7 +203,7 @@ export class TaskService {
       }
       // 其他计费异常 → 记录 error 日志 + 返回 500
       this.logger.error(
-        `计费初始化失败：taskId=${taskId}, clientId=${clientId}, model=${dto.model}`,
+        `计费初始化失败：taskId=${taskId}, apiKey=${apiKey}, model=${dto.model}`,
         err instanceof Error ? err.stack : err,
       );
       throw new HttpException(
@@ -218,7 +218,7 @@ export class TaskService {
 
     // 计费成功后才入库入队
     const task = await this.taskRepo.create({
-      taskId, clientId, model: dto.model, provider, featureType,
+      taskId, apiKey, model: dto.model, provider, featureType,
       providerModel, // 保存 provider_model_name
       routeId,
       status: TaskStatus.PENDING, version: 0,
@@ -246,13 +246,13 @@ export class TaskService {
     });
 
     if (idempotencyKey) {
-      await this.idempotencyService.record(clientId, idempotencyKey, taskId);
+      await this.idempotencyService.record(apiKey, idempotencyKey, taskId);
     }
 
     const enqueuedAt = new Date();
     const jobData = {
       taskId, provider, model: dto.model, featureType,
-      priority: resolvedPriority, clientId, enqueuedAt: enqueuedAt.getTime(),
+      priority: resolvedPriority, apiKey, enqueuedAt: enqueuedAt.getTime(),
     };
     const jobId = await this.queueRouter.enqueue(
       featureType, provider, 'submit', jobData, { priority: resolvedPriority },
@@ -267,20 +267,20 @@ export class TaskService {
     this.logger.log(`Task created: taskId=${taskId}, model=${dto.model}, provider=${provider}`);
 
     // 异步记录 Usage，不阻塞任务创建
-    this.usageTracker.recordRequest(clientId).catch((err) => {
-      this.logger.warn(`Usage 记录请求失败: clientId=${clientId}, error=${(err as Error).message}`);
+    this.usageTracker.recordRequest(apiKey).catch((err) => {
+      this.logger.warn(`Usage 记录请求失败: apiKey=${apiKey}, error=${(err as Error).message}`);
     });
 
     return this.toResponse(task);
   }
 
-  async getTask(clientId: string, taskId: string) {
-    const task = await this.taskRepo.findByClientAndTaskId(clientId, taskId);
+  async getTask(apiKey: string, taskId: string) {
+    const task = await this.taskRepo.findByClientAndTaskId(apiKey, taskId);
     if (!task) {
       ErrorLogger.logWarning(
         this.logger,
         'Task not found',
-        { clientId, taskId },
+        { apiKey, taskId },
       );
       throw new NotFoundException(`Task not found: ${taskId}`);
     }
@@ -291,24 +291,24 @@ export class TaskService {
     return this.toResponse(task, billingRecord);
   }
 
-  async listTasks(clientId: string, query: TaskListQueryDto) {
+  async listTasks(apiKey: string, query: TaskListQueryDto) {
     const filter: FilterQuery<Task> = {};
     if (query.status) filter.status = query.status;
     if (query.model) filter.model = query.model;
     if (query.provider) filter.provider = query.provider;
     if (query.featureType) filter.featureType = query.featureType;
 
-    const { items, total } = await this.taskRepo.listByClient(clientId, filter, query.page ?? 1, query.pageSize ?? 20);
+    const { items, total } = await this.taskRepo.listByClient(apiKey, filter, query.page ?? 1, query.pageSize ?? 20);
     return { items: items.map((t) => this.toResponse(t)), total, page: query.page ?? 1, pageSize: query.pageSize ?? 20 };
   }
 
-  async cancelTask(clientId: string, taskId: string, cancelledBy?: string) {
-    const task = await this.taskRepo.findByClientAndTaskId(clientId, taskId);
+  async cancelTask(apiKey: string, taskId: string, cancelledBy?: string) {
+    const task = await this.taskRepo.findByClientAndTaskId(apiKey, taskId);
     if (!task) {
       ErrorLogger.logWarning(
         this.logger,
         'Task not found for cancellation',
-        { clientId, taskId },
+        { apiKey, taskId },
       );
       throw new NotFoundException(`Task not found: ${taskId}`);
     }
@@ -316,7 +316,7 @@ export class TaskService {
       ErrorLogger.logWarning(
         this.logger,
         'Task cannot be cancelled in current status',
-        { clientId, taskId, status: task.status },
+        { apiKey, taskId, status: task.status },
       );
       throw new ConflictException(`Task ${taskId} cannot be cancelled in status ${task.status}`);
     }
@@ -325,7 +325,7 @@ export class TaskService {
       ErrorLogger.logWarning(
         this.logger,
         'Task status changed concurrently during cancellation',
-        { clientId, taskId },
+        { apiKey, taskId },
       );
       throw new ConflictException('Task status changed concurrently');
     }
@@ -338,12 +338,12 @@ export class TaskService {
     }
 
     await this.timelineService.addEvent(taskId, TimelineEvent.TASK_CANCELLED, {
-      cancelledBy: cancelledBy || clientId,
+      cancelledBy: cancelledBy || apiKey,
     });
 
     void this.resourceMetadataEnqueue.scheduleForTask(taskId).catch(() => undefined);
 
-    this.logger.log(`Task cancelled: taskId=${taskId}, clientId=${clientId}, cancelledBy=${cancelledBy || clientId}`);
+    this.logger.log(`Task cancelled: taskId=${taskId}, apiKey=${apiKey}, cancelledBy=${cancelledBy || apiKey}`);
     return this.toResponse(updated);
   }
 
@@ -383,7 +383,7 @@ export class TaskService {
         model: task.model,
         featureType: task.featureType,
         priority: newPriority,
-        clientId: task.clientId,
+        apiKey: task.apiKey,
         enqueuedAt: Date.now(),
       };
       await this.queueRouter.reEnqueueWithPriority(
@@ -436,34 +436,13 @@ export class TaskService {
   /**
    * 优先级解析：显式指定 > ApiClient defaultPriority > 50
    */
-  private async resolvePriority(explicitPriority: number | undefined, clientId: string): Promise<number> {
+  private async resolvePriority(explicitPriority: number | undefined, apiKey: string): Promise<number> {
     if (explicitPriority != null) return explicitPriority;
     try {
-      return await this.apiClientService.getDefaultPriority(clientId);
+      return await this.apiClientService.getDefaultPriority(apiKey);
     } catch {
       return 50;
     }
-  }
-
-  /**
-   * 将 featureType 映射到 model_type，用于查询 model_configs
-   */
-  private featureTypeToModelType(featureType: string): number | null {
-    const map: Record<string, number> = {
-      'image_generate': 40001,      // 文生图
-      'textToImage': 40001,
-      'image_to_image': 40002,      // 图生图
-      'imageToImage': 40002,
-      'text_to_video': 1502,        // 文生视频
-      'textToVideo': 1502,
-      'image_to_video': 1501,       // 图生视频
-      'imageToVideo': 1501,
-      'character_swap': 40004,      // 角色换装/动作控制
-      'characterFaceswap': 40004,
-      'video_upscale': 40005,       // 视频超分
-      'videoUpscale': 40005,
-    };
-    return map[featureType] || null;
   }
 
   /**
@@ -491,7 +470,7 @@ export class TaskService {
     return this.inferFeatureType(last);
   }
 
-  /** 无 model_configs / 无 service 时的兜底：路径首段当作 provider（兼容旧调用） */
+  /** 无 model_configs / 无 provider 时的兜底：路径首段当作 provider（兼容旧调用） */
   private resolveProviderFromModel(model: string) {
     const parts = model.split('/');
     if (parts.length < 2) throw new BadRequestException(`Invalid model format: ${model}`);
@@ -522,7 +501,7 @@ export class TaskService {
   private toResponse(task: TaskDocument, billingRecord?: any) {
     const response: Record<string, any> = {
       taskId: task.taskId,
-      clientId: task.clientId,
+      apiKey: task.apiKey,
       status: task.status,
       model: task.model,
       provider: task.provider,

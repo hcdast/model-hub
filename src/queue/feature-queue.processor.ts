@@ -194,8 +194,8 @@ export class FeatureQueueProcessor {
         }
 
         // 异步记录 Usage 完成统计
-        this.usageTracker.recordCompletion(task.clientId, true).catch((err) => {
-          this.logger.warn(`Usage 记录完成失败: clientId=${task.clientId}, error=${(err as Error).message}`);
+        this.usageTracker.recordCompletion(task.apiKey, true).catch((err) => {
+          this.logger.warn(`Usage 记录完成失败: apiKey=${task.apiKey}, error=${(err as Error).message}`);
         });
 
         void this.resourceMetadataEnqueue.scheduleForTask(taskId).catch(() => undefined);
@@ -249,8 +249,8 @@ export class FeatureQueueProcessor {
         }
 
         // 异步记录 Usage 失败统计
-        this.usageTracker.recordCompletion(task.clientId, false).catch((err) => {
-          this.logger.warn(`Usage 记录失败: clientId=${task.clientId}, error=${(err as Error).message}`);
+        this.usageTracker.recordCompletion(task.apiKey, false).catch((err) => {
+          this.logger.warn(`Usage 记录失败: apiKey=${task.apiKey}, error=${(err as Error).message}`);
         });
 
         void this.resourceMetadataEnqueue.scheduleForTask(taskId).catch(() => undefined);

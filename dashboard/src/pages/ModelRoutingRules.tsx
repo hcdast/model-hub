@@ -22,8 +22,8 @@ interface CostTarget {
 
 interface RuleRow {
   _id: string;
-  model_name: string;
-  client_id?: string;
+  model_id: string;
+  apiKey?: string;
   enabled: boolean;
   priority?: number;
   effective_from?: string;
@@ -70,16 +70,17 @@ const SIM_FEATURE_OPTIONS = [
   { label: 'imageToImage', value: 'imageToImage' },
   { label: 'textToVideo', value: 'textToVideo' },
   { label: 'imageToVideo', value: 'imageToVideo' },
+  { label: 'videoToVideo', value: 'videoToVideo' },
   { label: 'characterFaceswap', value: 'characterFaceswap' },
   { label: 'videoUpscale', value: 'videoUpscale' },
 ];
 
-function getCreateFormDefaults(modelName = '') {
+function getCreateFormDefaults(modelId = '') {
   return {
-    model_name: modelName,
+    model_id: modelId,
     enabled: true,
     priority: 0,
-    client_id: '',
+    apiKey: '',
     strategy_type: 'fixed' as Strategy,
     weighted_targets: [{ provider: '', weight: 100 }],
     primary_weight: 100,
@@ -118,14 +119,14 @@ export default function ModelRoutingRulesPage() {
       const res: any = await modelRoutingApi.list({
         page: p,
         pageSize: ps,
-        model_name: kw.trim() || undefined,
+        model_id: kw.trim() || undefined,
       });
       setItems(res.data?.items || []);
       setTotal(res.data?.total ?? 0);
       setPage(res.data?.page ?? p);
       setPageSize(res.data?.pageSize ?? ps);
     } catch {
-      message.error('加载路由规则失败');
+      message.error('加载路由策略失败');
     }
     setLoading(false);
   }, [keyword, page, pageSize]);
@@ -153,8 +154,8 @@ export default function ModelRoutingRulesPage() {
       const items: any[] = res.data?.items || [];
       setClientOptions(
         items.map((c) => ({
-          value: c.clientId,
-          label: c.name ? `${c.clientId} (${c.name})` : c.clientId,
+          value: c.apiKey,
+          label: c.name ? `${c.apiKey} (${c.name})` : c.apiKey,
         })),
       );
     } catch {
@@ -169,8 +170,8 @@ export default function ModelRoutingRulesPage() {
     setSimResult(null);
     try {
       const body: Record<string, unknown> = {
-        model_name: String(v.sim_model_name).trim(),
-        client_id: String(v.sim_client_id).trim(),
+        model_id: String(v.sim_model_id).trim(),
+        apiKey: String(v.sim_api_key).trim(),
       };
       const ft = v.sim_featureType as string | undefined;
       if (ft) body.featureType = ft;
@@ -186,11 +187,11 @@ export default function ModelRoutingRulesPage() {
     setSimLoading(false);
   };
 
-  /** 从模型配置「配置路由」跳转：`/model-routing-rules?action=new&model_name=...` */
+  /** 从模型配置「配置路由」跳转：`/model-routing-rules?action=new&model_id=...` */
   useEffect(() => {
     if (queryConsumedRef.current) return;
     const action = searchParams.get('action');
-    const mn = searchParams.get('model_name');
+    const mn = searchParams.get('model_id');
     if (action !== 'new' || !mn?.trim()) return;
     queryConsumedRef.current = true;
     setEditing(null);
@@ -210,8 +211,8 @@ export default function ModelRoutingRulesPage() {
   const openEdit = (r: RuleRow) => {
     setEditing(r);
     form.setFieldsValue({
-      model_name: r.model_name,
-      client_id: r.client_id ?? '',
+      model_id: r.model_id,
+      apiKey: r.apiKey ?? '',
       enabled: r.enabled !== false,
       priority: r.priority ?? 0,
       effective_from: r.effective_from ? dayjs(r.effective_from) : undefined,
@@ -233,8 +234,8 @@ export default function ModelRoutingRulesPage() {
   const buildPayload = (v: Record<string, unknown>) => {
     const strategy = v.strategy_type as Strategy;
     const payload: Record<string, unknown> = {
-      model_name: String(v.model_name).trim(),
-      client_id: v.client_id != null ? String(v.client_id).trim() : '',
+      model_id: String(v.model_id).trim(),
+      apiKey: v.apiKey != null ? String(v.apiKey).trim() : '',
       enabled: v.enabled !== false,
       priority: Number(v.priority) || 0,
       effective_from: (v.effective_from as Dayjs | undefined)?.toISOString(),
@@ -339,11 +340,11 @@ export default function ModelRoutingRulesPage() {
   };
 
   const columns = [
-    { title: 'model_name', dataIndex: 'model_name', key: 'model_name', ellipsis: true, width: 280 },
+    { title: 'model_id', dataIndex: 'model_id', key: 'model_id', ellipsis: true, width: 280 },
     {
-      title: 'client_id',
-      dataIndex: 'client_id',
-      key: 'client_id',
+      title: 'apiKey',
+      dataIndex: 'apiKey',
+      key: 'apiKey',
       width: 120,
       render: (t: string) => (t ? t : <Typography.Text type="secondary">（全站）</Typography.Text>),
     },
@@ -392,14 +393,14 @@ export default function ModelRoutingRulesPage() {
   return (
     <div>
       <PageHeader
-        title="路由规则"
+        title="路由策略"
         leftExtra={(
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建规则</Button>
         )}
         extra={(
           <>
             <Input
-              placeholder="筛选 model_name"
+              placeholder="筛选 model_id"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               onPressEnter={() => fetchData(1, pageSize)}
@@ -434,22 +435,22 @@ export default function ModelRoutingRulesPage() {
         <Form form={simForm} layout="vertical">
           <Space wrap style={{ width: '100%' }} align="start">
             <Form.Item
-              name="sim_model_name"
-              label="model_name"
+              name="sim_model_id"
+              label="model_id"
               rules={[{ required: true, message: '必填' }]}
               style={{ minWidth: 280, marginBottom: 8 }}
             >
               <Input placeholder="与 API 创建任务时的 model 一致" allowClear />
             </Form.Item>
             <Form.Item
-              name="sim_client_id"
-              label="client_id"
+              name="sim_api_key"
+              label="apiKey"
               rules={[{ required: true, message: '必填' }]}
               style={{ minWidth: 320, marginBottom: 8 }}
             >
               <AutoComplete
                 allowClear
-                placeholder="输入或从下拉选择 clientId"
+                placeholder="输入或从下拉选择 apiKey"
                 options={clientOptions}
                 filterOption={(input, option) =>
                   (option?.value as string)?.toLowerCase().includes(input.toLowerCase()) ||
@@ -497,7 +498,7 @@ export default function ModelRoutingRulesPage() {
                 {simResult.resolution?.adapterRegistered ? <Tag color="green">是</Tag> : <Tag color="red">否</Tag>}
               </Descriptions.Item>
               <Descriptions.Item label="推断 featureType">{simResult.inferredFeatureType}</Descriptions.Item>
-              <Descriptions.Item label="查询 model_type">{simResult.modelTypeUsed ?? '（未限定）'}</Descriptions.Item>
+              <Descriptions.Item label="查询 model_type">{simResult.configModelTypeUsed ?? '（未限定）'}</Descriptions.Item>
             </Descriptions>
             <Collapse
               items={[
@@ -512,7 +513,7 @@ export default function ModelRoutingRulesPage() {
                       dataSource={simResult.ruleSimulation?.evaluations || []}
                       columns={[
                         { title: 'ruleId', dataIndex: 'ruleId', width: 200, ellipsis: true },
-                        { title: 'client_id', dataIndex: 'client_id', width: 120, render: (t: string) => t || '（全站）' },
+                        { title: 'apiKey', dataIndex: 'apiKey', width: 120, render: (t: string) => t || '（全站）' },
                         { title: '策略', dataIndex: 'strategy_type', width: 120 },
                         { title: '优先级', dataIndex: 'priority', width: 72 },
                         {
@@ -590,7 +591,7 @@ export default function ModelRoutingRulesPage() {
       </Card>
 
       <Modal
-        title={editing ? '编辑路由规则' : '新建路由规则'}
+        title={editing ? '编辑路由策略' : '新建路由策略'}
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
         onOk={handleSubmit}
@@ -599,10 +600,10 @@ export default function ModelRoutingRulesPage() {
         okText="保存"
       >
         <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
-          <Form.Item name="model_name" label="model_name" rules={[{ required: true, message: '必填' }]}>
+          <Form.Item name="model_id" label="model_id" rules={[{ required: true, message: '必填' }]}>
             <Input placeholder="与创建任务时的 model 完全一致" />
           </Form.Item>
-          <Form.Item name="client_id" label="client_id（空 = 全客户端）">
+          <Form.Item name="apiKey" label="apiKey（空 = 全客户端）">
             <Input placeholder="留空表示全站" />
           </Form.Item>
           <Space wrap style={{ width: '100%' }}>
@@ -783,14 +784,14 @@ export default function ModelRoutingRulesPage() {
                         type="link"
                         loading={loadingProviderPricing}
                         onClick={async () => {
-                          const modelName = form.getFieldValue('model_name');
-                          if (!modelName?.trim()) {
-                            message.warning('请先填写 model_name');
+                          const modelId = form.getFieldValue('model_id');
+                          if (!modelId?.trim()) {
+                            message.warning('请先填写 model_id');
                             return;
                           }
                           setLoadingProviderPricing(true);
                           try {
-                            const res: any = await modelApi.getProviderPricing(modelName.trim());
+                            const res: any = await modelApi.getProviderPricing(modelId.trim());
                             const pricingData = res.data || [];
                             if (pricingData.length === 0) {
                               message.info('该模型暂无厂商定价数据');

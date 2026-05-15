@@ -18,13 +18,13 @@ export class IdempotencyService {
   ) {}
 
   async check(
-    clientId: string,
+    apiKey: string,
     idempotencyKey: string,
   ): Promise<string | null> {
-    const existing = await this.model.findOne({ clientId, idempotencyKey });
+    const existing = await this.model.findOne({ apiKey, idempotencyKey });
     if (existing) {
       this.logger.log(
-        `Idempotency hit: clientId=${clientId}, key=${idempotencyKey}, taskId=${existing.taskId}`,
+        `Idempotency hit: apiKey=${apiKey}, key=${idempotencyKey}, taskId=${existing.taskId}`,
       );
       return existing.taskId;
     }
@@ -32,17 +32,17 @@ export class IdempotencyService {
   }
 
   async record(
-    clientId: string,
+    apiKey: string,
     idempotencyKey: string,
     taskId: string,
     ttlMs = DEFAULT_TTL_MS,
   ): Promise<void> {
     const expireAt = new Date(Date.now() + ttlMs);
     try {
-      await this.model.create({ clientId, idempotencyKey, taskId, expireAt });
+      await this.model.create({ apiKey, idempotencyKey, taskId, expireAt });
     } catch (err: any) {
       if (err?.code === 11000) {
-        this.logger.warn(`Idempotency duplicate insert: ${clientId} / ${idempotencyKey}`);
+        this.logger.warn(`Idempotency duplicate insert: ${apiKey} / ${idempotencyKey}`);
         return;
       }
       throw err;

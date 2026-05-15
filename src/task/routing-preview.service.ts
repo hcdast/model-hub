@@ -3,15 +3,12 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { ModelConfig, ModelConfigDocument } from '../database/schemas/model-config.schema';
 import { ProviderRegistry } from '../provider/provider.registry';
-import {
-  listKnownServiceKeys,
-  mapModelConfigServiceToProvider,
-} from './model-service-provider.map';
+import { resolveConfigModelTypeForLookup } from '../common/utils/model-config-type.util';
 import { ProviderRoutingService, RoutingRuleSimulationResult } from './provider-routing.service';
 
 export interface RoutingPreviewInput {
   model: string;
-  clientId: string;
+  apiKey: string;
   /** 与创建任务 options.featureType 一致；不传则按 model 路径推断 */
   featureType?: string;
   options?: Record<string, unknown>;
@@ -21,13 +18,13 @@ export interface RoutingPreviewInput {
 export interface RoutingPreviewResult {
   at: string;
   model: string;
-  clientId: string;
+  apiKey: string;
   inferredFeatureType: string;
-  modelTypeUsed: number | null;
+  configModelTypeUsed: string | null;
   modelConfig: {
-    model_name: string;
-    model_type?: number;
-    service?: string;
+    model_id: string;
+    model_type?: string;
+    provider?: string;
     disabled?: boolean;
     provider_model_name?: string;
   } | null;
@@ -36,7 +33,7 @@ export interface RoutingPreviewResult {
   resolution: {
     provider: string | null;
     routeId?: string;
-    routingSource: 'routing_rule' | 'model_config_service' | 'model_path' | 'unresolved';
+    routingSource: 'routing_rule' | 'model_config_provider' | 'model_path' | 'unresolved';
     routingMetrics?: RoutingRuleHitRoutingMetrics;
     fallbackDetail: Record<string, unknown>;
     adapterRegistered: boolean;
@@ -61,18 +58,19 @@ export class RoutingPreviewService {
   async preview(input: RoutingPreviewInput): Promise<RoutingPreviewResult> {
     const at = input.at ?? new Date();
     const model = input.model.trim();
-    const clientId = input.clientId.trim();
+    const apiKey = input.apiKey.trim();
     const warnings: string[] = [];
 
-    const inferredFeatureType = input.featureType?.trim()
-      ? this.normalizeFeatureTypeOption(input.featureType.trim())
+    const rawFeatureOption = input.featureType?.trim() ? input.featureType.trim() : undefined;
+    const inferredFeatureType = rawFeatureOption
+      ? this.normalizeFeatureTypeOption(rawFeatureOption)
       : this.resolveTaskFeatureType(model, input.options);
-    const modelTypeUsed = this.featureTypeToModelType(inferredFeatureType);
+    const configModelTypeUsed = resolveConfigModelTypeForLookup(inferredFeatureType, rawFeatureOption);
 
     const cfg = await this.modelConfigModel
       .findOne({
-        model_name: model,
-        ...(modelTypeUsed != null ? { model_type: modelTypeUsed } : {}),
+        model_id: model,
+        ...(configModelTypeUsed != null ? { model_type: configModelTypeUsed } : {}),
       })
       .lean();
 
@@ -80,7 +78,7 @@ export class RoutingPreviewService {
       warnings.push('该模型在 model_configs 中已禁用，实际创建任务将返回错误');
     }
 
-    const ruleSimulation = await this.providerRouting.simulateFromRules(model, clientId, at);
+    const ruleSimulation = await this.providerRouting.simulateFromRules(model, apiKey, at);
 
     let provider: string | null = null;
     let routeId: string | undefined;
@@ -94,18 +92,14 @@ export class RoutingPreviewService {
       routingSource = 'routing_rule';
       routingMetrics = ruleSimulation.hit.routingMetrics;
     } else {
-      const svcRaw = cfg?.service != null ? String(cfg.service).trim() : '';
-      if (cfg && svcRaw !== '') {
-        const mapped = mapModelConfigServiceToProvider(cfg.service);
-        fallbackDetail.model_config_service = svcRaw;
-        fallbackDetail.mappedProvider = mapped;
-        if (!mapped) {
-          warnings.push(
-            `model_configs.service="${svcRaw}" 无对应 Adapter，支持: ${listKnownServiceKeys().join(', ')}`,
-          );
+      const cfgProvider = cfg?.provider != null ? String(cfg.provider).trim() : '';
+      if (cfg && cfgProvider !== '') {
+        fallbackDetail.model_config_provider = cfgProvider;
+        if (!this.providerRegistry.hasAdapter(cfgProvider)) {
+          warnings.push(`model_configs.provider="${cfgProvider}" 未注册 Adapter`);
         } else {
-          provider = mapped;
-          routingSource = 'model_config_service';
+          provider = cfgProvider;
+          routingSource = 'model_config_provider';
         }
       } else {
         const pathRes = this.tryResolveProviderFromModelPath(model);
@@ -115,7 +109,7 @@ export class RoutingPreviewService {
           fallbackDetail.inferredFeatureTypeFromPath = pathRes.featureType;
         } else {
           warnings.push(
-            '未命中路由规则，且 model_configs 无 service、模型路径也无法解析为 provider（需至少两段，如 vendor/model）',
+            '未命中路由规则，且 model_configs 无有效 provider、模型路径也无法解析为 provider（需至少两段，如 vendor/model）',
           );
         }
       }
@@ -129,14 +123,14 @@ export class RoutingPreviewService {
     return {
       at: at.toISOString(),
       model,
-      clientId,
+      apiKey,
       inferredFeatureType,
-      modelTypeUsed,
+      configModelTypeUsed,
       modelConfig: cfg
         ? {
-            model_name: cfg.model_name,
+            model_id: cfg.model_id,
             model_type: cfg.model_type,
-            service: cfg.service != null ? String(cfg.service) : undefined,
+            provider: cfg.provider,
             disabled: cfg.disabled,
             provider_model_name: cfg.provider_model_name,
           }
@@ -183,24 +177,6 @@ export class RoutingPreviewService {
     const parts = model.split('/');
     const last = parts.length >= 1 ? parts[parts.length - 1] : model;
     return this.inferFeatureType(last);
-  }
-
-  private featureTypeToModelType(featureType: string): number | null {
-    const map: Record<string, number> = {
-      image_generate: 40001,
-      textToImage: 40001,
-      image_to_image: 40002,
-      imageToImage: 40002,
-      text_to_video: 1502,
-      textToVideo: 1502,
-      image_to_video: 1501,
-      imageToVideo: 1501,
-      character_swap: 40004,
-      characterFaceswap: 40004,
-      video_upscale: 40005,
-      videoUpscale: 40005,
-    };
-    return map[featureType] ?? null;
   }
 
   private inferFeatureType(lastSegment: string): string {

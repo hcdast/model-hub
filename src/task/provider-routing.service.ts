@@ -32,8 +32,8 @@ export interface RoutingRuleHit {
 /** 单条规则在仿真中的评估结果（含未命中原因） */
 export interface RoutingRuleEvaluationRow {
   ruleId: string;
-  model_name: string;
-  client_id: string;
+  model_id: string;
+  apiKey: string;
   enabled: boolean;
   priority: number;
   strategy_type: string;
@@ -76,16 +76,16 @@ export class ProviderRoutingService {
 
   /**
    * 若存在生效的路由规则（fixed / weighted / primary_fallback），返回解析结果；
-   * 否则返回 null，由调用方走 model_configs.service 等兜底逻辑。
+   * 否则返回 null，由调用方走 model_configs.provider 等兜底逻辑。
    */
   async tryResolveFromRules(
     modelName: string,
-    clientId: string,
+    apiKey: string,
     at: Date = new Date(),
   ): Promise<RoutingRuleHit | null> {
     const rules = (await this.ruleModel
       .find({
-        model_name: modelName,
+        model_id: modelName,
         enabled: true,
         strategy_type: { $in: ['fixed', 'weighted', 'primary_fallback', 'latency', 'cost'] },
       })
@@ -96,26 +96,26 @@ export class ProviderRoutingService {
 
     const candidates = rules
       .filter((r) => this.isEffective(r, at))
-      .filter((r) => this.clientMatches(r, clientId))
+      .filter((r) => this.clientMatches(r, apiKey))
       .filter((r) => this.canResolveRule(r));
 
     if (!candidates.length) return null;
 
     candidates.sort((a, b) => {
-      const spec = this.specificityScore(b, clientId) - this.specificityScore(a, clientId);
+      const spec = this.specificityScore(b, apiKey) - this.specificityScore(a, apiKey);
       if (spec !== 0) return spec;
       return (b.priority ?? 0) - (a.priority ?? 0);
     });
 
     const top = candidates[0];
     const routeId = top._id ? top._id.toString() : '';
-    const seed = `${clientId}\u001c${modelName}\u001c${routeId}`;
+    const seed = `${apiKey}\u001c${modelName}\u001c${routeId}`;
 
     const result = await this.resolveProviderForRule(top, seed, undefined);
     if (!result) return null;
 
     this.logger.debug(
-      `Routing rule hit: model=${modelName} client=${clientId} strategy=${top.strategy_type} → provider=${result.provider} routeId=${routeId}${result.failoverReason ? ` failoverReason=${result.failoverReason}` : ''}`,
+      `Routing rule hit: model=${modelName} client=${apiKey} strategy=${top.strategy_type} → provider=${result.provider} routeId=${routeId}${result.failoverReason ? ` failoverReason=${result.failoverReason}` : ''}`,
     );
 
     // 当发生熔断故障转移时，递增 failover 计数器
@@ -145,12 +145,12 @@ export class ProviderRoutingService {
    */
   async simulateFromRules(
     modelName: string,
-    clientId: string,
+    apiKey: string,
     at: Date = new Date(),
   ): Promise<RoutingRuleSimulationResult> {
     const rules = (await this.ruleModel
-      .find({ model_name: modelName })
-      .sort({ model_name: 1, priority: -1, client_id: 1 })
+      .find({ model_id: modelName })
+      .sort({ model_id: 1, priority: -1, apiKey: 1 })
       .lean()
       .exec()) as LeanRule[];
 
@@ -167,8 +167,8 @@ export class ProviderRoutingService {
       if (!this.isEffective(r, at)) {
         skipReasons.push('当前时间不在生效时间窗内');
       }
-      if (!this.clientMatches(r, clientId)) {
-        skipReasons.push('client_id 限定不匹配（规则仅对指定 Key 生效）');
+      if (!this.clientMatches(r, apiKey)) {
+        skipReasons.push('apiKey 限定不匹配（规则仅对指定 Key 生效）');
       }
       if (skipReasons.length === 0 && !this.canResolveRule(r)) {
         skipReasons.push('策略参数不完整，无法解析厂商');
@@ -177,13 +177,13 @@ export class ProviderRoutingService {
         ROUTING_STRATEGIES.has(String(r.strategy_type)) &&
         r.enabled !== false &&
         this.isEffective(r, at) &&
-        this.clientMatches(r, clientId) &&
+        this.clientMatches(r, apiKey) &&
         this.canResolveRule(r);
 
       evaluations.push({
         ruleId,
-        model_name: r.model_name,
-        client_id: (r.client_id ?? '').trim(),
+        model_id: r.model_id,
+        apiKey: (r.apiKey ?? '').trim(),
         enabled: r.enabled !== false,
         priority: r.priority ?? 0,
         strategy_type: String(r.strategy_type),
@@ -196,12 +196,12 @@ export class ProviderRoutingService {
       if (!ROUTING_STRATEGIES.has(String(r.strategy_type))) return false;
       if (r.enabled === false) return false;
       if (!this.isEffective(r, at)) return false;
-      if (!this.clientMatches(r, clientId)) return false;
+      if (!this.clientMatches(r, apiKey)) return false;
       return this.canResolveRule(r);
     });
 
     candidates.sort((a, b) => {
-      const spec = this.specificityScore(b, clientId) - this.specificityScore(a, clientId);
+      const spec = this.specificityScore(b, apiKey) - this.specificityScore(a, apiKey);
       if (spec !== 0) return spec;
       return (b.priority ?? 0) - (a.priority ?? 0);
     });
@@ -215,8 +215,8 @@ export class ProviderRoutingService {
       const top = candidates[0];
       winnerRuleId = top._id ? top._id.toString() : null;
       const routeId = winnerRuleId || '';
-      const seed = `${clientId}\u001c${modelName}\u001c${routeId}`;
-      const detail: Record<string, unknown> = { seed, modelName, clientId };
+      const seed = `${apiKey}\u001c${modelName}\u001c${routeId}`;
+      const detail: Record<string, unknown> = { seed, modelName, apiKey };
       const result = await this.resolveProviderForRule(top, seed, detail);
       resolutionDebug = detail;
       if (result) {
@@ -717,15 +717,15 @@ export class ProviderRoutingService {
     return true;
   }
 
-  private clientMatches(r: LeanRule, clientId: string): boolean {
-    const rid = (r.client_id ?? '').trim();
+  private clientMatches(r: LeanRule, apiKey: string): boolean {
+    const rid = (r.apiKey ?? '').trim();
     if (rid === '') return true;
-    return rid === clientId;
+    return rid === apiKey;
   }
 
-  private specificityScore(r: LeanRule, clientId: string): number {
-    const rid = (r.client_id ?? '').trim();
-    if (rid !== '' && rid === clientId) return 1;
+  private specificityScore(r: LeanRule, apiKey: string): number {
+    const rid = (r.apiKey ?? '').trim();
+    if (rid !== '' && rid === apiKey) return 1;
     return 0;
   }
 }

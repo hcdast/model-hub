@@ -1,7 +1,7 @@
 [
   {
-    "model_name": "tencent-cloud/kling-v3.0-pro/motion-control",
-    "client_id": "",
+    "model_id": "tencent-cloud/kling-v3.0-pro/motion-control",
+    "apiKey": "",
     "strategy_type": "fixed",
     "fixed_provider": "tencent-cloud",
     "enabled": true,
@@ -12,8 +12,8 @@
     "updated_at": "2026-04-18T14:01:33.850Z"
   },
   {
-    "model_name": "tencent-cloud/kling-v3.0-std/motion-control",
-    "client_id": "",
+    "model_id": "tencent-cloud/kling-v3.0-std/motion-control",
+    "apiKey": "",
     "strategy_type": "fixed",
     "fixed_provider": "tencent-cloud",
     "enabled": true,
@@ -24,8 +24,8 @@
     "updated_at": "2026-04-18T14:01:33.850Z"
   },
   {
-    "model_name": "tencent-cloud/kling-v2.6-pro/motion-control",
-    "client_id": "",
+    "model_id": "tencent-cloud/kling-v2.6-pro/motion-control",
+    "apiKey": "",
     "strategy_type": "fixed",
     "fixed_provider": "tencent-cloud",
     "enabled": true,
@@ -36,8 +36,8 @@
     "updated_at": "2026-04-18T14:01:33.850Z"
   },
   {
-    "model_name": "tencent-cloud/kling-v2.6-std/motion-control",
-    "client_id": "",
+    "model_id": "tencent-cloud/kling-v2.6-std/motion-control",
+    "apiKey": "",
     "strategy_type": "fixed",
     "fixed_provider": "tencent-cloud",
     "enabled": true,

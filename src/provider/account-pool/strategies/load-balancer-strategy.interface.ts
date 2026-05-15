@@ -3,7 +3,7 @@ import { AccountPoolEntryDocument } from '../../../database/schemas/account-pool
 export interface SelectionContext {
   model?: string;
   featureType?: string;
-  clientId?: string;
+  apiKey?: string;
 }
 
 /**

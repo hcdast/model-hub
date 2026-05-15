@@ -17,19 +17,19 @@ export class TaskRepository {
   }
 
   async findByClientAndTaskId(
-    clientId: string,
+    apiKey: string,
     taskId: string,
   ): Promise<TaskDocument | null> {
-    return this.taskModel.findOne({ taskId, clientId });
+    return this.taskModel.findOne({ taskId, apiKey });
   }
 
   async listByClient(
-    clientId: string,
+    apiKey: string,
     filter: FilterQuery<Task>,
     page: number,
     pageSize: number,
   ): Promise<{ items: TaskDocument[]; total: number }> {
-    const query: FilterQuery<Task> = { clientId, ...filter };
+    const query: FilterQuery<Task> = { apiKey, ...filter };
     const [items, total] = await Promise.all([
       this.taskModel
         .find(query)

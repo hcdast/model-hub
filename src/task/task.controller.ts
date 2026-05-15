@@ -19,7 +19,7 @@ import { TaskListQueryDto } from './dto/task-list-query.dto';
 import { ApiKeyGuard } from '../auth/guards/api-key.guard';
 import { ClientRateLimitGuard } from '../auth/guards/client-rate-limit.guard';
 import { ModelAllowlistGuard } from '../auth/guards/model-allowlist.guard';
-import { ClientId } from '../auth/decorators/client-id.decorator';
+import { ClientApiKey } from '../auth/decorators/client-api-key.decorator';
 
 @ApiTags('任务管理')
 @ApiSecurity('ApiKey')
@@ -37,7 +37,7 @@ export class TaskController {
     
 路由优先级：
 1. model_routing_rules (fixed/weighted/primary_fallback)
-2. model_configs.service 字段映射
+2. model_configs.provider（Adapter 注册名）
 3. 模型路径首段兜底
 
 支持的功能类型：
@@ -55,9 +55,9 @@ export class TaskController {
   async createTask(
     @Body() dto: CreateTaskDto,
     @Headers('x-idempotency-key') idempotencyKey: string | undefined,
-    @ClientId() clientId: string,
+    @ClientApiKey() apiKey: string,
   ) {
-    const data = await this.taskService.createTask(clientId, dto, idempotencyKey);
+    const data = await this.taskService.createTask(apiKey, dto, idempotencyKey);
     return { 
       code: 0, 
       message: 'Task created successfully', 
@@ -82,9 +82,9 @@ export class TaskController {
   @ApiResponse({ status: 404, description: '任务不存在或无权访问' })
   async getTask(
     @Param('taskId') taskId: string,
-    @ClientId() clientId: string,
+    @ClientApiKey() apiKey: string,
   ) {
-    const data = await this.taskService.getTask(clientId, taskId);
+    const data = await this.taskService.getTask(apiKey, taskId);
     return { code: 0, message: 'Success', data };
   }
 
@@ -101,9 +101,9 @@ export class TaskController {
   @ApiResponse({ status: 200, description: '查询成功，返回分页数据' })
   async listTasks(
     @Query() query: TaskListQueryDto,
-    @ClientId() clientId: string,
+    @ClientApiKey() apiKey: string,
   ) {
-    const data = await this.taskService.listTasks(clientId, query);
+    const data = await this.taskService.listTasks(apiKey, query);
     return { code: 0, message: 'Success', data };
   }
 
@@ -114,9 +114,9 @@ export class TaskController {
   @ApiResponse({ status: 409, description: '当前状态不允许取消' })
   async cancelTask(
     @Param('taskId') taskId: string,
-    @ClientId() clientId: string,
+    @ClientApiKey() apiKey: string,
   ) {
-    const data = await this.taskService.cancelTask(clientId, taskId);
+    const data = await this.taskService.cancelTask(apiKey, taskId);
     return { code: 0, message: 'Task cancellation requested', data };
   }
 }

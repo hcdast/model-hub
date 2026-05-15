@@ -30,7 +30,7 @@ import { RequirePermissions } from './decorators/require-permissions.decorator';
 
 const STRATEGIES = new Set(['fixed', 'weighted', 'primary_fallback', 'latency', 'cost']);
 
-@ApiTags('管理后台 - 模型路由规则')
+@ApiTags('管理后台 - 模型路由策略')
 @ApiBearerAuth('AdminJwt')
 @Controller('api/v1/admin/model-routing-rules')
 @UseGuards(AdminJwtGuard, PermissionGuard)
@@ -46,26 +46,26 @@ export class AdminModelRoutingController {
   @ApiOperation({
     summary: '路由仿真 / 调试',
     description:
-      '输入 model_name、client_id（及可选 featureType、生效时间），返回规则命中详情与 model_configs 兜底解析，不写指标、不入队。',
+      '输入 model_id、apiKey（及可选 featureType、生效时间），返回策略命中详情与 model_configs 兜底解析，不写指标、不入队。',
   })
   @ApiResponse({ status: 200, description: '成功' })
   async simulate(
     @Body()
     body: {
-      model_name?: string;
-      client_id?: string;
+      model_id?: string;
+      apiKey?: string;
       featureType?: string;
       options?: Record<string, unknown>;
       at?: string;
     },
   ) {
-    const modelName = body.model_name != null ? String(body.model_name).trim() : '';
-    const clientId = body.client_id != null ? String(body.client_id).trim() : '';
+    const modelName = body.model_id != null ? String(body.model_id).trim() : '';
+    const apiKey = body.apiKey != null ? String(body.apiKey).trim() : '';
     if (!modelName) {
-      throw new BadRequestException('model_name is required');
+      throw new BadRequestException('model_id is required');
     }
-    if (!clientId) {
-      throw new BadRequestException('client_id is required');
+    if (!apiKey) {
+      throw new BadRequestException('apiKey is required');
     }
     let at: Date | undefined;
     if (body.at != null && String(body.at).trim() !== '') {
@@ -76,7 +76,7 @@ export class AdminModelRoutingController {
     }
     const data = await this.routingPreview.preview({
       model: modelName,
-      clientId,
+      apiKey,
       featureType: body.featureType,
       options: body.options,
       at,
@@ -86,18 +86,18 @@ export class AdminModelRoutingController {
 
   @Get()
   @RequirePermissions('model:read')
-  @ApiOperation({ summary: '路由规则列表' })
-  @ApiQuery({ name: 'model_name', required: false })
+  @ApiOperation({ summary: '路由策略列表' })
+  @ApiQuery({ name: 'model_id', required: false })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'pageSize', required: false })
   @ApiResponse({ status: 200, description: '成功' })
   async list(
-    @Query('model_name') modelName?: string,
+    @Query('model_id') modelId?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
   ) {
     const query: Record<string, unknown> = {};
-    if (modelName && modelName.trim()) query.model_name = modelName.trim();
+    if (modelId && modelId.trim()) query.model_id = modelId.trim();
 
     const p = Math.max(1, parseInt(page, 10) || 1);
     const ps = Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20));
@@ -105,7 +105,7 @@ export class AdminModelRoutingController {
     const [items, total] = await Promise.all([
       this.ruleModel
         .find(query)
-        .sort({ model_name: 1, priority: -1, client_id: 1 })
+        .sort({ model_id: 1, priority: -1, apiKey: 1 })
         .skip((p - 1) * ps)
         .limit(ps)
         .lean(),
@@ -117,13 +117,13 @@ export class AdminModelRoutingController {
 
   @Post()
   @RequirePermissions('model:create')
-  @ApiOperation({ summary: '创建路由规则' })
+  @ApiOperation({ summary: '创建路由策略' })
   @ApiResponse({ status: 200, description: '成功' })
   async create(@Body() body: Record<string, unknown>) {
     this.validateUpsert(body, true);
     const doc = await this.ruleModel.create({
-      model_name: String(body.model_name).trim(),
-      client_id: body.client_id != null ? String(body.client_id).trim() : '',
+      model_id: String(body.model_id).trim(),
+      apiKey: body.apiKey != null ? String(body.apiKey).trim() : '',
       enabled: body.enabled !== false,
       priority: typeof body.priority === 'number' ? body.priority : parseInt(String(body.priority || '0'), 10) || 0,
       effective_from: body.effective_from ? new Date(String(body.effective_from)) : undefined,
@@ -144,16 +144,16 @@ export class AdminModelRoutingController {
 
   @Put(':id')
   @RequirePermissions('model:update')
-  @ApiOperation({ summary: '更新路由规则' })
+  @ApiOperation({ summary: '更新路由策略' })
   async update(@Param('id') id: string, @Body() body: Record<string, unknown>) {
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestException('Invalid id');
     }
     this.validateUpsert(body, false);
     const $set: Record<string, unknown> = {};
-    // 允许编辑 model_name
-    if (body.model_name !== undefined) $set.model_name = String(body.model_name).trim();
-    if (body.client_id !== undefined) $set.client_id = String(body.client_id).trim();
+    // 允许编辑 model_id
+    if (body.model_id !== undefined) $set.model_id = String(body.model_id).trim();
+    if (body.apiKey !== undefined) $set.apiKey = String(body.apiKey).trim();
     if (body.enabled !== undefined) $set.enabled = Boolean(body.enabled);
     if (body.priority !== undefined) {
       $set.priority = typeof body.priority === 'number' ? body.priority : parseInt(String(body.priority), 10) || 0;
@@ -186,7 +186,7 @@ export class AdminModelRoutingController {
 
   @Delete(':id')
   @RequirePermissions('model:delete')
-  @ApiOperation({ summary: '删除路由规则' })
+  @ApiOperation({ summary: '删除路由策略' })
   async remove(@Param('id') id: string) {
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestException('Invalid id');
@@ -197,8 +197,8 @@ export class AdminModelRoutingController {
   }
 
   private validateUpsert(body: Record<string, unknown>, isCreate: boolean) {
-    if (isCreate && (!body.model_name || String(body.model_name).trim() === '')) {
-      throw new BadRequestException('model_name is required');
+    if (isCreate && (!body.model_id || String(body.model_id).trim() === '')) {
+      throw new BadRequestException('model_id is required');
     }
     if (body.strategy_type != null && !STRATEGIES.has(String(body.strategy_type))) {
       throw new BadRequestException(`strategy_type must be one of: ${[...STRATEGIES].join(', ')}`);

@@ -11,7 +11,7 @@ export interface TaskSubmitJobData {
   model: string;
   featureType: string;
   priority: number;
-  clientId: string;
+  apiKey: string;
   enqueuedAt: number;
 }
 
