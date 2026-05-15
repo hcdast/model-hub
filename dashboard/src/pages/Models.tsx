@@ -60,12 +60,12 @@ export default function ModelsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [includeDisabled]);
 
-  const openDetail = async (modelName: string) => {
+  const openDetail = async (modelId: string) => {
     setDetailOpen(true);
     setDetailLoading(true);
     setDetail(null);
     try {
-      const res: any = await modelApi.getDetail(modelName);
+      const res: any = await modelApi.getDetail(modelId);
       setDetail(res.data || null);
     } catch (err) {
       ErrorHandler.handleApiError(err, '加载详情失败');
@@ -75,7 +75,7 @@ export default function ModelsPage() {
 
   const handleToggle = async (record: any, disabled: boolean) => {
     try {
-      await modelApi.toggle(record.model_name, disabled);
+      await modelApi.toggle(record.model_id, disabled);
       message.success(disabled ? '已禁用' : '已启用');
       fetchData(page, pageSize);
     } catch (err) {
@@ -85,7 +85,7 @@ export default function ModelsPage() {
 
   const openPricing = async (record: any) => {
     try {
-      const res: any = await modelApi.getDetail(record.model_name);
+      const res: any = await modelApi.getDetail(record.model_id);
       setPricingModel(res.data || null);
       setPricingOpen(true);
     } catch (err) {
@@ -94,12 +94,11 @@ export default function ModelsPage() {
   };
 
   const columns = [
-    { title: 'model_name', dataIndex: 'model_name', key: 'model_name', ellipsis: true, width: 200 },
+    { title: 'model_id', dataIndex: 'model_id', key: 'model_id', ellipsis: true, width: 200 },
     { title: 'provider_model_name', dataIndex: 'provider_model_name', key: 'provider_model_name', ellipsis: true, width: 280 },
-    { title: 'label', dataIndex: 'label', key: 'label', ellipsis: true, width: 140 },
+    { title: 'model_name', dataIndex: 'model_name', key: 'model_name', ellipsis: true, width: 140 },
     { title: 'provider', dataIndex: 'provider', key: 'provider', width: 100 },
-    { title: 'service', dataIndex: 'service', key: 'service', width: 90 },
-    { title: 'type', dataIndex: 'model_type', key: 'model_type', width: 60 },
+    { title: 'type', dataIndex: 'model_type', key: 'model_type', width: 120 },
     {
       title: '状态',
       key: 'disabled',
@@ -124,7 +123,7 @@ export default function ModelsPage() {
       width: 200,
       render: (_: unknown, r: any) => (
         <Space size={0} wrap>
-          <Button type="link" size="small" onClick={() => openDetail(r.model_name)}>详情</Button>
+          <Button type="link" size="small" onClick={() => openDetail(r.model_id)}>详情</Button>
           <Button
             type="link"
             size="small"
@@ -137,7 +136,7 @@ export default function ModelsPage() {
             type="link"
             size="small"
             icon={<EditOutlined />}
-            onClick={() => navigate(`/models/edit/${encodeURIComponent(r.model_name)}`)}
+            onClick={() => navigate(`/models/edit/${encodeURIComponent(r.model_id)}`)}
           >
             编辑
           </Button>
@@ -148,7 +147,7 @@ export default function ModelsPage() {
             onClick={() => {
               const q = new URLSearchParams({
                 action: 'new',
-                model_name: r.model_name,
+                model_id: r.model_id,
               });
               navigate(`/model-routing-rules?${q.toString()}`);
             }}
@@ -183,7 +182,7 @@ export default function ModelsPage() {
         extra={(
           <>
             <Input
-              placeholder="搜索 model_name / label"
+              placeholder="搜索 model_id / model_name"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               onPressEnter={() => fetchData(1, pageSize)}
@@ -223,7 +222,7 @@ export default function ModelsPage() {
         <Table
           columns={columns}
           dataSource={items}
-          rowKey="model_name"
+          rowKey={(r: any) => r.model_id || r.provider_model_name || r._id}
           loading={loading}
           size="small"
           scroll={{ x: 1300 }}
@@ -239,7 +238,7 @@ export default function ModelsPage() {
       </Card>
 
       <Drawer
-        title={detail?.model_name || '模型详情'}
+        title={detail?.model_name || detail?.model_id || '模型详情'}
         width={920}
         open={detailOpen}
         onClose={() => { setDetailOpen(false); setDetail(null); }}

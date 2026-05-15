@@ -1,22 +1,38 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Card,
   Button,
   Space,
   Typography,
+  Segmented,
+  Alert,
+  Row,
+  Col,
 } from 'antd';
-import { ArrowLeftOutlined, SaveOutlined } from '@ant-design/icons';
+import {
+  ArrowLeftOutlined,
+  SaveOutlined,
+  AppstoreOutlined,
+  CodeOutlined,
+  EyeOutlined,
+} from '@ant-design/icons';
 import PageHeader from '../components/PageHeader';
 import { ModelConfigEditor } from '../components/ModelConfigEditor';
+import {
+  ModelConfigStructuredEditor,
+  ClientParamPreview,
+} from '../components/ModelConfigStructuredEditor';
 import { TemplateSelector } from '../components/TemplateSelector';
 import { LoadingState } from '../components/LoadingState';
 import { modelApi } from '../services/api';
 import { ErrorHandler } from '../utils/error-handler';
 
+type ConfigEditMode = 'structured' | 'json';
+
 /**
  * 创建模型配置页面
- * 提供 JSON 编辑器界面用于创建新的模型配置
+ * 左侧：结构化编辑 / JSON；右侧：客户端表单实时预览
  */
 export default function CreateModelConfigPage() {
   const navigate = useNavigate();
@@ -24,18 +40,27 @@ export default function CreateModelConfigPage() {
   const [validationErrors, setValidationErrors] = useState<any[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [editMode, setEditMode] = useState<ConfigEditMode>('structured');
+  const [structuredSession, setStructuredSession] = useState(0);
 
-  // 加载默认模板
+  const structuredPayload = useMemo(() => {
+    try {
+      return { ok: true as const, data: JSON.parse(jsonValue) as Record<string, any> };
+    } catch (e) {
+      return {
+        ok: false as const,
+        error: e instanceof Error ? e.message : String(e),
+      };
+    }
+  }, [jsonValue]);
+
   useEffect(() => {
-    // 提供一个基础的默认模板
     const defaultTemplate = {
-      model_name: '',
-      model_type: 40001,
+      model_id: '',
+      model_type: 'textToImage',
       provider: '',
       provider_model_name: '',
-      service: '',
-      group: '',
-      label: '',
+      model_name: '',
       description: '',
       tags: [],
       sort: 100,
@@ -55,54 +80,47 @@ export default function CreateModelConfigPage() {
     setLoading(false);
   }, []);
 
-  // 加载模板
   const handleTemplateLoad = (template: Record<string, any>) => {
     setJsonValue(JSON.stringify(template, null, 2));
+    setEditMode('structured');
+    setStructuredSession((s) => s + 1);
     ErrorHandler.showSuccess('模板已加载');
   };
 
-  // 处理提交
   const handleSubmit = async () => {
-    // 检查是否有验证错误
     if (validationErrors.length > 0) {
       ErrorHandler.showWarning('请先修复 JSON 格式错误');
       return;
     }
 
-    // 解析 JSON
     let config: any;
     try {
       config = JSON.parse(jsonValue);
-    } catch (err) {
+    } catch {
       ErrorHandler.showWarning('JSON 格式错误，无法解析');
       return;
     }
 
-    // 验证必填字段
-    const requiredFields = ['model_name', 'model_type', 'provider', 'label', 'service', 'unit_price_map'];
+    const requiredFields = ['model_id', 'model_type', 'provider', 'model_name', 'unit_price_map'];
     const missingFields = requiredFields.filter((field) => !config[field]);
     if (missingFields.length > 0) {
       ErrorHandler.showWarning(`缺少必填字段: ${missingFields.join(', ')}`);
       return;
     }
 
-    // 提交到后端
     setSubmitting(true);
     try {
       const res: any = await modelApi.create(config);
-      
+
       if (res.code === 0) {
         ErrorHandler.showSuccess('创建成功');
-        // 延迟跳转，让用户看到成功提示
         setTimeout(() => {
           navigate('/models');
         }, 1000);
       } else {
-        // 处理业务错误（使用统一错误处理）
         ErrorHandler.handleApiError({ response: { data: res } }, '创建失败');
       }
     } catch (err: any) {
-      // 使用统一错误处理
       ErrorHandler.handleApiError(err, '创建失败');
       console.error('Failed to create model config:', err);
     } finally {
@@ -110,7 +128,6 @@ export default function CreateModelConfigPage() {
     }
   };
 
-  // 返回列表
   const handleCancel = () => {
     navigate('/models');
   };
@@ -131,16 +148,95 @@ export default function CreateModelConfigPage() {
       />
 
       <Card>
-        {/* 模板选择器 */}
         <TemplateSelector onChange={handleTemplateLoad} />
 
-        <ModelConfigEditor
-          value={jsonValue}
-          onChange={setJsonValue}
-          onValidate={setValidationErrors}
-        />
+        <Row gutter={[16, 16]} align="stretch" style={{ marginTop: 16 }}>
+          <Col xs={24} xl={14}>
+            <Segmented
+              value={editMode}
+              onChange={(value) => {
+                const v = value as ConfigEditMode;
+                if (v === 'structured') {
+                  setStructuredSession((s) => s + 1);
+                }
+                setEditMode(v);
+              }}
+              options={[
+                {
+                  value: 'structured',
+                  icon: <AppstoreOutlined />,
+                  label: '结构化编辑',
+                },
+                {
+                  value: 'json',
+                  icon: <CodeOutlined />,
+                  label: 'JSON 模式',
+                },
+              ]}
+            />
+            <div style={{ marginTop: 16 }}>
+              {editMode === 'json' ? (
+                <ModelConfigEditor
+                  value={jsonValue}
+                  onChange={setJsonValue}
+                  onValidate={setValidationErrors}
+                  height="min(70vh, 620px)"
+                />
+              ) : !structuredPayload.ok ? (
+                <Alert
+                  type="error"
+                  showIcon
+                  message="当前 JSON 无法解析"
+                  description={structuredPayload.error}
+                  action={(
+                    <Button size="small" type="primary" onClick={() => setEditMode('json')}>
+                      切换到 JSON 模式
+                    </Button>
+                  )}
+                />
+              ) : (
+                <ModelConfigStructuredEditor
+                  key={structuredSession}
+                  value={structuredPayload.data}
+                  onChange={(next) => setJsonValue(JSON.stringify(next, null, 2))}
+                />
+              )}
+            </div>
+          </Col>
+          <Col xs={24} xl={10}>
+            <Card
+              size="small"
+              title={(
+                <Space size={8}>
+                  <EyeOutlined />
+                  <span>客户端展示</span>
+                </Space>
+              )}
+              styles={{
+                body: {
+                  maxHeight: 'calc(100vh - 200px)',
+                  overflowY: 'auto',
+                },
+              }}
+              style={{ position: 'sticky', top: 0 }}
+            >
+              <Typography.Paragraph type="secondary" style={{ marginBottom: 12, fontSize: 13 }}>
+                左侧编辑会同步更新当前配置；此处按 params 定义实时渲染只读预览。
+              </Typography.Paragraph>
+              {structuredPayload.ok ? (
+                <ClientParamPreview embedded definitions={structuredPayload.data.params} />
+              ) : (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="无法预览"
+                  description="JSON 无法解析时，请先在左侧 JSON 模式中修正格式。"
+                />
+              )}
+            </Card>
+          </Col>
+        </Row>
 
-        {/* 验证错误提示 */}
         {validationErrors.length > 0 && (
           <div style={{ marginTop: 16, color: '#ff4d4f' }}>
             <Typography.Text type="danger">
@@ -149,7 +245,6 @@ export default function CreateModelConfigPage() {
           </div>
         )}
 
-        {/* 操作按钮 */}
         <Space style={{ marginTop: 24 }}>
           <Button
             type="primary"

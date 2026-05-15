@@ -6,13 +6,11 @@ const { Text } = Typography;
 
 const LABEL: Record<string, string> = {
   _id: '_id（文档 ID）',
-  model_name: 'model_name（模型名称）',
+  model_id: 'model_id（与创建任务 model 一致）',
   provider_model_name: 'provider_model_name（提供商模型名）',
-  label: 'label（显示标签）',
-  provider: 'provider（提供商）',
-  service: 'service（服务标识）',
-  model_type: 'model_type（模型类型）',
-  group: 'group（分组）',
+  model_name: 'model_name（展示名称）',
+  provider: 'provider（Adapter 注册名）',
+  model_type: 'model_type（camelCase 能力类型）',
   description: 'description（描述）',
   tags: 'tags（标签）',
   sort: 'sort（排序）',
@@ -25,13 +23,11 @@ const LABEL: Record<string, string> = {
 
 const BASIC_KEYS = [
   '_id',
-  'model_name',
+  'model_id',
   'provider_model_name',
-  'label',
+  'model_name',
   'provider',
-  'service',
   'model_type',
-  'group',
   'description',
   'tags',
   'sort',

@@ -64,17 +64,19 @@ export const statsApi = {
 
 export const auditApi = {
   list: (params: Record<string, any>) => api.get('/audit-logs', { params }),
+  /** 侧栏审计资源类型（来自描述符注册），用于筛选下拉 */
+  getResourceTypes: () => api.get('/audit-logs/resource-types'),
 };
 
 export const modelApi = {
   list: (params: Record<string, any>) => api.get('/models', { params }),
-  getDetail: (modelName: string) =>
-    api.get('/models/detail', { params: { model_name: modelName } }),
+  getDetail: (modelId: string) =>
+    api.get('/models/detail', { params: { model_id: modelId } }),
   /** 获取模型在各厂商的定价信息（用于成本优先路由规则） */
-  getProviderPricing: (modelName: string) =>
-    api.get('/models/provider-pricing', { params: { model_name: modelName } }),
-  toggle: (model_name: string, disabled: boolean) =>
-    api.put('/models/toggle', { model_name, disabled }),
+  getProviderPricing: (modelId: string) =>
+    api.get('/models/provider-pricing', { params: { model_id: modelId } }),
+  toggle: (model_id: string, disabled: boolean) =>
+    api.put('/models/toggle', { model_id, disabled }),
   getTemplates: () => api.get('/models/templates'),
   create: (data: Record<string, any>) => api.post('/models', data),
   update: (id: string, data: Record<string, any>) => api.put(`/models/${encodeURIComponent(id)}`, data),
@@ -118,23 +120,23 @@ export const providerConfigApi = {
 export const apiClientApi = {
   list: (params: Record<string, any>) => api.get('/api-clients', { params }),
   create: (data: { name?: string }) => api.post('/api-clients', data),
-  setEnabled: (clientId: string, enabled: boolean) =>
-    api.patch(`/api-clients/${encodeURIComponent(clientId)}`, { enabled }),
-  rotate: (clientId: string) => api.post(`/api-clients/${encodeURIComponent(clientId)}/rotate`),
-  updateDefaultPriority: (clientId: string, defaultPriority: number) =>
-    api.patch(`/api-clients/${encodeURIComponent(clientId)}/priority`, { defaultPriority }),
+  setEnabled: (apiKey: string, enabled: boolean) =>
+    api.patch(`/api-clients/${encodeURIComponent(apiKey)}`, { enabled }),
+  rotate: (apiKey: string) => api.post(`/api-clients/${encodeURIComponent(apiKey)}/rotate`),
+  updateDefaultPriority: (apiKey: string, defaultPriority: number) =>
+    api.patch(`/api-clients/${encodeURIComponent(apiKey)}/priority`, { defaultPriority }),
   /** 修改 API 客户端计费策略 */
-  updateBillingPolicy: (clientId: string, billingPolicy: string) =>
-    api.patch(`/api-clients/${encodeURIComponent(clientId)}/billing-policy`, { billingPolicy }),
+  updateBillingPolicy: (apiKey: string, billingPolicy: string) =>
+    api.patch(`/api-clients/${encodeURIComponent(apiKey)}/billing-policy`, { billingPolicy }),
   /** 更新限流配置 */
-  updateRateLimits: (clientId: string, rateLimits: { maxQps?: number; maxConcurrent?: number; maxDailyRequests?: number }) =>
-    api.put(`/api-clients/${encodeURIComponent(clientId)}/rate-limits`, rateLimits),
+  updateRateLimits: (apiKey: string, rateLimits: { maxQps?: number; maxConcurrent?: number; maxDailyRequests?: number }) =>
+    api.put(`/api-clients/${encodeURIComponent(apiKey)}/rate-limits`, rateLimits),
   /** 更新模型白名单 */
-  updateModelAllowlist: (clientId: string, modelAllowlist: string[]) =>
-    api.put(`/api-clients/${encodeURIComponent(clientId)}/model-allowlist`, { modelAllowlist }),
+  updateModelAllowlist: (apiKey: string, modelAllowlist: string[]) =>
+    api.put(`/api-clients/${encodeURIComponent(apiKey)}/model-allowlist`, { modelAllowlist }),
   /** 查询单个客户端用量统计 */
-  getUsage: (clientId: string, params: { from?: string; to?: string }) =>
-    api.get(`/api-clients/${encodeURIComponent(clientId)}/usage`, { params }),
+  getUsage: (apiKey: string, params: { from?: string; to?: string }) =>
+    api.get(`/api-clients/${encodeURIComponent(apiKey)}/usage`, { params }),
   /** 查询所有客户端用量汇总 */
   getUsageSummary: () => api.get('/api-clients/usage/summary'),
 };

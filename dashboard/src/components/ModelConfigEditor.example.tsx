@@ -13,10 +13,10 @@ import { Button, Space, message, Card, Alert } from 'antd';
 // ============================================
 export const BasicExample: React.FC = () => {
   const [jsonValue, setJsonValue] = useState(`{
-  "model_name": "example-model",
-  "model_type": 40001,
-  "provider": "Example Provider",
-  "label": "示例模型"
+  "model_id": "wavespeed-ai/example-model/text-to-image",
+  "model_type": "textToImage",
+  "provider": "wavespeed-ai",
+  "model_name": "示例模型"
 }`);
 
   return (
@@ -93,10 +93,10 @@ export const ValidationExample: React.FC = () => {
 // ============================================
 export const ReadOnlyExample: React.FC = () => {
   const jsonValue = JSON.stringify({
-    model_name: 'readonly-model',
-    model_type: 40001,
-    provider: 'Provider',
-    label: '只读模型',
+    model_id: 'wavespeed-ai/readonly-model/text-to-image',
+    model_type: 'textToImage',
+    provider: 'wavespeed-ai',
+    model_name: '只读模型',
     description: '这是一个只读配置示例',
   }, null, 2);
 
@@ -124,8 +124,10 @@ export const ReadOnlyExample: React.FC = () => {
 // ============================================
 export const CustomHeightExample: React.FC = () => {
   const [jsonValue, setJsonValue] = useState(JSON.stringify({
-    model_name: 'custom-height-model',
-    model_type: 40001,
+    model_id: 'wavespeed-ai/custom-height-model/text-to-image',
+    model_type: 'textToImage',
+    provider: 'wavespeed-ai',
+    model_name: '自定义高度示例',
   }, null, 2));
 
   return (
@@ -152,13 +154,11 @@ export const CustomHeightExample: React.FC = () => {
 // ============================================
 export const CompleteCreateExample: React.FC = () => {
   const defaultTemplate = {
-    model_name: '',
-    model_type: 40001,
+    model_id: '',
+    model_type: 'textToImage',
     provider: '',
+    model_name: '',
     provider_model_name: '',
-    service: '',
-    group: '',
-    label: '',
     description: '',
     tags: [],
     sort: 100,
@@ -188,7 +188,7 @@ export const CompleteCreateExample: React.FC = () => {
       const config = JSON.parse(jsonValue);
       
       // 验证必填字段
-      const requiredFields = ['model_name', 'model_type', 'provider', 'label', 'service', 'unit_price_map'];
+      const requiredFields = ['model_id', 'model_type', 'provider', 'model_name', 'unit_price_map'];
       const missingFields = requiredFields.filter(field => !config[field]);
       
       if (missingFields.length > 0) {

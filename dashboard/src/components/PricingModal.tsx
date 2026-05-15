@@ -17,9 +17,9 @@ export interface PricingModalProps {
   open: boolean;
   modelConfig: {
     _id: string;
+    model_id: string;
+    model_type: string;
     model_name: string;
-    model_type: number;
-    label: string;
     unit_price_map: Record<string, PricingEntry>;
   } | null;
   onClose: () => void;
@@ -40,7 +40,7 @@ interface PricingRow {
 
 function buildRows(
   priceMap: Record<string, PricingEntry>,
-  modelType: number,
+  modelType: string | number,
 ): PricingRow[] {
   const category = getModelCategory(modelType);
   return Object.entries(priceMap).map(([resolution, entry]) => {
@@ -232,7 +232,7 @@ export default function PricingModal({ open, modelConfig, onClose, onSaved }: Pr
 
   return (
     <Modal
-      title={`定价表 — ${modelConfig?.label || modelConfig?.model_name || ''} (${isVideo ? '视频类' : '图片类'})`}
+      title={`定价表 — ${modelConfig?.model_name || modelConfig?.model_id || ''} (${isVideo ? '视频类' : '图片类'})`}
       open={open}
       onCancel={onClose}
       onOk={handleSave}

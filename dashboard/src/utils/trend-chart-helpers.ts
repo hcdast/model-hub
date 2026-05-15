@@ -74,12 +74,13 @@ export function calcSuccessRate(summary: DailySummary): number {
 
 /**
  * 生成任务量趋势折线图的 ECharts Option
- * 包含三条折线：总量（蓝色 #1890ff）、成功（绿色 #52c41a）、失败（红色 #ff4d4f）
+ * 包含三条折线：总量（品牌青 #0ea5e9）、成功（绿色 #52c41a）、失败（红色 #ff4d4f）
  */
 export function buildTaskVolumeOption(data: DailySummary[]): object {
   const dates = data.map((d) => d.date);
 
   return {
+    backgroundColor: 'transparent',
     tooltip: { trigger: 'axis' },
     legend: { data: ['总量', '成功', '失败'] },
     xAxis: { type: 'category', data: dates },
@@ -90,7 +91,7 @@ export function buildTaskVolumeOption(data: DailySummary[]): object {
         type: 'line',
         smooth: true,
         data: data.map((d) => d.totalCount),
-        itemStyle: { color: '#1890ff' },
+        itemStyle: { color: '#0ea5e9' },
       },
       {
         name: '成功',
@@ -120,6 +121,7 @@ export function buildSuccessRateOption(data: DailySummary[]): object {
   const rates = data.map((d) => calcSuccessRate(d));
 
   return {
+    backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',
       formatter: (params: any) => {
