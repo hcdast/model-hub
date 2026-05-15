@@ -199,7 +199,7 @@ export default function AccountCostPage() {
   return (
     <div>
       <PageHeader
-        title="账号成本观测"
+        title="成本分析"
         extra={(
           <>
             <DatePicker.RangePicker

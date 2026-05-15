@@ -28,7 +28,7 @@ import { PermissionGuard } from './guards/permission.guard';
 import { RequirePermissions } from './decorators/require-permissions.decorator';
 import { AuditLogService } from './audit-log.service';
 
-@ApiTags('管理后台 - 厂商运行时配置')
+@ApiTags('管理后台 - 供应商运行时配置')
 @ApiBearerAuth('AdminJwt')
 @Controller('api/v1/admin/provider-configs')
 @UseGuards(AdminJwtGuard, PermissionGuard)
@@ -42,7 +42,7 @@ export class AdminProviderConfigController {
 
   @Get()
   @RequirePermissions('provider:read')
-  @ApiOperation({ summary: '厂商运行时配置列表（MongoDB，不含密钥）' })
+  @ApiOperation({ summary: '供应商运行时配置列表（MongoDB，不含密钥）' })
   @ApiResponse({ status: 200, description: '成功' })
   async list() {
     const rows = await this.runtimeModel
@@ -72,14 +72,14 @@ export class AdminProviderConfigController {
       code: 0,
       data: {
         items,
-        notice: 'API 密钥已统一在「账号池」页面管理，请前往账号池页面查看和配置密钥。',
+        notice: 'API 密钥已统一在「供应商账号池」管理，请在账号池页面查看和配置密钥。',
       },
     };
   }
 
   @Get(':providerName')
   @RequirePermissions('provider:read')
-  @ApiOperation({ summary: '单厂商详情（不含密钥）' })
+  @ApiOperation({ summary: '单供应商详情（不含密钥）' })
   async detail(@Param('providerName') providerName: string) {
     const name = decodeURIComponent(providerName);
     if (!REGISTERED_PROVIDER_NAMES.includes(name as any)) {
@@ -102,14 +102,14 @@ export class AdminProviderConfigController {
         },
         revision: row?.revision ?? 0,
         updatedAt: (row as { updatedAt?: Date })?.updatedAt,
-        notice: 'API 密钥已统一在「账号池」页面管理，请前往账号池页面查看和配置密钥。',
+        notice: 'API 密钥已统一在「供应商账号池」管理，请在账号池页面查看和配置密钥。',
       },
     };
   }
 
   @Put(':providerName')
   @RequirePermissions('provider:update')
-  @ApiOperation({ summary: 'Upsert 厂商配置写入 Mongo（不含密钥，密钥请在账号池管理）' })
+  @ApiOperation({ summary: 'Upsert 供应商配置写入 Mongo（不含密钥，密钥请在账号池管理）' })
   async upsert(
     @Param('providerName') providerName: string,
     @Body()
@@ -169,7 +169,7 @@ export class AdminProviderConfigController {
 
   @Put(':providerName/cost-config')
   @RequirePermissions('provider:update')
-  @ApiOperation({ summary: '更新厂商成本配置（用于 cost-based 路由策略）' })
+  @ApiOperation({ summary: '更新供应商成本配置（用于 cost-based 路由策略）' })
   @ApiResponse({ status: 200, description: '成功' })
   async updateCostConfig(
     @Param('providerName') providerName: string,

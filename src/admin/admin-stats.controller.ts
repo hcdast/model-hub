@@ -26,7 +26,7 @@ export class AdminStatsController {
 
   @Get('stats/daily')
   @RequirePermissions('stats:read')
-  @ApiOperation({ summary: '每日统计报表', description: '按功能、厂商、模型维度的每日聚合统计' })
+  @ApiOperation({ summary: '每日统计报表', description: '按功能、供应商、模型维度的每日聚合统计' })
   @ApiQuery({ name: 'dateFrom', required: false, example: '2026-04-01' })
   @ApiQuery({ name: 'dateTo', required: false, example: '2026-04-07' })
   @ApiQuery({ name: 'featureType', required: false })
@@ -100,7 +100,7 @@ export class AdminStatsController {
 
   @Get('cost-overview')
   @RequirePermissions('stats:read')
-  @ApiOperation({ summary: '成本观测总览', description: '今日成本核心指标：模型消耗、热门模型' })
+  @ApiOperation({ summary: '成本分析总览', description: '今日成本核心指标：模型消耗、热门模型' })
   @ApiResponse({ status: 200, description: '查询成功' })
   async getCostOverview() {
     const costData = await this.billingService.getTodayCostOverview();
@@ -135,7 +135,7 @@ export class AdminStatsController {
       taskId: job.data?.taskId ?? null,
       model: job.data?.model ?? job.data?.modelName ?? null,
       priority: job.opts?.priority ?? null,
-      clientId: job.data?.clientId ?? null,
+      apiKey: job.data?.apiKey ?? null,
       enqueuedAt: job.timestamp ?? null,
     }));
 
@@ -146,21 +146,21 @@ export class AdminStatsController {
     const paged = jobItems.slice((p - 1) * ps, p * ps);
 
     // Attach client names
-    const clientIds = [...new Set(paged.map((j) => j.clientId).filter(Boolean))] as string[];
+    const apiKeys = [...new Set(paged.map((j) => j.apiKey).filter(Boolean))] as string[];
     const clientNameMap = new Map<string, string | null>();
-    if (clientIds.length > 0) {
+    if (apiKeys.length > 0) {
       const clients = await this.apiClientModel
-        .find({ clientId: { $in: clientIds } })
-        .select('clientId name')
+        .find({ apiKey: { $in: apiKeys } })
+        .select('apiKey name')
         .lean();
       for (const c of clients) {
-        clientNameMap.set(c.clientId, c.name?.trim() || null);
+        clientNameMap.set(c.apiKey, c.name?.trim() || null);
       }
     }
 
     const items = paged.map((j) => ({
       ...j,
-      clientName: j.clientId ? (clientNameMap.get(j.clientId) ?? null) : null,
+      clientName: j.apiKey ? (clientNameMap.get(j.apiKey) ?? null) : null,
     }));
 
     return { code: 0, data: { items, total, page: p, pageSize: ps } };

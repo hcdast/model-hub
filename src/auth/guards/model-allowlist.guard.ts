@@ -29,10 +29,10 @@ export class ModelAllowlistGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
-    const clientId = (request as any).clientId as string;
+    const apiKey = (request as any).apiKey as string;
 
-    if (!clientId) {
-      // 没有 clientId 说明 ApiKeyGuard 未执行或未设置，直接放行
+    if (!apiKey) {
+      // 没有 apiKey 说明 ApiKeyGuard 未执行或未设置，直接放行
       return true;
     }
 
@@ -44,7 +44,7 @@ export class ModelAllowlistGuard implements CanActivate {
     }
 
     // 获取客户端的模型白名单
-    const allowlist = await this.getModelAllowlist(clientId);
+    const allowlist = await this.getModelAllowlist(apiKey);
 
     // 空 allowlist 放行所有模型（向后兼容）
     if (!allowlist || allowlist.length === 0) {
@@ -56,7 +56,7 @@ export class ModelAllowlistGuard implements CanActivate {
 
     if (!isAllowed) {
       this.logger.warn(
-        `模型访问被拒绝: clientId=${clientId}, model=${model}, allowlist=${JSON.stringify(allowlist)}`,
+        `模型访问被拒绝: apiKey=${apiKey}, model=${model}, allowlist=${JSON.stringify(allowlist)}`,
       );
       throw new HttpException(
         { success: false, error: 'Model not allowed', code: 'MODEL_NOT_ALLOWED' },
@@ -70,9 +70,9 @@ export class ModelAllowlistGuard implements CanActivate {
   /**
    * 获取客户端的模型白名单配置
    */
-  private async getModelAllowlist(clientId: string): Promise<string[]> {
+  private async getModelAllowlist(apiKey: string): Promise<string[]> {
     const doc = await this.apiClientModel
-      .findOne({ clientId })
+      .findOne({ apiKey })
       .select('modelAllowlist')
       .lean()
       .exec();

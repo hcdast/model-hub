@@ -19,7 +19,7 @@ import { PermissionGuard } from '../../admin/guards/permission.guard';
 import { RequirePermissions } from '../../admin/decorators/require-permissions.decorator';
 import { InAppNotificationService } from '../services/in-app-notification.service';
 
-@ApiTags('管理后台 - 站内通知')
+@ApiTags('管理后台 - 消息中心')
 @ApiBearerAuth('AdminJwt')
 @Controller('api/v1/admin/notifications')
 @UseGuards(AdminJwtGuard, PermissionGuard)
@@ -30,7 +30,7 @@ export class InAppNotificationController {
 
   @Get()
   @RequirePermissions('notification:read')
-  @ApiOperation({ summary: '站内通知列表' })
+  @ApiOperation({ summary: '消息中心列表' })
   @ApiQuery({ name: 'read', required: false, description: 'true/false' })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'pageSize', required: false })

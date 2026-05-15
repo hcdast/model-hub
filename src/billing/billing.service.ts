@@ -15,7 +15,7 @@ import { roundMoney } from '../common/utils/money.util';
 
 /** 计费汇总结果条目 */
 export interface BillingSummaryItem {
-  /** 分组键（模型名称 / clientId / 日期字符串） */
+  /** 分组键（模型名称 / apiKey / 日期字符串） */
   _id: string;
   /** 总预估费用 */
   totalEstimatedCost: number;
@@ -29,8 +29,8 @@ export interface BillingSummaryItem {
 export interface CreateRecordParams {
   /** 任务 ID */
   taskId: string;
-  /** API Client ID */
-  clientId: string;
+  /** API Key（与 api_clients.apiKey 一致） */
+  apiKey: string;
   /** 模型名称 */
   model: string;
   /** 供应商标识 */
@@ -64,11 +64,11 @@ export class BillingService {
    * 初始状态为 estimated，包含预估用量和预估费用。
    */
   async createRecord(params: CreateRecordParams): Promise<BillingRecordDocument> {
-    const { taskId, clientId, model, provider, estimate, billingPolicy } = params;
+    const { taskId, apiKey, model, provider, estimate, billingPolicy } = params;
 
     const record = await this.billingModel.create({
       taskId,
-      clientId,
+      apiKey,
       model,
       provider,
       usageType: estimate.usageType,
@@ -81,7 +81,7 @@ export class BillingService {
     });
 
     this.logger.log(
-      `创建计费记录：taskId=${taskId}, clientId=${clientId}, model=${model}, ` +
+      `创建计费记录：taskId=${taskId}, apiKey=${apiKey}, model=${model}, ` +
       `billingPolicy=${billingPolicy}, estimatedCost=${estimate.estimatedCost}`,
     );
 
@@ -231,18 +231,18 @@ export class BillingService {
   /**
    * 分页查询计费记录
    *
-   * 支持 clientId、model、billingPolicy、status、日期范围筛选。
+   * 支持 apiKey、model、billingPolicy、status、日期范围筛选。
    */
   async listRecords(
     query: BillingQueryDto,
   ): Promise<{ items: Record<string, unknown>[]; total: number }> {
-    const { page = 1, pageSize = 20, clientId, model, billingPolicy, status, startDate, endDate } = query;
+    const { page = 1, pageSize = 20, apiKey, model, billingPolicy, status, startDate, endDate } = query;
     const skip = (page - 1) * pageSize;
 
-    // 构建查询条件
+    // 构建查询条件（旧库 billing_records 可能仍为 clientId）
     const filter: Record<string, any> = {};
-    if (clientId) {
-      filter.clientId = clientId;
+    if (apiKey) {
+      filter.$or = [{ apiKey }, { clientId: apiKey }];
     }
     if (model) {
       filter.model = model;
@@ -275,13 +275,20 @@ export class BillingService {
       this.billingModel.countDocuments(filter).exec(),
     ]);
 
-    const items = rows.map((o) => ({
-      ...o,
-      unitPrice: typeof o.unitPrice === 'number' ? roundMoney(o.unitPrice) : o.unitPrice,
-      estimatedCost: typeof o.estimatedCost === 'number' ? roundMoney(o.estimatedCost) : o.estimatedCost,
-      actualCost:
-        typeof o.actualCost === 'number' ? roundMoney(o.actualCost) : o.actualCost,
-    }));
+    const items = rows.map((raw) => {
+      const o = raw as Record<string, unknown>;
+      const key = String(o.apiKey ?? o.clientId ?? '').trim();
+      const { clientId: _legacy, ...rest } = o;
+      return {
+        ...rest,
+        apiKey: key,
+        unitPrice: typeof o.unitPrice === 'number' ? roundMoney(o.unitPrice) : o.unitPrice,
+        estimatedCost:
+          typeof o.estimatedCost === 'number' ? roundMoney(o.estimatedCost) : o.estimatedCost,
+        actualCost:
+          typeof o.actualCost === 'number' ? roundMoney(o.actualCost) : o.actualCost,
+      };
+    });
 
     return { items, total };
   }
@@ -289,7 +296,7 @@ export class BillingService {
   /**
    * 计费汇总 —— 使用 MongoDB aggregate 按维度聚合费用
    *
-   * 支持按 model / clientId / date 分组，支持按 billingPolicy 筛选。
+   * 支持按 model / apiKey / date 分组，支持按 billingPolicy 筛选。
    */
   async getSummary(query: BillingSummaryQueryDto): Promise<BillingSummaryItem[]> {
     const { groupBy = 'model', billingPolicy, startDate, endDate } = query;
@@ -315,8 +322,8 @@ export class BillingService {
       case 'model':
         groupId = '$model';
         break;
-      case 'clientId':
-        groupId = '$clientId';
+      case 'apiKey':
+        groupId = '$apiKey';
         break;
       case 'date':
         // 按日期分组：提取 createdAt 的年月日

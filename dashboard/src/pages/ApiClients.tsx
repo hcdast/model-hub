@@ -1,15 +1,27 @@
 import { useEffect, useState, useMemo } from 'react';
+import type { CSSProperties } from 'react';
 import {
   Table, Card, Button, Space, Typography, Switch, message, Modal, Form, Input, InputNumber, Tag, Select, Tooltip,
   Progress,
 } from 'antd';
-import { PlusOutlined, ReloadOutlined, KeyOutlined, EditOutlined, BarChartOutlined } from '@ant-design/icons';
+import {
+  PlusOutlined, ReloadOutlined, KeyOutlined, EditOutlined, BarChartOutlined, CopyOutlined,
+} from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import dayjs from 'dayjs';
+import { useLocation } from 'react-router-dom';
 import { apiClientApi, modelApi } from '../services/api';
 import { ErrorHandler } from '../utils/error-handler';
 import { usePermission } from '../hooks/usePermission';
 import PageHeader from '../components/PageHeader';
+
+/** API Key 列表列：小号等宽，与其它列信息密度对齐 */
+const API_KEY_CELL_FONT: CSSProperties = {
+  fontSize: 11,
+  lineHeight: 1.45,
+  fontFamily: 'ui-monospace, SFMono-Regular, "Cascadia Code", Menlo, Monaco, Consolas, monospace',
+  wordBreak: 'break-all',
+};
 
 /** 计费策略颜色映射 */
 const BILLING_POLICY_COLOR: Record<string, string> = {
@@ -18,14 +30,15 @@ const BILLING_POLICY_COLOR: Record<string, string> = {
   exempt: 'default',
 };
 
-/** 功能类型映射（featureType -> model_type） */
+/** 功能类型（与 model_configs.model_type 一致） */
 const FEATURE_TYPE_OPTIONS = [
-  { label: '文生图 (textToImage)', value: 'textToImage', modelType: 40001 },
-  { label: '图生图 (imageToImage)', value: 'imageToImage', modelType: 40002 },
-  { label: '文生视频 (textToVideo)', value: 'textToVideo', modelType: 1502 },
-  { label: '图生视频 (imageToVideo)', value: 'imageToVideo', modelType: 1501 },
-  { label: '角色换装 (characterFaceswap)', value: 'characterFaceswap', modelType: 40004 },
-  { label: '视频超分 (videoUpscale)', value: 'videoUpscale', modelType: 40005 },
+  { label: '文生图 (textToImage)', value: 'textToImage' },
+  { label: '图生图 (imageToImage)', value: 'imageToImage' },
+  { label: '文生视频 (textToVideo)', value: 'textToVideo' },
+  { label: '图生视频 (imageToVideo)', value: 'imageToVideo' },
+  { label: '视频生视频 (videoToVideo)', value: 'videoToVideo' },
+  { label: '角色换装 (characterFaceswap)', value: 'characterFaceswap' },
+  { label: '视频超分 (videoUpscale)', value: 'videoUpscale' },
 ];
 
 /** 计费策略中文标签 */
@@ -58,7 +71,7 @@ function RateLimitStatusTag({ dailyRequests, maxDailyRequests }: { dailyRequests
 }
 
 /** 用量图表组件：展示最近 7 天每日请求趋势 */
-function UsageChart({ clientId }: { clientId: string }) {
+function UsageChart({ apiKey }: { apiKey: string }) {
   const [loading, setLoading] = useState(false);
   const [usageData, setUsageData] = useState<any[]>([]);
 
@@ -68,7 +81,7 @@ function UsageChart({ clientId }: { clientId: string }) {
       try {
         const to = dayjs().format('YYYYMMDD');
         const from = dayjs().subtract(6, 'day').format('YYYYMMDD');
-        const res: any = await apiClientApi.getUsage(clientId, { from, to });
+        const res: any = await apiClientApi.getUsage(apiKey, { from, to });
         setUsageData(res.data || []);
       } catch {
         // 静默处理，图表区域显示空状态
@@ -77,7 +90,7 @@ function UsageChart({ clientId }: { clientId: string }) {
       setLoading(false);
     };
     fetchUsage();
-  }, [clientId]);
+  }, [apiKey]);
 
   const chartOption = useMemo(() => {
     // 生成最近 7 天日期列表
@@ -159,6 +172,8 @@ function UsageChart({ clientId }: { clientId: string }) {
 }
 
 export default function ApiClientsPage() {
+  const location = useLocation();
+  const pageTitle = location.pathname === '/api-keys' ? 'API 密钥管理' : '应用管理';
   const { hasPermission } = usePermission();
   const canCreateClient = hasPermission('api-client:create');
   const canUpdateClient = hasPermission('api-client:update');
@@ -218,7 +233,7 @@ export default function ApiClientsPage() {
       const summaryList: any[] = res.data || [];
       const map = new Map<string, any>();
       summaryList.forEach((item: any) => {
-        map.set(item.clientId, item);
+        map.set(item.apiKey, item);
       });
       setUsageSummaryMap(map);
     } catch {
@@ -227,16 +242,16 @@ export default function ApiClientsPage() {
   };
 
   /** 获取可用模型列表（用于白名单自动补全） */
-  const fetchAvailableModels = async (modelType?: number) => {
+  const fetchAvailableModels = async (modelTypeFilter?: string) => {
     setLoadingModels(true);
     try {
       const params: Record<string, any> = { page: 1, pageSize: 200 };
-      if (modelType) {
-        params.model_type = modelType;
+      if (modelTypeFilter) {
+        params.model_type = modelTypeFilter;
       }
       const res: any = await modelApi.list(params);
       const modelItems: any[] = res.data?.items || [];
-      const names = modelItems.map((m: any) => m.model_name || m.name).filter(Boolean);
+      const names = modelItems.map((m: any) => m.model_id || m.name).filter(Boolean);
       setAvailableModels(names);
     } catch {
       // 静默处理
@@ -272,14 +287,25 @@ export default function ApiClientsPage() {
       }
 
       const res: any = await apiClientApi.create(createData);
-      const key = res.data?.apiKey;
+      const key = res.data?.fullCredential ?? res.data?.plainKey ?? res.data?.apiKey;
       Modal.success({
         title: '请立即保存 API Key',
         width: 560,
         content: (
           <div>
-            <Typography.Paragraph copyable={{ text: key }}><code>{key}</code></Typography.Paragraph>
-            <Typography.Text type="secondary">关闭后将无法再次查看完整密钥。</Typography.Text>
+            {key ? (
+              <Typography.Paragraph copyable={{ text: key }} style={{ marginBottom: 12, wordBreak: 'break-all' }}>
+                <code style={{ fontSize: 13, display: 'block', whiteSpace: 'pre-wrap' }}>{key}</code>
+              </Typography.Paragraph>
+            ) : (
+              <Typography.Paragraph type="danger" style={{ marginBottom: 12 }}>
+                未能从响应中读取密钥字段。请重试创建或联系管理员。
+              </Typography.Paragraph>
+            )}
+            <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+              新建客户端的调用密钥与上表「apiKey」相同，请在网关/客户端配置的 API Key 请求头（如 X-API-Key）中传入该值。
+            </Typography.Text>
+            <Typography.Text type="secondary">关闭后将无法再次在界面中展示（列表仍显示 apiKey，即密钥本身）。</Typography.Text>
           </div>
         ),
       });
@@ -292,19 +318,30 @@ export default function ApiClientsPage() {
     setCreating(false);
   };
 
-  const onRotate = (clientId: string) => {
+  const onRotate = (apiKey: string) => {
     Modal.confirm({
       title: '轮换密钥？',
       content: '旧密钥将立即失效，请保存新密钥。',
       onOk: async () => {
         try {
-          const res: any = await apiClientApi.rotate(clientId);
-          const key = res.data?.apiKey;
+          const res: any = await apiClientApi.rotate(apiKey);
+          const key = res.data?.fullCredential ?? res.data?.plainKey ?? res.data?.apiKey;
           Modal.success({
             title: '新 API Key',
             width: 560,
             content: (
-              <Typography.Paragraph copyable={{ text: key }}><code>{key}</code></Typography.Paragraph>
+              <div>
+                {key ? (
+                  <Typography.Paragraph copyable={{ text: key }} style={{ wordBreak: 'break-all' }}>
+                    <code style={{ fontSize: 13, display: 'block', whiteSpace: 'pre-wrap' }}>{key}</code>
+                  </Typography.Paragraph>
+                ) : (
+                  <Typography.Text type="danger">未能读取新密钥，请重试或查看接口返回。</Typography.Text>
+                )}
+                <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                  关闭后将无法再次查看完整密钥。
+                </Typography.Text>
+              </div>
             ),
           });
           fetchData(page, pageSize);
@@ -317,7 +354,7 @@ export default function ApiClientsPage() {
 
   const onToggle = async (record: any, enabled: boolean) => {
     try {
-      await apiClientApi.setEnabled(record.clientId, enabled);
+      await apiClientApi.setEnabled(record.apiKey, enabled);
       message.success(enabled ? '已启用' : '已禁用');
       fetchData(page, pageSize);
     } catch (err) {
@@ -335,7 +372,7 @@ export default function ApiClientsPage() {
     const values = await priorityForm.validateFields().catch(() => null);
     if (!values || !editingClient) return;
     try {
-      await apiClientApi.updateDefaultPriority(editingClient.clientId, values.defaultPriority);
+      await apiClientApi.updateDefaultPriority(editingClient.apiKey, values.defaultPriority);
       message.success('默认优先级已更新');
       setPriorityOpen(false);
       setEditingClient(null);
@@ -357,7 +394,7 @@ export default function ApiClientsPage() {
     const values = await billingPolicyForm.validateFields().catch(() => null);
     if (!values || !billingPolicyClient) return;
     try {
-      await apiClientApi.updateBillingPolicy(billingPolicyClient.clientId, values.billingPolicy);
+      await apiClientApi.updateBillingPolicy(billingPolicyClient.apiKey, values.billingPolicy);
       message.success('计费策略已更新');
       setBillingPolicyOpen(false);
       setBillingPolicyClient(null);
@@ -384,7 +421,7 @@ export default function ApiClientsPage() {
     const values = await rateLimitForm.validateFields().catch(() => null);
     if (!values || !rateLimitClient) return;
     try {
-      await apiClientApi.updateRateLimits(rateLimitClient.clientId, {
+      await apiClientApi.updateRateLimits(rateLimitClient.apiKey, {
         maxQps: values.maxQps,
         maxConcurrent: values.maxConcurrent,
         maxDailyRequests: values.maxDailyRequests,
@@ -414,10 +451,7 @@ export default function ApiClientsPage() {
   const onFeatureTypeChange = (value: string | null) => {
     setSelectedFeatureType(value);
     if (value) {
-      const option = FEATURE_TYPE_OPTIONS.find((o) => o.value === value);
-      if (option) {
-        fetchAvailableModels(option.modelType);
-      }
+      fetchAvailableModels(value);
     } else {
       fetchAvailableModels();
     }
@@ -428,7 +462,7 @@ export default function ApiClientsPage() {
     const values = await allowlistForm.validateFields().catch(() => null);
     if (!values || !allowlistClient) return;
     try {
-      await apiClientApi.updateModelAllowlist(allowlistClient.clientId, values.modelAllowlist || []);
+      await apiClientApi.updateModelAllowlist(allowlistClient.apiKey, values.modelAllowlist || []);
       message.success('模型白名单已更新');
       setAllowlistOpen(false);
       setAllowlistClient(null);
@@ -445,7 +479,34 @@ export default function ApiClientsPage() {
   };
 
   const columns = [
-    { title: 'clientId', dataIndex: 'clientId', key: 'clientId', ellipsis: true, width: 220 },
+    {
+      title: (
+        <Tooltip title="请求头（如 X-API-Key）传入此值；与库中主键一致。旧版复合密钥为 apiKey + '.' + 随机后缀。">
+          <span style={{ fontSize: 12, fontWeight: 500 }}>API Key</span>
+        </Tooltip>
+      ),
+      dataIndex: 'apiKey',
+      key: 'apiKey',
+      fixed: 'left' as const,
+      width: 220,
+      ellipsis: true,
+      render: (apiKey: string) =>
+        apiKey ? (
+          <Typography.Text
+            copyable={{
+              text: apiKey,
+              icon: <CopyOutlined style={{ fontSize: 11 }} />,
+            }}
+            style={API_KEY_CELL_FONT}
+          >
+            {apiKey}
+          </Typography.Text>
+        ) : (
+          <Typography.Text type="secondary" style={{ ...API_KEY_CELL_FONT, fontSize: 11 }}>
+            —
+          </Typography.Text>
+        ),
+    },
     { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true, width: 120 },
     {
       title: '计费策略',
@@ -503,7 +564,7 @@ export default function ApiClientsPage() {
       key: 'usageSummary',
       width: 160,
       render: (_: unknown, r: any) => {
-        const summary = usageSummaryMap.get(r.clientId);
+        const summary = usageSummaryMap.get(r.apiKey);
         if (!summary) {
           return <Typography.Text type="secondary" style={{ fontSize: 12 }}>暂无数据</Typography.Text>;
         }
@@ -574,9 +635,19 @@ export default function ApiClientsPage() {
               <Button type="link" size="small" onClick={() => onEditBillingPolicy(r)}>
                 计费
               </Button>
-              <Button type="link" size="small" icon={<KeyOutlined />} onClick={() => onRotate(r.clientId)}>
-                轮换
-              </Button>
+              {r.plainCredentialOnly ? (
+                <Tooltip title="密钥与 apiKey 相同，无法轮换。请新建客户端以更换凭据。">
+                  <span>
+                    <Button type="link" size="small" icon={<KeyOutlined />} disabled>
+                      轮换
+                    </Button>
+                  </span>
+                </Tooltip>
+              ) : (
+                <Button type="link" size="small" icon={<KeyOutlined />} onClick={() => onRotate(r.apiKey)}>
+                  轮换
+                </Button>
+              )}
             </>
           )}
           <Button type="link" size="small" icon={<BarChartOutlined />} onClick={() => onShowUsageChart(r)}>
@@ -590,7 +661,7 @@ export default function ApiClientsPage() {
   return (
     <div>
       <PageHeader
-        title="API 客户端"
+        title={pageTitle}
         leftExtra={
           canCreateClient ? (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
@@ -612,12 +683,12 @@ export default function ApiClientsPage() {
       />
       <Card>
         <Table
-          rowKey="clientId"
+          rowKey="apiKey"
           columns={columns}
           dataSource={items}
           loading={loading}
           size="small"
-          scroll={{ x: 1500 }}
+          scroll={{ x: 1720 }}
           pagination={{
             current: page,
             pageSize,
@@ -714,7 +785,7 @@ export default function ApiClientsPage() {
 
       {/* 限流配置编辑弹窗 */}
       <Modal
-        title={`编辑限流配置 - ${rateLimitClient?.name || rateLimitClient?.clientId || ''}`}
+        title={`编辑限流配置 - ${rateLimitClient?.name || rateLimitClient?.apiKey || ''}`}
         open={rateLimitOpen}
         onCancel={() => { setRateLimitOpen(false); setRateLimitClient(null); }}
         onOk={onSaveRateLimits}
@@ -747,7 +818,7 @@ export default function ApiClientsPage() {
 
       {/* 模型白名单编辑弹窗 */}
       <Modal
-        title={`编辑模型白名单 - ${allowlistClient?.name || allowlistClient?.clientId || ''}`}
+        title={`编辑模型白名单 - ${allowlistClient?.name || allowlistClient?.apiKey || ''}`}
         open={allowlistOpen}
         onCancel={() => { setAllowlistOpen(false); setAllowlistClient(null); setSelectedFeatureType(null); }}
         onOk={onSaveAllowlist}
@@ -787,14 +858,14 @@ export default function ApiClientsPage() {
 
       {/* 用量图表弹窗 */}
       <Modal
-        title={`用量趋势 - ${usageChartClient?.name || usageChartClient?.clientId || ''}`}
+        title={`用量趋势 - ${usageChartClient?.name || usageChartClient?.apiKey || ''}`}
         open={usageChartOpen}
         onCancel={() => { setUsageChartOpen(false); setUsageChartClient(null); }}
         footer={null}
         width={700}
         destroyOnClose
       >
-        {usageChartClient && <UsageChart clientId={usageChartClient.clientId} />}
+        {usageChartClient && <UsageChart apiKey={usageChartClient.apiKey} />}
       </Modal>
     </div>
   );

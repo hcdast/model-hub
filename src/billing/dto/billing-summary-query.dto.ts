@@ -7,11 +7,11 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
  * 用于管理后台按维度聚合计费数据，支持按模型、客户端、日期分组。
  */
 export class BillingSummaryQueryDto {
-  @ApiPropertyOptional({ description: '分组维度', enum: ['model', 'clientId', 'date'], default: 'model' })
+  @ApiPropertyOptional({ description: '分组维度', enum: ['model', 'apiKey', 'date'], default: 'model' })
   @IsString()
   @IsOptional()
-  @IsIn(['model', 'clientId', 'date'])
-  groupBy?: 'model' | 'clientId' | 'date';
+  @IsIn(['model', 'apiKey', 'date'])
+  groupBy?: 'model' | 'apiKey' | 'date';
 
   @ApiPropertyOptional({ description: '计费策略筛选', enum: ['internal', 'external'] })
   @IsString()

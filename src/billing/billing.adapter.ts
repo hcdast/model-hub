@@ -24,7 +24,7 @@ import { InsufficientBalanceException } from './exceptions/insufficient-balance.
  * 计费适配器 —— 统一计费入口，按 API Client 的 billingPolicy 动态分发计费行为。
  *
  * 核心职责：
- * - resolvePolicy：根据 clientId 查询 API Client 的计费策略
+ * - resolvePolicy：根据 apiKey 查询 API Client 的计费策略
  * - initBilling：任务创建时初始化计费（预估 → 创建记录 → 预扣费）
  * - settle：任务成功时结算（解冻 → 扣费 → 更新记录）
  * - refund：任务失败时退款（解冻 → 更新记录）
@@ -52,15 +52,15 @@ export class BillingAdapter {
    * 从 api_clients 集合查询 billingPolicy 字段。
    * 未找到客户端或未配置策略时默认返回 'internal'，确保向后兼容。
    */
-  async resolvePolicy(clientId: string): Promise<BillingPolicy> {
+  async resolvePolicy(apiKey: string): Promise<BillingPolicy> {
     const client = await this.apiClientModel
-      .findOne({ clientId })
+      .findOne({ apiKey })
       .select('billingPolicy')
       .lean();
 
     if (!client || !client.billingPolicy) {
       this.logger.warn(
-        `客户端 [${clientId}] 未找到或未配置 billingPolicy，使用默认策略 internal`,
+        `客户端 [${apiKey}] 未找到或未配置 billingPolicy，使用默认策略 internal`,
       );
       return BillingPolicy.INTERNAL;
     }
@@ -83,10 +83,10 @@ export class BillingAdapter {
    * 7. external → 不执行任何钱包操作，记录已创建
    */
   async initBilling(context: BillingInitContext): Promise<void> {
-    const policy = await this.resolvePolicy(context.clientId);
+    const policy = await this.resolvePolicy(context.apiKey);
 
     this.logger.log(
-      `计费初始化：taskId=${context.taskId}, clientId=${context.clientId}, ` +
+      `计费初始化：taskId=${context.taskId}, apiKey=${context.apiKey}, ` +
       `model=${context.model}, billingPolicy=${policy}`,
     );
 
@@ -105,7 +105,7 @@ export class BillingAdapter {
     // 创建计费记录
     await this.billingService.createRecord({
       taskId: context.taskId,
-      clientId: context.clientId,
+      apiKey: context.apiKey,
       model: context.model,
       provider: context.provider,
       estimate,
@@ -127,7 +127,7 @@ export class BillingAdapter {
     ) {
       // count/duration 类型：预扣费
       const frozen = await this.walletService.freeze(
-        context.clientId,
+        context.apiKey,
         estimate.estimatedCost,
         context.taskId,
       );
@@ -135,10 +135,10 @@ export class BillingAdapter {
       if (!frozen) {
         this.logger.warn(
           `预扣费失败（余额不足）：taskId=${context.taskId}, ` +
-          `clientId=${context.clientId}, estimatedCost=${estimate.estimatedCost}`,
+          `apiKey=${context.apiKey}, estimatedCost=${estimate.estimatedCost}`,
         );
         throw new InsufficientBalanceException(
-          context.clientId,
+          context.apiKey,
           estimate.estimatedCost,
         );
       }
@@ -190,20 +190,20 @@ export class BillingAdapter {
       if (record.status === BillingStatus.PRE_DEDUCTED) {
         // 预扣费任务：先解冻预扣金额，再扣实际费用
         await this.walletService.unfreeze(
-          record.clientId,
+          record.apiKey,
           record.estimatedCost,
           context.taskId,
         );
 
         const debitOk = await this.walletService.debit(
-          record.clientId,
+          record.apiKey,
           actualCost,
           context.taskId,
         );
 
         if (!debitOk) {
           this.logger.warn(
-            `结算扣费失败：taskId=${context.taskId}, clientId=${record.clientId}, ` +
+            `结算扣费失败：taskId=${context.taskId}, apiKey=${record.apiKey}, ` +
             `actualCost=${actualCost}`,
           );
           await this.billingService.markFailed(context.taskId, 'debit_failed');
@@ -212,14 +212,14 @@ export class BillingAdapter {
       } else {
         // 后扣费任务（token 类型，状态为 estimated）：直接扣费
         const debitOk = await this.walletService.debit(
-          record.clientId,
+          record.apiKey,
           actualCost,
           context.taskId,
         );
 
         if (!debitOk) {
           this.logger.warn(
-            `后扣费失败：taskId=${context.taskId}, clientId=${record.clientId}, ` +
+            `后扣费失败：taskId=${context.taskId}, apiKey=${record.apiKey}, ` +
             `actualCost=${actualCost}`,
           );
           await this.billingService.markFailed(context.taskId, 'debit_failed');
@@ -268,7 +268,7 @@ export class BillingAdapter {
       record.status === BillingStatus.PRE_DEDUCTED
     ) {
       await this.retryUnfreeze(
-        record.clientId,
+        record.apiKey,
         record.estimatedCost,
         context.taskId,
       );
@@ -287,7 +287,7 @@ export class BillingAdapter {
    * 全部失败后记录 error 日志，不抛出异常（不阻断任务状态转换）。
    */
   private async retryUnfreeze(
-    clientId: string,
+    apiKey: string,
     amount: number,
     taskId: string,
     maxRetries = 3,
@@ -296,15 +296,15 @@ export class BillingAdapter {
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        await this.walletService.unfreeze(clientId, amount, taskId);
+        await this.walletService.unfreeze(apiKey, amount, taskId);
         this.logger.log(
-          `解冻成功（第 ${attempt} 次尝试）：clientId=${clientId}, ` +
+          `解冻成功（第 ${attempt} 次尝试）：apiKey=${apiKey}, ` +
           `amount=${amount}, taskId=${taskId}`,
         );
         return;
       } catch (err: any) {
         this.logger.warn(
-          `解冻失败（第 ${attempt}/${maxRetries} 次）：clientId=${clientId}, ` +
+          `解冻失败（第 ${attempt}/${maxRetries} 次）：apiKey=${apiKey}, ` +
           `amount=${amount}, taskId=${taskId}, error=${err.message}`,
         );
 
@@ -318,7 +318,7 @@ export class BillingAdapter {
 
     // 全部重试失败
     this.logger.error(
-      `解冻重试全部失败：clientId=${clientId}, amount=${amount}, ` +
+      `解冻重试全部失败：apiKey=${apiKey}, amount=${amount}, ` +
       `taskId=${taskId}，需人工介入`,
     );
   }

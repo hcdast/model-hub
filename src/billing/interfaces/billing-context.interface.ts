@@ -10,8 +10,8 @@ import { UsageType } from './billing.interface';
 export interface BillingInitContext {
   /** 任务 ID */
   taskId: string;
-  /** API Client ID，用于查询计费策略 */
-  clientId: string;
+  /** API 客户端主键，用于查询计费策略 */
+  apiKey: string;
   /** 模型名称，用于查询定价 */
   model: string;
   /** 供应商标识 */

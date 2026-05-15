@@ -435,10 +435,10 @@ export default function TaskDetailPage() {
           </Descriptions.Item>
           <Descriptions.Item label="厂商"><Tag>{task.provider}</Tag></Descriptions.Item>
           <Descriptions.Item label="功能类型">{task.featureType}</Descriptions.Item>
-          {task.clientId && (
-            <Descriptions.Item label="clientId">{task.clientId}</Descriptions.Item>
+          {task.apiKey && (
+            <Descriptions.Item label="apiKey">{task.apiKey}</Descriptions.Item>
           )}
-          {task.clientId && (
+          {task.apiKey && (
             <Descriptions.Item label="客户端名称">{task.clientName || '—'}</Descriptions.Item>
           )}
           <Descriptions.Item label="优先级">
@@ -464,12 +464,11 @@ export default function TaskDetailPage() {
             <Typography.Text type="secondary">未找到该模型的配置</Typography.Text>
           ) : modelDetail ? (
             <Descriptions column={1} bordered size="small">
+              <Descriptions.Item label="model_id">{modelDetail.model_id}</Descriptions.Item>
               <Descriptions.Item label="model_name">{modelDetail.model_name}</Descriptions.Item>
-              <Descriptions.Item label="label">{modelDetail.label}</Descriptions.Item>
               <Descriptions.Item label="provider">{modelDetail.provider}</Descriptions.Item>
               <Descriptions.Item label="provider_model_name">{modelDetail.provider_model_name || '—'}</Descriptions.Item>
               <Descriptions.Item label="model_type">{modelDetail.model_type}</Descriptions.Item>
-              <Descriptions.Item label="service">{modelDetail.service || '—'}</Descriptions.Item>
               <Descriptions.Item label="状态">
                 {modelDetail.disabled ? <Tag color="red">已禁用</Tag> : <Tag color="green">启用</Tag>}
               </Descriptions.Item>

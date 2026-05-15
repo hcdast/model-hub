@@ -43,10 +43,10 @@ export class WalletService {
    *
    * 如果钱包已存在则直接返回，不存在则创建默认钱包（余额为 0）。
    */
-  async ensureWallet(clientId: string): Promise<WalletDocument> {
+  async ensureWallet(apiKey: string): Promise<WalletDocument> {
     const wallet = await this.walletModel.findOneAndUpdate(
-      { clientId },
-      { $setOnInsert: { clientId, balance: 0, frozenAmount: 0, lowBalanceThreshold: 0 } },
+      { apiKey },
+      { $setOnInsert: { apiKey, balance: 0, frozenAmount: 0, lowBalanceThreshold: 0 } },
       { upsert: true, new: true },
     );
     return wallet!;
@@ -58,8 +58,8 @@ export class WalletService {
    * 返回总余额、冻结金额和可用余额。
    * 钱包不存在时返回全零值。
    */
-  async getBalance(clientId: string): Promise<WalletBalance> {
-    const wallet = await this.walletModel.findOne({ clientId }).lean();
+  async getBalance(apiKey: string): Promise<WalletBalance> {
+    const wallet = await this.walletModel.findOne({ apiKey }).lean();
     if (!wallet) {
       return { balance: 0, frozenAmount: 0, available: 0 };
     }
@@ -85,7 +85,8 @@ export class WalletService {
     const match: Record<string, any> = {};
     if (keyword) {
       const regex = new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-      match.$or = [{ clientId: regex }];
+      // 未迁移库可能仍为 clientId
+      match.$or = [{ apiKey: regex }, { clientId: regex }];
     }
 
     const [items, total] = await Promise.all([
@@ -94,21 +95,31 @@ export class WalletService {
         {
           $lookup: {
             from: 'api_clients',
-            localField: 'clientId',
-            foreignField: 'clientId',
+            let: { wk: { $ifNull: ['$apiKey', '$clientId'] } },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $or: [{ $eq: ['$apiKey', '$$wk'] }, { $eq: ['$clientId', '$$wk'] }],
+                  },
+                },
+              },
+            ],
             as: 'client',
           },
         },
         { $unwind: { path: '$client', preserveNullAndEmptyArrays: true } },
         {
           $project: {
-            clientId: 1,
+            apiKey: { $ifNull: ['$apiKey', '$clientId'] },
             balance: 1,
             frozenAmount: 1,
             available: { $subtract: ['$balance', '$frozenAmount'] },
+            lowBalanceThreshold: 1,
             clientName: '$client.name',
             billingPolicy: '$client.billingPolicy',
             enabled: '$client.enabled',
+            createdAt: 1,
             updatedAt: 1,
           },
         },
@@ -139,10 +150,10 @@ export class WalletService {
    *
    * @returns true 冻结成功，false 余额不足
    */
-  async freeze(clientId: string, amount: number, taskId: string): Promise<boolean> {
+  async freeze(apiKey: string, amount: number, taskId: string): Promise<boolean> {
     const wallet = await this.walletModel.findOneAndUpdate(
       {
-        clientId,
+        apiKey,
         $expr: {
           $gte: [{ $subtract: ['$balance', '$frozenAmount'] }, amount],
         },
@@ -152,14 +163,14 @@ export class WalletService {
     );
 
     if (!wallet) {
-      this.logger.warn(`冻结失败：clientId=${clientId}, amount=${amount}, taskId=${taskId}，可用余额不足`);
+      this.logger.warn(`冻结失败：apiKey=${apiKey}, amount=${amount}, taskId=${taskId}，可用余额不足`);
       return false;
     }
 
     // 记录冻结交易流水
     // 冻结操作不改变 balance，只改变 frozenAmount，因此 balanceBefore/After 反映 balance 值
     await this.recordTransaction({
-      clientId,
+      apiKey,
       type: TransactionType.FREEZE,
       amount,
       balanceBefore: wallet.balance,
@@ -168,7 +179,7 @@ export class WalletService {
       reason: '预扣费冻结',
     });
 
-    this.logger.log(`冻结成功：clientId=${clientId}, amount=${amount}, taskId=${taskId}`);
+    this.logger.log(`冻结成功：apiKey=${apiKey}, amount=${amount}, taskId=${taskId}`);
     return true;
   }
 
@@ -177,10 +188,10 @@ export class WalletService {
    *
    * 原子操作：检查 frozenAmount >= amount，成功则减少 frozenAmount。
    */
-  async unfreeze(clientId: string, amount: number, taskId: string): Promise<void> {
+  async unfreeze(apiKey: string, amount: number, taskId: string): Promise<void> {
     const wallet = await this.walletModel.findOneAndUpdate(
       {
-        clientId,
+        apiKey,
         frozenAmount: { $gte: amount },
       },
       { $inc: { frozenAmount: -amount } },
@@ -188,13 +199,13 @@ export class WalletService {
     );
 
     if (!wallet) {
-      this.logger.warn(`解冻失败：clientId=${clientId}, amount=${amount}, taskId=${taskId}，冻结金额不足`);
+      this.logger.warn(`解冻失败：apiKey=${apiKey}, amount=${amount}, taskId=${taskId}，冻结金额不足`);
       return;
     }
 
     // 记录解冻交易流水
     await this.recordTransaction({
-      clientId,
+      apiKey,
       type: TransactionType.UNFREEZE,
       amount,
       balanceBefore: wallet.balance,
@@ -203,7 +214,7 @@ export class WalletService {
       reason: '解冻释放',
     });
 
-    this.logger.log(`解冻成功：clientId=${clientId}, amount=${amount}, taskId=${taskId}`);
+    this.logger.log(`解冻成功：apiKey=${apiKey}, amount=${amount}, taskId=${taskId}`);
   }
 
   /**
@@ -214,14 +225,14 @@ export class WalletService {
    *
    * @returns true 扣费成功，false 余额不足
    */
-  async debit(clientId: string, amount: number, taskId: string): Promise<boolean> {
+  async debit(apiKey: string, amount: number, taskId: string): Promise<boolean> {
     // 先获取扣费前的余额（用于记录 balanceBefore）
-    const walletBefore = await this.walletModel.findOne({ clientId }).lean();
+    const walletBefore = await this.walletModel.findOne({ apiKey }).lean();
     const balanceBefore = walletBefore?.balance ?? 0;
 
     const wallet = await this.walletModel.findOneAndUpdate(
       {
-        clientId,
+        apiKey,
         $expr: {
           $gte: [{ $subtract: ['$balance', '$frozenAmount'] }, amount],
         },
@@ -231,13 +242,13 @@ export class WalletService {
     );
 
     if (!wallet) {
-      this.logger.warn(`扣费失败：clientId=${clientId}, amount=${amount}, taskId=${taskId}，可用余额不足`);
+      this.logger.warn(`扣费失败：apiKey=${apiKey}, amount=${amount}, taskId=${taskId}，可用余额不足`);
       return false;
     }
 
     // 记录扣费交易流水
     await this.recordTransaction({
-      clientId,
+      apiKey,
       type: TransactionType.DEBIT,
       amount,
       balanceBefore,
@@ -252,14 +263,14 @@ export class WalletService {
       ?? 0;
     if (threshold > 0 && wallet.balance < threshold) {
       this.eventEmitter.emit('wallet.low_balance', {
-        clientId,
+        apiKey,
         balance: wallet.balance,
         threshold,
       });
-      this.logger.warn(`低余额告警：clientId=${clientId}, balance=${wallet.balance}, threshold=${threshold}`);
+      this.logger.warn(`低余额告警：apiKey=${apiKey}, balance=${wallet.balance}, threshold=${threshold}`);
     }
 
-    this.logger.log(`扣费成功：clientId=${clientId}, amount=${amount}, taskId=${taskId}, 余额=${wallet.balance}`);
+    this.logger.log(`扣费成功：apiKey=${apiKey}, amount=${amount}, taskId=${taskId}, 余额=${wallet.balance}`);
     return true;
   }
 
@@ -269,28 +280,28 @@ export class WalletService {
    * 先调用 ensureWallet 确保钱包存在，然后原子增加余额。
    */
   async credit(
-    clientId: string,
+    apiKey: string,
     amount: number,
     reason: string,
     taskId?: string,
   ): Promise<void> {
     // 确保钱包存在
-    await this.ensureWallet(clientId);
+    await this.ensureWallet(apiKey);
 
     // 获取充值前余额
-    const walletBefore = await this.walletModel.findOne({ clientId }).lean();
+    const walletBefore = await this.walletModel.findOne({ apiKey }).lean();
     const balanceBefore = walletBefore?.balance ?? 0;
 
     // 原子增加余额
     const wallet = await this.walletModel.findOneAndUpdate(
-      { clientId },
+      { apiKey },
       { $inc: { balance: amount } },
       { new: true },
     );
 
     // 记录充值交易流水
     await this.recordTransaction({
-      clientId,
+      apiKey,
       type: TransactionType.CREDIT,
       amount,
       balanceBefore,
@@ -299,21 +310,21 @@ export class WalletService {
       reason,
     });
 
-    this.logger.log(`充值成功：clientId=${clientId}, amount=${amount}, reason=${reason}`);
+    this.logger.log(`充值成功：apiKey=${apiKey}, amount=${amount}, reason=${reason}`);
   }
 
   /**
    * 分页查询交易记录
    */
   async listTransactions(
-    clientId: string,
+    apiKey: string,
     query: TransactionQueryDto,
   ): Promise<{ items: Record<string, unknown>[]; total: number }> {
     const { page = 1, pageSize = 20, type } = query;
     const skip = (page - 1) * pageSize;
 
     // 构建查询条件
-    const filter: Record<string, any> = { clientId };
+    const filter: Record<string, any> = { apiKey };
     if (type) {
       filter.type = type;
     }
@@ -345,7 +356,7 @@ export class WalletService {
    * 记录交易流水 —— 私有方法，创建 WalletTransaction 文档
    */
   private async recordTransaction(params: {
-    clientId: string;
+    apiKey: string;
     type: TransactionType;
     amount: number;
     balanceBefore: number;
@@ -355,7 +366,7 @@ export class WalletService {
   }): Promise<void> {
     try {
       await this.txModel.create({
-        clientId: params.clientId,
+        apiKey: params.apiKey,
         type: params.type,
         amount: params.amount,
         balanceBefore: params.balanceBefore,
@@ -366,7 +377,7 @@ export class WalletService {
     } catch (err: any) {
       // 交易流水记录失败不应阻断主流程，仅记录错误日志
       this.logger.error(
-        `记录交易流水失败：clientId=${params.clientId}, type=${params.type}, error=${err.message}`,
+        `记录交易流水失败：apiKey=${params.apiKey}, type=${params.type}, error=${err.message}`,
       );
     }
   }

@@ -10,7 +10,7 @@ export class Task {
   taskId!: string;
 
   @Prop({ required: true })
-  clientId!: string;
+  apiKey!: string;
 
   @Prop()
   bizId?: string;
@@ -151,12 +151,12 @@ export const TaskSchema = SchemaFactory.createForClass(Task);
 
 TaskSchema.index({ taskId: 1 }, { unique: true });
 TaskSchema.index({ status: 1, 'polling.nextPollAt': 1 });
-TaskSchema.index({ clientId: 1, createdAt: -1 });
+TaskSchema.index({ apiKey: 1, createdAt: -1 });
 TaskSchema.index({ provider: 1, 'providerTask.providerTaskId': 1 });
 TaskSchema.index({ 'callback.status': 1, 'callback.nextRetryAt': 1 });
-// 有 bizId 时 (clientId,bizId) 唯一；无 bizId 不进入索引。旧库跑一次 scripts/fix-task-bizid-unique-index.cjs
+// 有 bizId 时 (apiKey,bizId) 唯一；无 bizId 不进入索引。旧库跑一次 scripts/fix-task-bizid-unique-index.cjs
 TaskSchema.index(
-  { clientId: 1, bizId: 1 },
+  { apiKey: 1, bizId: 1 },
   {
     unique: true,
     partialFilterExpression: { bizId: { $exists: true, $type: 'string', $gt: '' } },

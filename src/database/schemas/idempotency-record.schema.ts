@@ -6,7 +6,7 @@ export type IdempotencyRecordDocument = HydratedDocument<IdempotencyRecord>;
 @Schema({ timestamps: true, collection: 'idempotency_records' })
 export class IdempotencyRecord {
   @Prop({ required: true })
-  clientId!: string;
+  apiKey!: string;
 
   @Prop({ required: true })
   idempotencyKey!: string;
@@ -22,6 +22,6 @@ export const IdempotencyRecordSchema =
   SchemaFactory.createForClass(IdempotencyRecord);
 
 IdempotencyRecordSchema.index(
-  { clientId: 1, idempotencyKey: 1 },
+  { apiKey: 1, idempotencyKey: 1 },
   { unique: true },
 );

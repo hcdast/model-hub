@@ -29,7 +29,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       requestId: (request as any).id,
       path: request.path,
       method: request.method,
-      clientId: (request as any).clientId,
+      apiKey: (request as any).apiKey,
       ip: request.ip,
     };
 

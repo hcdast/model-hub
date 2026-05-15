@@ -12,7 +12,7 @@ export interface AppConfig {
   auth: {
     apiKeyHeader?: string;
     serviceToken: string;
-    /** 为 true 时仅接受 `api_clients` 注册的 `clientId.secret` 形式 X-API-Key */
+    /** 为 true 时仅接受 `api_clients` 注册的密钥（新版为 apiKey，旧版为 apiKey.secret） */
     requireRegisteredApiKey?: boolean;
   };
   callback: {

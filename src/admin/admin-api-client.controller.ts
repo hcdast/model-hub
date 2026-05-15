@@ -12,7 +12,7 @@ import { UpdateRateLimitsDto } from './dto/update-rate-limits.dto';
 import { UpdateModelAllowlistDto } from './dto/update-model-allowlist.dto';
 import { UsageQueryDto } from './dto/usage-query.dto';
 
-@ApiTags('管理后台 - API 客户端')
+@ApiTags('管理后台 - 应用与 API 密钥')
 @ApiBearerAuth('AdminJwt')
 @Controller('api/v1/admin/api-clients')
 @UseGuards(AdminJwtGuard, PermissionGuard)
@@ -24,7 +24,7 @@ export class AdminApiClientController {
 
   @Get()
   @RequirePermissions('api-client:read')
-  @ApiOperation({ summary: 'API 客户端列表' })
+  @ApiOperation({ summary: '应用 / 客户端列表' })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'pageSize', required: false })
   @ApiResponse({ status: 200, description: '成功' })
@@ -40,7 +40,7 @@ export class AdminApiClientController {
 
   @Post()
   @RequirePermissions('api-client:create')
-  @ApiOperation({ summary: '创建 API 客户端（明文密钥仅返回一次）' })
+  @ApiOperation({ summary: '创建客户端（主键与调用凭据相同，仅创建时返回一次完整凭据）' })
   @ApiResponse({ status: 200, description: '成功' })
   async create(@Body() body: {
     name?: string;
@@ -58,88 +58,95 @@ export class AdminApiClientController {
     const result = await this.apiClients.createClient(name, billingPolicy, defaultPriority, rateLimits, modelAllowlist);
     return {
       code: 0,
-      message: 'Save the apiKey now; it will not be shown again.',
-      data: result,
+      message: 'Save fullCredential (same as apiKey for new clients) now; it will not be shown again.',
+      data: {
+        apiKey: result.apiKey,
+        name: result.name,
+        billingPolicy: result.billingPolicy,
+        fullCredential: result.plainKey,
+      },
     };
   }
 
-  @Patch(':clientId')
+  @Patch(':apiKey')
   @RequirePermissions('api-client:update')
-  @ApiOperation({ summary: '启用 / 禁用 API 客户端' })
+  @ApiOperation({ summary: '启用 / 禁用客户端' })
   @ApiResponse({ status: 200, description: '成功' })
   async patchEnabled(
-    @Param('clientId') clientId: string,
+    @Param('apiKey') apiKey: string,
     @Body() body: { enabled?: boolean },
   ) {
-    this.apiClients.assertClientIdParam(clientId);
+    this.apiClients.assertApiKeyParam(apiKey);
     if (typeof body?.enabled !== 'boolean') {
       throw new BadRequestException('enabled must be a boolean');
     }
-    await this.apiClients.setEnabled(clientId, body.enabled);
+    await this.apiClients.setEnabled(apiKey, body.enabled);
     return { code: 0, message: 'Updated' };
   }
 
-  @Post(':clientId/rotate')
+  @Post(':apiKey/rotate')
   @RequirePermissions('api-client:update')
-  @ApiOperation({ summary: '轮换密钥（新 apiKey 仅返回一次）' })
+  @ApiOperation({
+    summary: '轮换密钥（新复合凭据仅返回一次；仅旧版「主键.secret」客户端可用）',
+  })
   @ApiResponse({ status: 200, description: '成功' })
-  async rotate(@Param('clientId') clientId: string) {
-    this.apiClients.assertClientIdParam(clientId);
-    const { plainKey } = await this.apiClients.rotateSecret(clientId);
+  async rotate(@Param('apiKey') apiKey: string) {
+    this.apiClients.assertApiKeyParam(apiKey);
+    const { plainKey } = await this.apiClients.rotateSecret(apiKey);
     return {
       code: 0,
-      message: 'Save the apiKey now; it will not be shown again.',
-      data: { clientId, apiKey: plainKey },
+      message: 'Save the new compound apiKey now; it will not be shown again.',
+      data: { apiKey, fullCredential: plainKey },
     };
   }
 
-  @Patch(':clientId/priority')
+  @Patch(':apiKey/priority')
   @RequirePermissions('api-client:update')
-  @ApiOperation({ summary: '更新 API 客户端默认优先级' })
+  @ApiOperation({ summary: '更新客户端默认优先级' })
   @ApiResponse({ status: 200, description: '成功' })
   async updateDefaultPriority(
-    @Param('clientId') clientId: string,
+    @Param('apiKey') apiKey: string,
     @Body() body: { defaultPriority?: number },
   ) {
-    this.apiClients.assertClientIdParam(clientId);
+    this.apiClients.assertApiKeyParam(apiKey);
     if (body?.defaultPriority == null || typeof body.defaultPriority !== 'number') {
       throw new BadRequestException('defaultPriority must be a number');
     }
-    await this.apiClients.updateDefaultPriority(clientId, body.defaultPriority);
+    await this.apiClients.updateDefaultPriority(apiKey, body.defaultPriority);
     return { code: 0, message: 'Updated' };
   }
 
-  @Patch(':clientId/billing-policy')
+  @Patch(':apiKey/billing-policy')
   @RequirePermissions('api-client:update')
-  @ApiOperation({ summary: '修改 API 客户端计费策略' })
+  @ApiOperation({ summary: '修改客户端计费策略' })
   @ApiResponse({ status: 200, description: '成功' })
   async updateBillingPolicy(
-    @Param('clientId') clientId: string,
+    @Param('apiKey') apiKey: string,
     @Body() body: { billingPolicy?: string },
   ) {
-    this.apiClients.assertClientIdParam(clientId);
+    this.apiClients.assertApiKeyParam(apiKey);
     if (!body?.billingPolicy || typeof body.billingPolicy !== 'string') {
       throw new BadRequestException('billingPolicy must be a string');
     }
-    await this.apiClients.updateBillingPolicy(clientId, body.billingPolicy);
+    await this.apiClients.updateBillingPolicy(apiKey, body.billingPolicy);
     return { code: 0, message: 'Updated' };
   }
 
   // ===== 新增端点：限流配置、模型白名单、用量查询 =====
 
-  @Put(':clientId/rate-limits')
+  @Put(':apiKey/rate-limits')
   @RequirePermissions('api-client:update')
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
-  @ApiOperation({ summary: '更新 API 客户端限流配置' })
+  @ApiOperation({ summary: '更新客户端限流配置' })
   @ApiResponse({ status: 200, description: '成功' })
   @ApiResponse({ status: 400, description: '参数校验失败' })
   @ApiResponse({ status: 404, description: '客户端不存在' })
   async updateRateLimits(
-    @Param('clientId') clientId: string,
+    @Param('apiKey') apiKey: string,
     @Body() dto: UpdateRateLimitsDto,
   ) {
-    this.apiClients.assertClientIdParam(clientId);
-    await this.apiClients.updateRateLimits(clientId, {
+    this.apiClients.assertApiKeyParam(apiKey);
+    await this.apiClients.updateRateLimits(apiKey, {
       maxQps: dto.maxQps,
       maxConcurrent: dto.maxConcurrent,
       maxDailyRequests: dto.maxDailyRequests,
@@ -147,19 +154,19 @@ export class AdminApiClientController {
     return { code: 0, message: 'Rate limits updated' };
   }
 
-  @Put(':clientId/model-allowlist')
+  @Put(':apiKey/model-allowlist')
   @RequirePermissions('api-client:update')
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
-  @ApiOperation({ summary: '更新 API 客户端模型白名单' })
+  @ApiOperation({ summary: '更新客户端模型白名单' })
   @ApiResponse({ status: 200, description: '成功' })
   @ApiResponse({ status: 400, description: '参数校验失败' })
   @ApiResponse({ status: 404, description: '客户端不存在' })
   async updateModelAllowlist(
-    @Param('clientId') clientId: string,
+    @Param('apiKey') apiKey: string,
     @Body() dto: UpdateModelAllowlistDto,
   ) {
-    this.apiClients.assertClientIdParam(clientId);
-    await this.apiClients.updateModelAllowlist(clientId, dto.modelAllowlist);
+    this.apiClients.assertApiKeyParam(apiKey);
+    await this.apiClients.updateModelAllowlist(apiKey, dto.modelAllowlist);
     return { code: 0, message: 'Model allowlist updated' };
   }
 
@@ -172,24 +179,24 @@ export class AdminApiClientController {
     return { code: 0, data };
   }
 
-  @Get(':clientId/usage')
+  @Get(':apiKey/usage')
   @RequirePermissions('api-client:read')
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
-  @ApiOperation({ summary: '查询 API 客户端用量统计' })
+  @ApiOperation({ summary: '查询客户端用量统计' })
   @ApiQuery({ name: 'from', required: false, description: '起始日期（YYYYMMDD）' })
   @ApiQuery({ name: 'to', required: false, description: '结束日期（YYYYMMDD）' })
   @ApiResponse({ status: 200, description: '成功' })
   @ApiResponse({ status: 404, description: '客户端不存在' })
   async getUsage(
-    @Param('clientId') clientId: string,
+    @Param('apiKey') apiKey: string,
     @Query() query: UsageQueryDto,
   ) {
-    this.apiClients.assertClientIdParam(clientId);
+    this.apiClients.assertApiKeyParam(apiKey);
     // 默认查询当天
     const today = this.getTodayStr();
     const from = query.from || today;
     const to = query.to || today;
-    const data = await this.usageTracker.getUsage(clientId, { from, to });
+    const data = await this.usageTracker.getUsage(apiKey, { from, to });
     return { code: 0, data };
   }
 

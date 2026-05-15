@@ -38,10 +38,10 @@ import {
 } from './dto/provider-health.dto';
 
 /**
- * Provider 健康监控管理 API
+ * 供应商健康度管理 API
  * 提供健康概览、详细信息、历史指标、熔断器手动覆盖和配置管理
  */
-@ApiTags('管理后台 - Provider 健康监控')
+@ApiTags('管理后台 - 供应商健康度')
 @ApiBearerAuth('AdminJwt')
 @Controller('api/v1/admin/provider-health')
 @UseGuards(AdminJwtGuard, PermissionGuard, RolesGuard)
@@ -56,11 +56,11 @@ export class ProviderHealthController {
   ) {}
 
   /**
-   * 获取所有 Provider 的健康概览
+   * 获取所有供应商的健康概览
    */
   @Get('overview')
   @RequirePermissions('provider:read')
-  @ApiOperation({ summary: '获取所有 Provider 的健康概览' })
+  @ApiOperation({ summary: '获取所有供应商的健康概览' })
   @ApiResponse({ status: 200, description: '成功返回健康概览列表' })
   async getOverview() {
     // 获取所有 Provider 的健康指标
@@ -86,13 +86,13 @@ export class ProviderHealthController {
   }
 
   /**
-   * 获取单个 Provider 的详细健康信息
+   * 获取单个供应商的详细健康信息
    */
   @Get(':provider')
   @RequirePermissions('provider:read')
-  @ApiOperation({ summary: '获取单个 Provider 的详细健康信息' })
-  @ApiParam({ name: 'provider', description: 'Provider 名称' })
-  @ApiResponse({ status: 200, description: '成功返回 Provider 详细健康信息' })
+  @ApiOperation({ summary: '获取单个供应商的详细健康信息' })
+  @ApiParam({ name: 'provider', description: '供应商标识（与路由中的 provider 名称一致）' })
+  @ApiResponse({ status: 200, description: '成功返回供应商详细健康信息' })
   async getProviderHealth(@Param('provider') provider: string) {
     const decodedProvider = decodeURIComponent(provider);
 
@@ -130,13 +130,13 @@ export class ProviderHealthController {
   }
 
   /**
-   * 获取 Provider 的历史指标时间序列
+   * 获取供应商的历史指标时间序列
    * 从 Redis 滑动窗口中获取指定时间范围内的数据点，按时间分组返回
    */
   @Get(':provider/history')
   @RequirePermissions('provider:read')
-  @ApiOperation({ summary: '获取 Provider 的历史指标时间序列' })
-  @ApiParam({ name: 'provider', description: 'Provider 名称' })
+  @ApiOperation({ summary: '获取供应商的历史指标时间序列' })
+  @ApiParam({ name: 'provider', description: '供应商标识（与路由中的 provider 名称一致）' })
   @ApiQuery({ name: 'hours', required: false, description: '查询时间范围（小时），默认 1' })
   @ApiResponse({ status: 200, description: '成功返回历史指标时间序列' })
   async getHistory(
@@ -183,7 +183,7 @@ export class ProviderHealthController {
   @RequirePermissions('provider:update')
   @Roles('admin', 'operator')
   @ApiOperation({ summary: '手动覆盖熔断器状态' })
-  @ApiParam({ name: 'provider', description: 'Provider 名称' })
+  @ApiParam({ name: 'provider', description: '供应商标识（与路由中的 provider 名称一致）' })
   @ApiResponse({ status: 200, description: '覆盖成功' })
   @ApiResponse({ status: 400, description: '参数错误' })
   async overrideCircuitBreaker(
@@ -229,7 +229,7 @@ export class ProviderHealthController {
   @RequirePermissions('provider:update')
   @Roles('admin', 'operator')
   @ApiOperation({ summary: '清除熔断器手动覆盖' })
-  @ApiParam({ name: 'provider', description: 'Provider 名称' })
+  @ApiParam({ name: 'provider', description: '供应商标识（与路由中的 provider 名称一致）' })
   @ApiResponse({ status: 200, description: '清除成功' })
   async clearOverride(@Param('provider') provider: string) {
     const decodedProvider = decodeURIComponent(provider);
@@ -250,14 +250,14 @@ export class ProviderHealthController {
   }
 
   /**
-   * 更新 Provider 的熔断器配置
+   * 更新供应商的熔断器配置
    * 仅允许 admin 角色操作
    */
   @Put(':provider/circuit-breaker/config')
   @RequirePermissions('provider:update')
   @Roles('admin')
-  @ApiOperation({ summary: '更新 Provider 的熔断器配置' })
-  @ApiParam({ name: 'provider', description: 'Provider 名称' })
+  @ApiOperation({ summary: '更新供应商的熔断器配置' })
+  @ApiParam({ name: 'provider', description: '供应商标识（与路由中的 provider 名称一致）' })
   @ApiResponse({ status: 200, description: '配置更新成功' })
   @ApiResponse({ status: 400, description: '配置校验失败' })
   async updateConfig(
@@ -304,12 +304,12 @@ export class ProviderHealthController {
   }
 
   /**
-   * 获取 Provider 的熔断器配置
+   * 获取供应商的熔断器配置
    */
   @Get(':provider/circuit-breaker/config')
   @RequirePermissions('provider:read')
-  @ApiOperation({ summary: '获取 Provider 的熔断器配置' })
-  @ApiParam({ name: 'provider', description: 'Provider 名称' })
+  @ApiOperation({ summary: '获取供应商的熔断器配置' })
+  @ApiParam({ name: 'provider', description: '供应商标识（与路由中的 provider 名称一致）' })
   @ApiResponse({ status: 200, description: '成功返回熔断器配置' })
   async getConfig(@Param('provider') provider: string) {
     const decodedProvider = decodeURIComponent(provider);

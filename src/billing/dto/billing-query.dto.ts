@@ -8,10 +8,10 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
  * 用于管理后台查询 BillingRecord 列表，支持多维度筛选和分页。
  */
 export class BillingQueryDto {
-  @ApiPropertyOptional({ description: 'API Client ID 筛选', example: 'client_abc123' })
+  @ApiPropertyOptional({ description: '按 API Key（api_clients.apiKey）筛选', example: 'mh_01KPBE1Z3WCDX5RY5H66YY4E86' })
   @IsString()
   @IsOptional()
-  clientId?: string;
+  apiKey?: string;
 
   @ApiPropertyOptional({ description: '模型名称筛选', example: 'wavespeed-ai/flux-2-pro/text-to-image' })
   @IsString()

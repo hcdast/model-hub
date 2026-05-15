@@ -1,5 +1,9 @@
-import { useState, useCallback } from 'react';
-import { Table, Card, Input, Select, DatePicker, Button, Space, Tag, message } from 'antd';
+import { useState, useCallback, useEffect } from 'react';
+import {
+  Table, Card, Input, Select, DatePicker, Button, Space, Tag, message, Row, Col, Typography, Divider,
+} from 'antd';
+import type { Dayjs } from 'dayjs';
+import dayjs from 'dayjs';
 import PageHeader from '../components/PageHeader';
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
 import { billingApi, type BillingRecordQuery, type BillingRecordItem } from '../services/billing';
@@ -19,13 +23,6 @@ const STATUS_OPTIONS = [
   { label: '已结算', value: 'settled' },
   { label: '已退款', value: 'refunded' },
   { label: '失败', value: 'failed' },
-];
-
-/** 用量类型选项 */
-const USAGE_TYPE_OPTIONS = [
-  { label: 'Token', value: 'token' },
-  { label: 'Count', value: 'count' },
-  { label: 'Duration', value: 'duration' },
 ];
 
 /** 计费状态 → 颜色映射 */
@@ -69,13 +66,13 @@ function exportToCsv(records: BillingRecordItem[]) {
   }
 
   const headers = [
-    'taskId', 'clientId', 'model', 'provider', 'usageType',
+    'taskId', 'apiKey', 'model', 'provider', 'usageType',
     'estimatedCost', 'actualCost', 'billingPolicy', 'status', 'createdAt',
   ];
 
   const rows = records.map((r) => [
     r.taskId,
-    r.clientId,
+    r.apiKey,
     r.model,
     r.provider,
     r.usageType,
@@ -86,13 +83,11 @@ function exportToCsv(records: BillingRecordItem[]) {
     r.createdAt ? new Date(r.createdAt).toLocaleString('zh-CN') : '',
   ]);
 
-  // 拼接 CSV 内容，字段用双引号包裹以处理特殊字符
   const csvContent = [
     headers.join(','),
     ...rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')),
   ].join('\n');
 
-  // 添加 BOM 头以确保 Excel 正确识别 UTF-8 编码
   const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -104,24 +99,51 @@ function exportToCsv(records: BillingRecordItem[]) {
 }
 
 export default function BillingRecordsPage() {
-  // 筛选参数状态
   const [params, setParams] = useState<BillingRecordQuery>({
     page: 1,
     pageSize: 20,
   });
 
-  // 使用 useRequest 自动获取计费记录
+  const [reconRange, setReconRange] = useState<[Dayjs, Dayjs]>([
+    dayjs().subtract(6, 'day').startOf('day'),
+    dayjs().endOf('day'),
+  ]);
+  const [reconRows, setReconRows] = useState<any[]>([]);
+  const [reconLoading, setReconLoading] = useState(false);
+
   const { data, loading, refresh } = useRequest(
     () => billingApi.getRecords(params).then((res: any) => res.data || { items: [], total: 0 }),
-    { deps: [params.page, params.pageSize, params.clientId, params.model, params.billingPolicy, params.status, params.startDate, params.endDate] },
+    { deps: [params.page, params.pageSize, params.apiKey, params.model, params.billingPolicy, params.status, params.startDate, params.endDate] },
   );
 
-  /** 更新筛选参数并重置到第一页 */
+  const loadReconciliation = useCallback(async () => {
+    setReconLoading(true);
+    try {
+      const [from, to] = reconRange;
+      const res: any = await billingApi.getSummary({
+        groupBy: 'date',
+        startDate: from.startOf('day').toISOString(),
+        endDate: to.endOf('day').toISOString(),
+      });
+      setReconRows(Array.isArray(res.data) ? res.data : []);
+    } catch {
+      message.error('加载对账汇总失败');
+      setReconRows([]);
+    } finally {
+      setReconLoading(false);
+    }
+  }, [reconRange]);
+
+  useEffect(() => {
+    loadReconciliation();
+    // 仅首屏按默认日期区间加载；修改区间后请点击「查询对账」
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const updateFilter = useCallback((patch: Partial<BillingRecordQuery>) => {
     setParams((prev) => ({ ...prev, ...patch, page: 1 }));
   }, []);
 
-  /** 表格列定义 */
   const columns = [
     {
       title: 'Task ID',
@@ -131,9 +153,9 @@ export default function BillingRecordsPage() {
       ellipsis: true,
     },
     {
-      title: 'Client ID',
-      dataIndex: 'clientId',
-      key: 'clientId',
+      title: 'API Key',
+      dataIndex: 'apiKey',
+      key: 'apiKey',
       width: 160,
       ellipsis: true,
     },
@@ -203,45 +225,17 @@ export default function BillingRecordsPage() {
   return (
     <div>
       <PageHeader
-        title="计费记录"
+        title="用量账单"
         extra={(
           <>
-            <Input.Search
-              placeholder="Client ID"
-              allowClear
-              style={{ width: 200 }}
-              onSearch={(v) => updateFilter({ clientId: v || undefined })}
-            />
-            <Input.Search
-              placeholder="模型名称"
-              allowClear
-              style={{ width: 200 }}
-              onSearch={(v) => updateFilter({ model: v || undefined })}
-            />
-            <Select
-              placeholder="计费策略"
-              allowClear
-              style={{ width: 140 }}
-              options={BILLING_POLICY_OPTIONS}
-              onChange={(v) => updateFilter({ billingPolicy: v })}
-            />
-            <Select
-              placeholder="状态"
-              allowClear
-              style={{ width: 120 }}
-              options={STATUS_OPTIONS}
-              onChange={(v) => updateFilter({ status: v })}
-            />
-            <DatePicker.RangePicker
-              onChange={(dates) => {
-                updateFilter({
-                  startDate: dates?.[0]?.toISOString(),
-                  endDate: dates?.[1]?.toISOString(),
-                });
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={() => {
+                refresh();
+                loadReconciliation();
               }}
-            />
-            <Button icon={<ReloadOutlined />} onClick={refresh}>
-              刷新
+            >
+              刷新全部
             </Button>
             <Button
               type="primary"
@@ -253,7 +247,94 @@ export default function BillingRecordsPage() {
           </>
         )}
       />
-      <Card>
+
+      <Card
+        style={{ marginBottom: 16 }}
+        loading={reconLoading}
+        title="周期对账（按日汇总）"
+        extra={(
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            按日聚合用量账单中的预估/实际费用，便于与财务核对
+          </Typography.Text>
+        )}
+      >
+        <Row gutter={[12, 12]} align="middle">
+          <Col xs={24} md={16} lg={12}>
+            <DatePicker.RangePicker
+              value={reconRange}
+              style={{ width: '100%', maxWidth: 400 }}
+              onChange={(v) => v && v[0] && v[1] && setReconRange([v[0], v[1]])}
+            />
+          </Col>
+          <Col>
+            <Button type="primary" onClick={() => loadReconciliation()}>
+              查询对账
+            </Button>
+          </Col>
+        </Row>
+        <Divider style={{ margin: '12px 0' }} />
+        <Table
+          size="small"
+          rowKey={(r) => String(r._id)}
+          dataSource={reconRows}
+          pagination={false}
+          scroll={{ x: 560 }}
+          columns={[
+            { title: '日期', dataIndex: '_id', width: 120 },
+            { title: '笔数', dataIndex: 'count', width: 90, align: 'right' as const },
+            {
+              title: '预估费用',
+              dataIndex: 'totalEstimatedCost',
+              align: 'right' as const,
+              render: (v: number) => (v != null ? Number(v).toFixed(2) : '—'),
+            },
+            {
+              title: '实际费用',
+              dataIndex: 'totalActualCost',
+              align: 'right' as const,
+              render: (v: number) => (v != null ? Number(v).toFixed(2) : '—'),
+            },
+          ]}
+        />
+      </Card>
+
+      <Card title="用量账单明细">
+        <Space wrap style={{ marginBottom: 12 }}>
+          <Input.Search
+            placeholder="API Key"
+            allowClear
+            style={{ width: 200 }}
+            onSearch={(v) => updateFilter({ apiKey: v || undefined })}
+          />
+          <Input.Search
+            placeholder="模型名称"
+            allowClear
+            style={{ width: 200 }}
+            onSearch={(v) => updateFilter({ model: v || undefined })}
+          />
+          <Select
+            placeholder="计费策略"
+            allowClear
+            style={{ width: 140 }}
+            options={BILLING_POLICY_OPTIONS}
+            onChange={(v) => updateFilter({ billingPolicy: v })}
+          />
+          <Select
+            placeholder="状态"
+            allowClear
+            style={{ width: 120 }}
+            options={STATUS_OPTIONS}
+            onChange={(v) => updateFilter({ status: v })}
+          />
+          <DatePicker.RangePicker
+            onChange={(dates) => {
+              updateFilter({
+                startDate: dates?.[0]?.toISOString(),
+                endDate: dates?.[1]?.toISOString(),
+              });
+            }}
+          />
+        </Space>
         <Table
           columns={columns}
           dataSource={data?.items || []}

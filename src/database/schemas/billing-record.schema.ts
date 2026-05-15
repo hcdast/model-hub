@@ -13,9 +13,9 @@ export class BillingRecord {
   @Prop({ required: true })
   taskId!: string;
 
-  /** API Client ID */
+  /** API Key（与 api_clients.apiKey 一致） */
   @Prop({ required: true })
-  clientId!: string;
+  apiKey!: string;
 
   /** 模型名称 */
   @Prop({ required: true })
@@ -83,7 +83,7 @@ export const BillingRecordSchema =
 // taskId 唯一索引：每个任务只有一条计费记录
 BillingRecordSchema.index({ taskId: 1 }, { unique: true });
 // 按客户端 + 创建时间查询
-BillingRecordSchema.index({ clientId: 1, createdAt: -1 });
+BillingRecordSchema.index({ apiKey: 1, createdAt: -1 });
 // 按计费策略 + 状态查询
 BillingRecordSchema.index({ billingPolicy: 1, status: 1 });
 // 按模型 + 创建时间查询

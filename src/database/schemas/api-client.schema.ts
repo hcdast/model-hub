@@ -5,10 +5,11 @@ export type ApiClientDocument = HydratedDocument<ApiClient>;
 
 @Schema({ timestamps: true, collection: 'api_clients' })
 export class ApiClient {
-  /** 公开 id，形如 mh_<ULID>；完整调用密钥为 `${clientId}.${secret}` */
+  /** 客户端主键，形如 mh_<ULID>；新版与请求头 X-API-Key 相同；旧版复合密钥为 `${apiKey}.${secret}` 前缀 */
   @Prop({ required: true, unique: true })
-  clientId!: string;
+  apiKey!: string;
 
+  /** bcrypt(secret) 旧版；新版为 bcrypt(apiKey) */
   @Prop({ required: true })
   secretHash!: string;
 

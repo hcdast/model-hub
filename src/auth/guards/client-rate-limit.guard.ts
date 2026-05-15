@@ -24,8 +24,8 @@ const DEFAULT_RATE_LIMITS = {
  * Per-Key 限流 Guard
  *
  * 在 ApiKeyGuard 之后执行，检查：
- * 1. QPS 限流 — Redis 滑动窗口计数器 `ratelimit:qps:{clientId}`
- * 2. 每日请求限额 — Redis INCR `ratelimit:daily:{clientId}:{YYYYMMDD}`
+ * 1. QPS 限流 — Redis 滑动窗口计数器 `ratelimit:qps:{apiKey}`
+ * 2. 每日请求限额 — Redis INCR `ratelimit:daily:{apiKey}:{YYYYMMDD}`
  *
  * Redis 不可用时 fail-open（放行 + warning 日志）
  */
@@ -40,21 +40,21 @@ export class ClientRateLimitGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
-    const clientId = (request as any).clientId as string;
+    const apiKey = (request as any).apiKey as string;
 
-    if (!clientId) {
-      // 没有 clientId 说明 ApiKeyGuard 未执行或未设置，直接放行
+    if (!apiKey) {
+      // 没有 apiKey 说明 ApiKeyGuard 未执行或未设置，直接放行
       return true;
     }
 
     try {
       // 获取客户端限流配置
-      const rateLimits = await this.getClientRateLimits(clientId);
+      const rateLimits = await this.getClientRateLimits(apiKey);
       const maxQps = rateLimits.maxQps ?? DEFAULT_RATE_LIMITS.maxQps;
       const maxDailyRequests = rateLimits.maxDailyRequests ?? DEFAULT_RATE_LIMITS.maxDailyRequests;
 
       // 1. QPS 检查 — 滑动窗口
-      const qpsAllowed = await this.checkQps(clientId, maxQps);
+      const qpsAllowed = await this.checkQps(apiKey, maxQps);
       if (!qpsAllowed) {
         throw new HttpException(
           { success: false, error: 'QPS limit exceeded', code: 'RATE_LIMIT_EXCEEDED' },
@@ -63,7 +63,7 @@ export class ClientRateLimitGuard implements CanActivate {
       }
 
       // 2. 每日限额检查
-      const dailyAllowed = await this.checkDailyLimit(clientId, maxDailyRequests);
+      const dailyAllowed = await this.checkDailyLimit(apiKey, maxDailyRequests);
       if (!dailyAllowed) {
         throw new HttpException(
           { success: false, error: 'Daily request limit exceeded', code: 'DAILY_LIMIT_EXCEEDED' },
@@ -79,7 +79,7 @@ export class ClientRateLimitGuard implements CanActivate {
       }
       // Redis 不可用或其他异常时 fail-open
       this.logger.warn(
-        `限流检查异常，fail-open 放行: clientId=${clientId}, error=${(error as Error).message}`,
+        `限流检查异常，fail-open 放行: apiKey=${apiKey}, error=${(error as Error).message}`,
       );
       return true;
     }
@@ -89,12 +89,12 @@ export class ClientRateLimitGuard implements CanActivate {
    * 获取客户端的限流配置
    * 优先使用客户端自定义配置，无自定义配置时使用系统默认值
    */
-  private async getClientRateLimits(clientId: string): Promise<{
+  private async getClientRateLimits(apiKey: string): Promise<{
     maxQps?: number;
     maxDailyRequests?: number;
   }> {
     const doc = await this.apiClientModel
-      .findOne({ clientId })
+      .findOne({ apiKey })
       .select('rateLimits')
       .lean()
       .exec();
@@ -113,7 +113,7 @@ export class ClientRateLimitGuard implements CanActivate {
    * QPS 检查 — 滑动窗口计数器
    *
    * 使用 Redis Sorted Set 实现滑动窗口：
-   * - key: `ratelimit:qps:{clientId}`
+   * - key: `ratelimit:qps:{apiKey}`
    * - score: 当前时间戳（毫秒）
    * - 窗口大小: 1000ms
    *
@@ -123,10 +123,10 @@ export class ClientRateLimitGuard implements CanActivate {
    * 3. 统计窗口内请求数
    * 4. 设置 key 过期时间（防止内存泄漏）
    */
-  private async checkQps(clientId: string, maxQps: number): Promise<boolean> {
+  private async checkQps(apiKey: string, maxQps: number): Promise<boolean> {
     const now = Date.now();
     const windowMs = 1000; // 1 秒窗口
-    const key = `ratelimit:qps:${clientId}`;
+    const key = `ratelimit:qps:${apiKey}`;
 
     const pipeline = this.redis.pipeline();
     // 移除窗口外的旧记录
@@ -149,13 +149,13 @@ export class ClientRateLimitGuard implements CanActivate {
    * 每日限额检查
    *
    * 使用 Redis INCR 实现每日计数器：
-   * - key: `ratelimit:daily:{clientId}:{YYYYMMDD}`
+   * - key: `ratelimit:daily:{apiKey}:{YYYYMMDD}`
    * - 使用 INCR 原子递增
    * - 使用 EXPIREAT 设置次日零点过期
    */
-  private async checkDailyLimit(clientId: string, maxDailyRequests: number): Promise<boolean> {
+  private async checkDailyLimit(apiKey: string, maxDailyRequests: number): Promise<boolean> {
     const today = this.getTodayStr();
-    const key = `ratelimit:daily:${clientId}:${today}`;
+    const key = `ratelimit:daily:${apiKey}:${today}`;
 
     // 使用 INCR 原子递增，返回递增后的值
     const count = await this.redis.incr(key);

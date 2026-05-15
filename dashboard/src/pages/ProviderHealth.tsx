@@ -21,7 +21,7 @@ export default function ProviderHealthPage() {
       const res: any = await providerHealthApi.getOverview();
       setItems(res.data?.items || res.data || []);
     } catch {
-      message.error('加载 Provider 健康数据失败');
+      message.error('加载供应商健康度数据失败');
     }
     setLoading(false);
   }, []);
@@ -41,7 +41,7 @@ export default function ProviderHealthPage() {
   return (
     <div>
       <PageHeader
-        title="Provider 健康监控"
+        title="供应商健康度"
         prefix={<HeartOutlined style={{ color: '#eb2f96', fontSize: 20 }} />}
         extra={(
           <Button icon={<ReloadOutlined />} onClick={() => void fetchData()} loading={loading}>

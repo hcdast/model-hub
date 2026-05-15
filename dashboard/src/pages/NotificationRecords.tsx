@@ -52,7 +52,7 @@ export default function NotificationRecordsPage() {
               onChange={(v) => setParams({ ...params, eventType: v, page: 1 })}
             />
             <Select allowClear placeholder="渠道" style={{ width: 140 }}
-              options={[{ value: 'wecom', label: '企业微信' }, { value: 'email', label: '邮件' }, { value: 'in_app', label: '站内通知' }]}
+              options={[{ value: 'wecom', label: '企业微信' }, { value: 'email', label: '邮件' }, { value: 'in_app', label: '消息中心' }]}
               value={params.channelType}
               onChange={(v) => setParams({ ...params, channelType: v, page: 1 })}
             />

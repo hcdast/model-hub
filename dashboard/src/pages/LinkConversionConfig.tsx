@@ -114,7 +114,7 @@ export default function LinkConversionConfigPage() {
         setCacheTtlMs(data.cache_ttl_ms ?? null);
       }
     } catch {
-      message.error('加载链接转换配置失败');
+      message.error('加载请求转换配置失败');
     }
     setLoading(false);
   }, [form]);
@@ -147,7 +147,7 @@ export default function LinkConversionConfigPage() {
   return (
     <div>
       <PageHeader
-        title="第三方链接转换配置"
+        title="请求转换配置"
         extra={(
           <>
             <Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>
@@ -200,7 +200,7 @@ export default function LinkConversionConfigPage() {
         <Typography.Title level={5}>基础</Typography.Title>
         <Form.Item
           name="enabled"
-          label="启用链接转换"
+          label="启用请求转换"
           valuePropName="checked"
         >
           <Switch checkedChildren="开" unCheckedChildren="关" />
@@ -280,7 +280,7 @@ export default function LinkConversionConfigPage() {
           type="warning"
           showIcon
           style={{ marginBottom: 12 }}
-          message="启用链接转换时须填写网关地址与 JWT 密钥；与 AGI-Content-Job 的 storagesvc 配置含义一致。"
+          message="启用请求转换时须填写网关地址与 JWT 密钥；与 AGI-Content-Job 的 storagesvc 配置含义一致。"
         />
         <Form.Item
           name="storagesvc_host"
@@ -294,7 +294,7 @@ export default function LinkConversionConfigPage() {
           label="JWT 密钥 jwt_secret"
           rules={[{ required: false }]}
         >
-          <Input.Password placeholder="启用链接转换时必填" autoComplete="new-password" />
+          <Input.Password placeholder="启用请求转换时必填" autoComplete="new-password" />
         </Form.Item>
         <Form.Item
           name="storagesvc_timeout_ms"

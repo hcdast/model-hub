@@ -11,12 +11,12 @@ export class InsufficientBalanceException extends HttpException {
   /** 错误码常量 */
   public static readonly ERROR_CODE = 'INSUFFICIENT_BALANCE';
 
-  constructor(clientId: string, requiredAmount: number) {
+  constructor(apiKey: string, requiredAmount: number) {
     super(
       {
         success: false,
         code: InsufficientBalanceException.ERROR_CODE,
-        message: `Insufficient balance for client ${clientId}, required: ${requiredAmount}`,
+        message: `Insufficient balance for client ${apiKey}, required: ${requiredAmount}`,
       },
       HttpStatus.PAYMENT_REQUIRED,
     );

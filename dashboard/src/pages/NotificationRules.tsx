@@ -20,7 +20,7 @@ const SEVERITIES = ['info', 'warning', 'critical'];
 const CHANNEL_TYPES = [
   { value: 'wecom', label: '企业微信' },
   { value: 'email', label: '邮件' },
-  { value: 'in_app', label: '站内通知' },
+  { value: 'in_app', label: '消息中心' },
 ];
 
 const severityColor: Record<string, string> = { info: 'blue', warning: 'orange', critical: 'red' };

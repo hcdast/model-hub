@@ -21,7 +21,7 @@ import { Request } from 'express';
 import { resolveUnitPriceMapTier, pickCreditReferenceUnitFromPriceMap } from '../billing/unit-price-map.util';
 import { roundMoney } from '../common/utils/money.util';
 
-@ApiTags('管理后台 - 任务管理')
+@ApiTags('管理后台 - 任务记录')
 @ApiBearerAuth('AdminJwt')
 @Controller('api/v1/admin/tasks')
 @UseGuards(AdminJwtGuard, PermissionGuard)
@@ -43,7 +43,7 @@ export class AdminTaskController {
 
   @Get()
   @RequirePermissions('task:read')
-  @ApiOperation({ summary: '任务列表（管理端）', description: '支持按状态、厂商、功能类型、模型筛选' })
+  @ApiOperation({ summary: '任务列表（管理端）', description: '支持按状态、供应商、功能类型、模型筛选' })
   @ApiQuery({ name: 'status', required: false })
   @ApiQuery({ name: 'provider', required: false })
   @ApiQuery({ name: 'featureType', required: false })
@@ -280,7 +280,7 @@ export class AdminTaskController {
     if (!task) return { code: 3001, message: 'Task not found' };
     const adminUser = (req as any).adminUser;
     const adminUsername = adminUser?.username || 'unknown';
-    const data = await this.taskService.cancelTask(task.clientId, taskId, adminUsername);
+    const data = await this.taskService.cancelTask(task.apiKey, taskId, adminUsername);
     await this.auditLogService.log('CANCEL_TASK', adminUsername, { taskId, previousStatus: task.status });
     return { code: 0, data };
   }
@@ -306,7 +306,7 @@ export class AdminTaskController {
     return { code: 0, data: result };
   }
 
-  /** 按 model_name + provider 解析模型配置；无精确命中时回退为仅 model_name（与定价服务一致） */
+  /** 按 model_id + provider 解析模型配置；无精确命中时回退为仅 model_id（与定价服务一致） */
   private async resolveModelConfigRow(
     modelName: string,
     provider?: string,
@@ -314,7 +314,7 @@ export class AdminTaskController {
     if (provider) {
       const exact = await this.modelConfigModel
         .findOne({
-          model_name: modelName,
+          model_id: modelName,
           provider,
           disabled: { $ne: true },
         })
@@ -323,7 +323,7 @@ export class AdminTaskController {
       if (exact) return exact as Record<string, unknown>;
     }
     const fallback = await this.modelConfigModel
-      .findOne({ model_name: modelName, disabled: { $ne: true } })
+      .findOne({ model_id: modelName, disabled: { $ne: true } })
       .select('unit_price_map')
       .lean();
     return fallback ? (fallback as Record<string, unknown>) : null;
@@ -376,22 +376,22 @@ export class AdminTaskController {
   }
 
   /** 为任务列表/详情附加 api_clients.name，便于后台区分调用方 */
-  private async attachClientDisplayNames<T extends { clientId?: string }>(items: T[]): Promise<Array<T & { clientName: string | null }>> {
-    const ids = [...new Set(items.map((t) => t.clientId).filter((id): id is string => Boolean(id)))];
-    const nameByClientId = new Map<string, string | null>();
+  private async attachClientDisplayNames<T extends { apiKey?: string }>(items: T[]): Promise<Array<T & { clientName: string | null }>> {
+    const ids = [...new Set(items.map((t) => t.apiKey).filter((id): id is string => Boolean(id)))];
+    const nameByApiKey = new Map<string, string | null>();
     if (ids.length > 0) {
       const clients = await this.apiClientModel
-        .find({ clientId: { $in: ids } })
-        .select('clientId name')
+        .find({ apiKey: { $in: ids } })
+        .select('apiKey name')
         .lean();
       for (const c of clients) {
-        nameByClientId.set(c.clientId, c.name?.trim() ? c.name.trim() : null);
+        nameByApiKey.set(c.apiKey, c.name?.trim() ? c.name.trim() : null);
       }
     }
     return items.map((t) => {
-      if (!t.clientId) return { ...t, clientName: null };
-      const hit = nameByClientId.has(t.clientId);
-      const clientName = hit ? (nameByClientId.get(t.clientId) ?? null) : null;
+      if (!t.apiKey) return { ...t, clientName: null };
+      const hit = nameByApiKey.has(t.apiKey);
+      const clientName = hit ? (nameByApiKey.get(t.apiKey) ?? null) : null;
       return { ...t, clientName };
     });
   }

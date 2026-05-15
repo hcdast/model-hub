@@ -22,7 +22,7 @@ import { PermissionGuard } from './guards/permission.guard';
 import { RequirePermissions } from './decorators/require-permissions.decorator';
 import { roundMoney } from '../common/utils/money.util';
 
-@ApiTags('管理后台 - 账号成本')
+@ApiTags('管理后台 - 成本分析')
 @ApiBearerAuth('AdminJwt')
 @Controller('api/v1/admin/account-costs')
 @UseGuards(AdminJwtGuard, PermissionGuard)
@@ -34,7 +34,7 @@ export class AdminAccountCostController {
 
   @Get()
   @RequirePermissions('provider:read')
-  @ApiOperation({ summary: '账号成本日明细（支持按 provider、account、时间范围筛选）' })
+  @ApiOperation({ summary: '成本分析日明细（支持按 provider、account、时间范围筛选）' })
   @ApiQuery({ name: 'provider_name', required: false })
   @ApiQuery({ name: 'account_id', required: false })
   @ApiQuery({ name: 'start_date', required: false, description: 'YYYY-MM-DD' })
@@ -83,7 +83,7 @@ export class AdminAccountCostController {
 
   @Get('monthly')
   @RequirePermissions('provider:read')
-  @ApiOperation({ summary: '账号成本月聚合' })
+  @ApiOperation({ summary: '成本分析月聚合' })
   @ApiQuery({ name: 'provider_name', required: false })
   @ApiQuery({ name: 'account_id', required: false })
   @ApiQuery({ name: 'month', required: false, description: 'YYYY-MM，默认当月' })

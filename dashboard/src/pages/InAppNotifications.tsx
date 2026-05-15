@@ -61,7 +61,7 @@ export default function InAppNotificationsPage() {
   return (
     <div>
       <PageHeader
-        title="站内通知"
+        title="消息中心"
         leftExtra={(
           <>
             {unread > 0 ? <Badge count={unread} /> : null}

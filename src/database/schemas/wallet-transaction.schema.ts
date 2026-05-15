@@ -9,9 +9,9 @@ export type WalletTransactionDocument = HydratedDocument<WalletTransaction>;
  */
 @Schema({ timestamps: true, collection: 'wallet_transactions' })
 export class WalletTransaction {
-  /** API Client ID */
+  /** API Key（与 api_clients.apiKey 一致） */
   @Prop({ required: true })
-  clientId!: string;
+  apiKey!: string;
 
   /** 交易类型：credit（充值）、debit（扣费）、freeze（冻结）、unfreeze（解冻） */
   @Prop({ required: true, enum: ['credit', 'debit', 'freeze', 'unfreeze'] })
@@ -42,6 +42,6 @@ export const WalletTransactionSchema =
   SchemaFactory.createForClass(WalletTransaction);
 
 // 按客户端 + 创建时间查询交易记录
-WalletTransactionSchema.index({ clientId: 1, createdAt: -1 });
+WalletTransactionSchema.index({ apiKey: 1, createdAt: -1 });
 // 按关联任务 ID 查询
 WalletTransactionSchema.index({ relatedTaskId: 1 });

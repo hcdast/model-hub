@@ -1,12 +1,10 @@
 import { useState, useCallback, useEffect } from 'react';
 import {
   Card, Input, Button, Space, Typography, Table, Tag, Modal,
-  Form, InputNumber, Row, Col, Statistic, message, Tooltip, DatePicker, Alert,
+  Form, InputNumber, Row, Col, Statistic, message, Tooltip, Alert, Divider,
 } from 'antd';
-import type { Dayjs } from 'dayjs';
-import dayjs from 'dayjs';
 import {
-  SearchOutlined, ReloadOutlined, PlusOutlined, EyeOutlined,
+  SearchOutlined, ReloadOutlined, PlusOutlined,
   WalletOutlined, LockOutlined, DollarOutlined,
 } from '@ant-design/icons';
 import {
@@ -43,18 +41,16 @@ const policyLabelMap: Record<string, string> = {
   exempt: '免计费',
 };
 
+/** 冻结占余额比例（用于列表快速判断资金占用） */
+function frozenRatioText(balance: number, frozen: number): string {
+  if (balance == null || frozen == null || balance <= 0) return '—';
+  return `${Math.min(100, Math.round((frozen / balance) * 1000) / 10)}%`;
+}
+
 export default function WalletManagementPage() {
   const { hasPermission } = usePermission();
   const canBillingWrite = hasPermission('billing:write');
 
-  const [reconRange, setReconRange] = useState<[Dayjs, Dayjs]>([
-    dayjs().subtract(6, 'day').startOf('day'),
-    dayjs().endOf('day'),
-  ]);
-  const [reconRows, setReconRows] = useState<any[]>([]);
-  const [reconLoading, setReconLoading] = useState(false);
-
-  // 钱包列表
   const [wallets, setWallets] = useState<WalletListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -62,21 +58,22 @@ export default function WalletManagementPage() {
   const [pageSize, setPageSize] = useState(20);
   const [keyword, setKeyword] = useState('');
 
-  // 详情视图：选中的 clientId
-  const [selectedClientId, setSelectedClientId] = useState('');
+  /** 详情弹窗 */
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailApiKey, setDetailApiKey] = useState('');
+  /** 打开弹窗时的列表行快照（阈值、名称等） */
+  const [detailSnapshot, setDetailSnapshot] = useState<WalletListItem | null>(null);
   const [wallet, setWallet] = useState<WalletBalance | null>(null);
   const [walletLoading, setWalletLoading] = useState(false);
   const [txData, setTxData] = useState<{ items: TransactionItem[]; total: number }>({ items: [], total: 0 });
   const [txLoading, setTxLoading] = useState(false);
   const [txParams, setTxParams] = useState<TransactionQuery>({ page: 1, pageSize: 10 });
 
-  // 充值弹窗
   const [creditModalOpen, setCreditModalOpen] = useState(false);
   const [creditTarget, setCreditTarget] = useState('');
   const [creditForm] = Form.useForm();
   const [creditLoading, setCreditLoading] = useState(false);
 
-  /** 加载钱包列表 */
   const fetchWallets = useCallback(async (p = page, ps = pageSize, kw = keyword) => {
     setLoading(true);
     try {
@@ -90,59 +87,32 @@ export default function WalletManagementPage() {
     }
   }, [page, pageSize, keyword]);
 
-  const loadReconciliation = useCallback(async () => {
-    setReconLoading(true);
-    try {
-      const [from, to] = reconRange;
-      const res: any = await billingApi.getSummary({
-        groupBy: 'date',
-        startDate: from.startOf('day').toISOString(),
-        endDate: to.endOf('day').toISOString(),
-      });
-      setReconRows(Array.isArray(res.data) ? res.data : []);
-    } catch {
-      message.error('加载对账汇总失败');
-      setReconRows([]);
-    } finally {
-      setReconLoading(false);
-    }
-  }, [reconRange]);
-
-  /** 初始加载 */
   useEffect(() => {
     fetchWallets(1, 20, '');
   }, []);
 
-  useEffect(() => {
-    loadReconciliation();
-  }, [loadReconciliation]);
-
-  /** 搜索 */
   const handleSearch = useCallback(() => {
     setPage(1);
     fetchWallets(1, pageSize, keyword);
   }, [keyword, pageSize, fetchWallets]);
 
-  /** 分页 */
   const handlePageChange = useCallback((p: number, ps: number) => {
     setPage(p);
     setPageSize(ps);
     fetchWallets(p, ps, keyword);
   }, [keyword, fetchWallets]);
 
-  /** 加载单个钱包详情 */
-  const loadWalletDetail = useCallback(async (cid: string) => {
-    setSelectedClientId(cid);
+  const loadDetailData = useCallback(async (apiKey: string, txPage = 1, txPs = 10) => {
     setWalletLoading(true);
     setTxLoading(true);
     try {
       const [balRes, txRes]: any[] = await Promise.all([
-        billingApi.getWallet(cid),
-        billingApi.getWalletTransactions(cid, { page: 1, pageSize: 10 }),
+        billingApi.getWallet(apiKey),
+        billingApi.getWalletTransactions(apiKey, { page: txPage, pageSize: txPs }),
       ]);
       setWallet(balRes?.data || null);
       setTxData(txRes?.data || { items: [], total: 0 });
-      setTxParams({ page: 1, pageSize: 10 });
+      setTxParams({ page: txPage, pageSize: txPs });
     } catch {
       message.error('加载钱包详情失败');
     } finally {
@@ -151,28 +121,46 @@ export default function WalletManagementPage() {
     }
   }, []);
 
-  /** 详情翻页 */
-  const handleTxPageChange = useCallback(async (p: number, ps: number) => {
-    if (!selectedClientId) return;
-    setTxLoading(true);
-    setTxParams({ page: p, pageSize: ps });
-    try {
-      const res: any = await billingApi.getWalletTransactions(selectedClientId, { page: p, pageSize: ps });
-      setTxData(res?.data || { items: [], total: 0 });
-    } catch {
-      message.error('加载交易记录失败');
-    } finally {
-      setTxLoading(false);
-    }
-  }, [selectedClientId]);
+  const openDetailModal = useCallback(
+    (record: WalletListItem) => {
+      setDetailApiKey(record.apiKey);
+      setDetailSnapshot(record);
+      setDetailOpen(true);
+      loadDetailData(record.apiKey, 1, 10);
+    },
+    [loadDetailData],
+  );
 
-  /** 打开充值弹窗 */
-  const openCredit = useCallback((cid: string) => {
-    setCreditTarget(cid);
+  const closeDetailModal = useCallback(() => {
+    setDetailOpen(false);
+    setDetailApiKey('');
+    setDetailSnapshot(null);
+    setWallet(null);
+    setTxData({ items: [], total: 0 });
+  }, []);
+
+  const handleTxPageChange = useCallback(
+    async (p: number, ps: number) => {
+      if (!detailApiKey) return;
+      setTxLoading(true);
+      setTxParams({ page: p, pageSize: ps });
+      try {
+        const res: any = await billingApi.getWalletTransactions(detailApiKey, { page: p, pageSize: ps });
+        setTxData(res?.data || { items: [], total: 0 });
+      } catch {
+        message.error('加载交易记录失败');
+      } finally {
+        setTxLoading(false);
+      }
+    },
+    [detailApiKey],
+  );
+
+  const openCredit = useCallback((targetApiKey: string) => {
+    setCreditTarget(targetApiKey);
     setCreditModalOpen(true);
   }, []);
 
-  /** 提交充值 */
   const handleCredit = useCallback(async () => {
     try {
       const values = await creditForm.validateFields();
@@ -185,8 +173,8 @@ export default function WalletManagementPage() {
       creditForm.resetFields();
       setCreditModalOpen(false);
       fetchWallets();
-      if (selectedClientId === creditTarget) {
-        loadWalletDetail(creditTarget);
+      if (detailOpen && detailApiKey === creditTarget) {
+        await loadDetailData(creditTarget, 1, 10);
       }
     } catch (err: any) {
       if (err?.response?.data?.message) {
@@ -197,29 +185,49 @@ export default function WalletManagementPage() {
     } finally {
       setCreditLoading(false);
     }
-  }, [creditTarget, creditForm, selectedClientId, fetchWallets, loadWalletDetail]);
+  }, [creditTarget, creditForm, detailOpen, detailApiKey, fetchWallets, loadDetailData]);
 
-  /** 钱包列表表格列定义 */
   const columns = [
     {
-      title: 'Client ID',
-      dataIndex: 'clientId',
-      key: 'clientId',
+      title: (
+        <Tooltip title="与 api_clients.apiKey、请求头 X-API-Key 一致">
+          API Key
+        </Tooltip>
+      ),
+      dataIndex: 'apiKey',
+      key: 'apiKey',
+      fixed: 'left' as const,
       ellipsis: true,
-      width: 260,
+      width: 200,
+      render: (apiKey: string) =>
+        apiKey ? (
+          <Typography.Text
+            copyable={{ text: apiKey }}
+            style={{
+              fontSize: 11,
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+              wordBreak: 'break-all',
+            }}
+          >
+            {apiKey}
+          </Typography.Text>
+        ) : (
+          <Typography.Text type="secondary">—</Typography.Text>
+        ),
     },
     {
       title: '名称',
       dataIndex: 'clientName',
       key: 'clientName',
-      width: 150,
-      render: (v: string) => v || '-',
+      width: 120,
+      ellipsis: true,
+      render: (v: string) => v || '—',
     },
     {
       title: '余额',
       dataIndex: 'balance',
       key: 'balance',
-      width: 130,
+      width: 100,
       align: 'right' as const,
       render: (v: number) => (v != null ? v.toFixed(2) : '0.00'),
     },
@@ -227,7 +235,7 @@ export default function WalletManagementPage() {
       title: '冻结',
       dataIndex: 'frozenAmount',
       key: 'frozenAmount',
-      width: 130,
+      width: 100,
       align: 'right' as const,
       render: (v: number) => (v != null ? v.toFixed(2) : '0.00'),
     },
@@ -235,7 +243,7 @@ export default function WalletManagementPage() {
       title: '可用',
       dataIndex: 'available',
       key: 'available',
-      width: 130,
+      width: 100,
       align: 'right' as const,
       render: (v: number) => (
         <span style={{ color: v > 0 ? '#52c41a' : '#ff4d4f', fontWeight: 500 }}>
@@ -244,13 +252,36 @@ export default function WalletManagementPage() {
       ),
     },
     {
+      title: (
+        <Tooltip title="冻结金额 / 总余额">冻结占用</Tooltip>
+      ),
+      key: 'frozenRatio',
+      width: 88,
+      align: 'center' as const,
+      render: (_: unknown, r: WalletListItem) => (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {frozenRatioText(r.balance, r.frozenAmount)}
+        </Typography.Text>
+      ),
+    },
+    {
+      title: (
+        <Tooltip title="低于该可用余额时可能触发低余额告警（account_balance_low）">低余额阈值</Tooltip>
+      ),
+      dataIndex: 'lowBalanceThreshold',
+      key: 'lowBalanceThreshold',
+      width: 100,
+      align: 'right' as const,
+      render: (v: number | undefined) => (v != null && v > 0 ? v.toFixed(2) : '—'),
+    },
+    {
       title: '计费策略',
       dataIndex: 'billingPolicy',
       key: 'billingPolicy',
-      width: 100,
+      width: 96,
       render: (v: string) => (
         <Tag color={v === 'internal' ? 'blue' : v === 'exempt' ? 'green' : 'default'}>
-          {policyLabelMap[v] || v}
+          {policyLabelMap[v] || v || '—'}
         </Tag>
       ),
     },
@@ -258,7 +289,7 @@ export default function WalletManagementPage() {
       title: '状态',
       dataIndex: 'enabled',
       key: 'enabled',
-      width: 80,
+      width: 72,
       render: (v: boolean) => (
         <Tag color={v !== false ? 'success' : 'error'}>
           {v !== false ? '启用' : '禁用'}
@@ -266,35 +297,32 @@ export default function WalletManagementPage() {
       ),
     },
     {
+      title: '创建时间',
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      width: 158,
+      render: (t: string | undefined) => (t ? formatDateTime(t) : '—'),
+    },
+    {
+      title: '最近更新',
+      dataIndex: 'updatedAt',
+      key: 'updatedAt',
+      width: 158,
+      render: (t: string) => (t ? formatDateTime(t) : '—'),
+    },
+    {
       title: '操作',
       key: 'actions',
-      width: 140,
-      render: (_: any, record: WalletListItem) => (
-        <Space size="small">
-          <Tooltip title="查看详情">
-            <Button
-              type="link"
-              size="small"
-              icon={<EyeOutlined />}
-              onClick={() => loadWalletDetail(record.clientId)}
-            />
-          </Tooltip>
-          {canBillingWrite && (
-            <Tooltip title="充值">
-              <Button
-                type="link"
-                size="small"
-                icon={<PlusOutlined />}
-                onClick={() => openCredit(record.clientId)}
-              />
-            </Tooltip>
-          )}
-        </Space>
+      fixed: 'right' as const,
+      width: 88,
+      render: (_: unknown, record: WalletListItem) => (
+        <Button type="link" size="small" onClick={() => openDetailModal(record)}>
+          详情
+        </Button>
       ),
     },
   ];
 
-  /** 交易记录表格列定义 */
   const txColumns = [
     {
       title: '类型',
@@ -359,11 +387,11 @@ export default function WalletManagementPage() {
   return (
     <div>
       <PageHeader
-        title="钱包管理"
+        title="余额充值"
         extra={(
           <>
             <Input
-              placeholder="搜索 Client ID"
+              placeholder="搜索 API Key / 名称"
               prefix={<SearchOutlined />}
               allowClear
               style={{ width: 300 }}
@@ -396,42 +424,14 @@ export default function WalletManagementPage() {
         description="低余额事件（account_balance_low）请在「通知规则」中配置；全局默认阈值由服务配置 billing.wallet.lowBalanceThreshold 控制。"
       />
 
-      <Card title="周期对账（按日汇总）" style={{ marginBottom: 16 }} loading={reconLoading}>
-        <Space wrap style={{ marginBottom: 12 }}>
-          <DatePicker.RangePicker value={reconRange} onChange={(v) => v && v[0] && v[1] && setReconRange([v[0], v[1]])} />
-          <Button type="primary" onClick={() => loadReconciliation()}>查询</Button>
-        </Space>
-        <Table
-          size="small"
-          rowKey={(r) => String(r._id)}
-          dataSource={reconRows}
-          pagination={false}
-          columns={[
-            { title: '日期', dataIndex: '_id', width: 120 },
-            { title: '笔数', dataIndex: 'count', width: 90 },
-            {
-              title: '预估费用',
-              dataIndex: 'totalEstimatedCost',
-              render: (v: number) => (v != null ? Number(v).toFixed(2) : '—'),
-            },
-            {
-              title: '实际费用',
-              dataIndex: 'totalActualCost',
-              render: (v: number) => (v != null ? Number(v).toFixed(2) : '—'),
-            },
-          ]}
-        />
-      </Card>
-
-      {/* 钱包列表 */}
-      <Card style={{ marginBottom: 16 }}>
+      <Card title="钱包列表">
         <Table
           columns={columns}
           dataSource={wallets}
-          rowKey="clientId"
+          rowKey="apiKey"
           loading={loading}
           size="small"
-          scroll={{ x: 1100 }}
+          scroll={{ x: 1680 }}
           pagination={{
             current: page,
             pageSize,
@@ -440,87 +440,119 @@ export default function WalletManagementPage() {
             showTotal: (t) => `共 ${t} 个钱包`,
             onChange: handlePageChange,
           }}
-          rowClassName={(record) => record.clientId === selectedClientId ? 'ant-table-row-selected' : ''}
         />
       </Card>
 
-      {/* 选中钱包的详情区域 */}
-      {selectedClientId && (
-        <>
-          <Row gutter={16} style={{ marginBottom: 16 }}>
-            <Col span={6}>
-              <Card loading={walletLoading} size="small">
+      <Modal
+        title="钱包详情"
+        open={detailOpen}
+        onCancel={closeDetailModal}
+        width={1040}
+        destroyOnClose
+        footer={null}
+      >
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <div>
+            <Typography.Text type="secondary" style={{ marginRight: 8 }}>API Key</Typography.Text>
+            <Typography.Text copyable code style={{ fontSize: 12 }}>
+              {detailApiKey}
+            </Typography.Text>
+            {detailSnapshot?.clientName ? (
+              <Tag color="blue" style={{ marginLeft: 12 }}>{detailSnapshot.clientName}</Tag>
+            ) : null}
+          </div>
+          <Row gutter={12} align="stretch">
+            <Col xs={24} sm={canBillingWrite ? 6 : 8}>
+              <Card loading={walletLoading} size="small" style={{ height: '100%' }}>
                 <Statistic
                   title="总余额"
-                  value={wallet?.balance ?? 0}
+                  value={wallet?.balance ?? detailSnapshot?.balance ?? 0}
                   precision={2}
                   prefix={<WalletOutlined />}
                 />
               </Card>
             </Col>
-            <Col span={6}>
-              <Card loading={walletLoading} size="small">
+            <Col xs={24} sm={canBillingWrite ? 6 : 8}>
+              <Card loading={walletLoading} size="small" style={{ height: '100%' }}>
                 <Statistic
                   title="冻结金额"
-                  value={wallet?.frozenAmount ?? 0}
+                  value={wallet?.frozenAmount ?? detailSnapshot?.frozenAmount ?? 0}
                   precision={2}
                   prefix={<LockOutlined />}
                   valueStyle={{ color: '#faad14' }}
                 />
               </Card>
             </Col>
-            <Col span={6}>
-              <Card loading={walletLoading} size="small">
+            <Col xs={24} sm={canBillingWrite ? 6 : 8}>
+              <Card loading={walletLoading} size="small" style={{ height: '100%' }}>
                 <Statistic
                   title="可用余额"
-                  value={wallet?.available ?? 0}
+                  value={wallet?.available ?? detailSnapshot?.available ?? 0}
                   precision={2}
                   prefix={<DollarOutlined />}
                   valueStyle={{ color: '#52c41a' }}
                 />
               </Card>
             </Col>
-            <Col span={6}>
-              <Card size="small" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                <Space>
-                  <Typography.Text type="secondary">{selectedClientId}</Typography.Text>
-                  {canBillingWrite && (
-                    <Button
-                      type="primary"
-                      size="small"
-                      icon={<PlusOutlined />}
-                      onClick={() => openCredit(selectedClientId)}
-                    >
-                      充值
-                    </Button>
-                  )}
-                </Space>
-              </Card>
-            </Col>
+            {canBillingWrite && detailApiKey ? (
+              <Col xs={24} sm={6}>
+                <Card
+                  size="small"
+                  style={{
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    minHeight: 108,
+                  }}
+                >
+                  <Button
+                    type="primary"
+                    icon={<PlusOutlined />}
+                    block
+                    onClick={() => openCredit(detailApiKey)}
+                  >
+                    充值
+                  </Button>
+                </Card>
+              </Col>
+            ) : null}
           </Row>
+          {(detailSnapshot?.lowBalanceThreshold != null && detailSnapshot.lowBalanceThreshold > 0) || detailSnapshot?.billingPolicy ? (
+            <Space wrap size="middle">
+              {detailSnapshot?.lowBalanceThreshold != null && detailSnapshot.lowBalanceThreshold > 0 ? (
+                <Typography.Text type="secondary">
+                  低余额阈值（本钱包）：{detailSnapshot.lowBalanceThreshold.toFixed(2)} credits
+                </Typography.Text>
+              ) : null}
+              {detailSnapshot?.billingPolicy ? (
+                <Typography.Text type="secondary">
+                  计费策略：
+                  {policyLabelMap[detailSnapshot.billingPolicy] || detailSnapshot.billingPolicy}
+                </Typography.Text>
+              ) : null}
+            </Space>
+          ) : null}
+          <Divider orientation="left" plain style={{ margin: '8px 0' }}>交易记录</Divider>
+          <Table
+            columns={txColumns}
+            dataSource={txData.items}
+            rowKey="_id"
+            loading={txLoading}
+            size="small"
+            scroll={{ x: 880 }}
+            pagination={{
+              current: txParams.page,
+              pageSize: txParams.pageSize,
+              total: txData.total,
+              showSizeChanger: true,
+              showTotal: (t) => `共 ${t} 条`,
+              onChange: handleTxPageChange,
+            }}
+          />
+        </Space>
+      </Modal>
 
-          <Card title={`交易记录 — ${selectedClientId}`}>
-            <Table
-              columns={txColumns}
-              dataSource={txData.items}
-              rowKey="_id"
-              loading={txLoading}
-              size="small"
-              scroll={{ x: 880 }}
-              pagination={{
-                current: txParams.page,
-                pageSize: txParams.pageSize,
-                total: txData.total,
-                showSizeChanger: true,
-                showTotal: (t) => `共 ${t} 条`,
-                onChange: handleTxPageChange,
-              }}
-            />
-          </Card>
-        </>
-      )}
-
-      {/* 充值弹窗 */}
       <Modal
         title="钱包充值"
         open={creditModalOpen}
@@ -533,7 +565,7 @@ export default function WalletManagementPage() {
         destroyOnClose
       >
         <Form form={creditForm} layout="vertical" preserve={false}>
-          <Form.Item label="Client ID">
+          <Form.Item label="API Key">
             <Input value={creditTarget} disabled />
           </Form.Item>
           <Form.Item

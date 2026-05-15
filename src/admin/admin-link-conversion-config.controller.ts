@@ -12,7 +12,7 @@ import { LinkConversionConfigService } from './link-conversion-config.service';
 import { AuditLogService } from './audit-log.service';
 import { LINK_CONVERSION_CONFIG_CACHE_MS } from './link-conversion-config.types';
 
-@ApiTags('管理后台 - 第三方链接转换配置')
+@ApiTags('管理后台 - 请求转换配置')
 @ApiBearerAuth('AdminJwt')
 @Controller('api/v1/admin/link-conversion-config')
 @UseGuards(AdminJwtGuard, PermissionGuard)
@@ -25,7 +25,7 @@ export class AdminLinkConversionConfigController {
   @Get()
   @RequirePermissions('link-conversion:read')
   @ApiOperation({
-    summary: '获取链接转换配置（合并默认值；运行时带 60s 进程内缓存）',
+    summary: '获取请求转换配置（合并默认值；运行时带 60s 进程内缓存）',
   })
   async get(@Req() req: Request) {
     const bypass =
@@ -45,7 +45,7 @@ export class AdminLinkConversionConfigController {
 
   @Put()
   @RequirePermissions('link-conversion:update')
-  @ApiOperation({ summary: '全量更新链接转换配置' })
+  @ApiOperation({ summary: '全量更新请求转换配置' })
   async put(@Body() body: Record<string, unknown>, @Req() req: Request) {
     const admin = (req as any).adminUser as { username?: string };
     const operator = admin?.username || 'unknown';

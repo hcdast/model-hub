@@ -28,7 +28,7 @@ export class ApiKeyGuard implements CanActivate {
     const strict = this.appConfig.auth?.requireRegisteredApiKey === true;
 
     if (!strict) {
-      (request as any).clientId = trimmed;
+      (request as any).apiKey = trimmed;
       return true;
     }
 
@@ -36,8 +36,8 @@ export class ApiKeyGuard implements CanActivate {
     if (!client) {
       throw new UnauthorizedException('Invalid API Key');
     }
-    (request as any).clientId = client.clientId;
-    (request as any).apiClient = { clientId: client.clientId, name: client.name };
+    (request as any).apiKey = client.apiKey;
+    (request as any).apiClient = { apiKey: client.apiKey, name: client.name };
     return true;
   }
 }

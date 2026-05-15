@@ -7,7 +7,7 @@ export interface ErrorContext {
   /** 任务 ID */
   taskId?: string;
   /** 客户端 ID */
-  clientId?: string;
+  apiKey?: string;
   /** 厂商名称 */
   provider?: string;
   /** 模型名称 */
@@ -145,8 +145,8 @@ export class ErrorLogger {
       if (structured.context.taskId) {
         contextParts.push(`taskId=${structured.context.taskId}`);
       }
-      if (structured.context.clientId) {
-        contextParts.push(`clientId=${structured.context.clientId}`);
+      if (structured.context.apiKey) {
+        contextParts.push(`apiKey=${structured.context.apiKey}`);
       }
       if (structured.context.provider) {
         contextParts.push(`provider=${structured.context.provider}`);

@@ -34,7 +34,7 @@ interface QueueJob {
   taskId: string | null;
   model: string | null;
   priority: number | null;
-  clientId: string | null;
+  apiKey: string | null;
   clientName: string | null;
   enqueuedAt: number | null;
 }

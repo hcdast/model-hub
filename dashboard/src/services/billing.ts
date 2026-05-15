@@ -4,7 +4,7 @@ import api from './api';
 
 /** 计费记录查询参数 */
 export interface BillingRecordQuery {
-  clientId?: string;
+  apiKey?: string;
   model?: string;
   billingPolicy?: 'internal' | 'external';
   status?: 'estimated' | 'pre_deducted' | 'settled' | 'refunded' | 'failed';
@@ -18,7 +18,7 @@ export interface BillingRecordQuery {
 export interface BillingRecordItem {
   _id: string;
   taskId: string;
-  clientId: string;
+  apiKey: string;
   model: string;
   provider: string;
   usageType: 'token' | 'count' | 'duration';
@@ -41,7 +41,7 @@ export interface BillingRecordItem {
 
 /** 计费汇总查询参数 */
 export interface BillingSummaryQuery {
-  groupBy?: 'model' | 'clientId' | 'date';
+  groupBy?: 'model' | 'apiKey' | 'date';
   billingPolicy?: 'internal' | 'external';
   startDate?: string;
   endDate?: string;
@@ -59,7 +59,7 @@ export interface BillingSummaryItem {
 
 /** 钱包余额信息 */
 export interface WalletBalance {
-  clientId: string;
+  apiKey: string;
   balance: number;
   frozenAmount: number;
   available: number;
@@ -76,7 +76,7 @@ export interface TransactionQuery {
 /** 交易记录条目 */
 export interface TransactionItem {
   _id: string;
-  clientId: string;
+  apiKey: string;
   type: 'credit' | 'debit' | 'freeze' | 'unfreeze';
   amount: number;
   balanceBefore: number;
@@ -101,13 +101,15 @@ export interface WalletListQuery {
 
 /** 钱包列表条目 */
 export interface WalletListItem {
-  clientId: string;
+  apiKey: string;
   balance: number;
   frozenAmount: number;
   available: number;
+  lowBalanceThreshold?: number;
   clientName?: string;
   billingPolicy?: string;
   enabled?: boolean;
+  createdAt?: string;
   updatedAt: string;
 }
 
@@ -133,15 +135,15 @@ export const billingApi = {
       },
     }),
 
-  /** 查询指定 API Client 的钱包余额 */
-  getWallet: (clientId: string) =>
-    api.get(`/billing/wallets/${encodeURIComponent(clientId)}`),
+  /** 查询指定 API Key（api_clients.apiKey）对应的钱包余额 */
+  getWallet: (apiKey: string) =>
+    api.get(`/billing/wallets/${encodeURIComponent(apiKey)}`),
 
-  /** 查询指定 API Client 的交易记录 */
-  getWalletTransactions: (clientId: string, params: TransactionQuery) =>
-    api.get(`/billing/wallets/${encodeURIComponent(clientId)}/transactions`, { params }),
+  /** 查询指定 API Key 的钱包交易流水 */
+  getWalletTransactions: (apiKey: string, params: TransactionQuery) =>
+    api.get(`/billing/wallets/${encodeURIComponent(apiKey)}/transactions`, { params }),
 
-  /** 手动为指定 API Client 充值 */
-  creditWallet: (clientId: string, data: CreditWalletData) =>
-    api.post(`/billing/wallets/${encodeURIComponent(clientId)}/credit`, data),
+  /** 手动为指定 API Key 对应钱包充值 */
+  creditWallet: (apiKey: string, data: CreditWalletData) =>
+    api.post(`/billing/wallets/${encodeURIComponent(apiKey)}/credit`, data),
 };

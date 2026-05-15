@@ -40,10 +40,10 @@ export default function TasksPage() {
       key: 'clientName',
       width: 160,
       ellipsis: true,
-      render: (name: string | null | undefined, record: { clientId?: string }) => {
+      render: (name: string | null | undefined, record: { apiKey?: string }) => {
         const label = name || '—';
-        return record.clientId ? (
-          <Tooltip title={`clientId: ${record.clientId}`}>
+        return record.apiKey ? (
+          <Tooltip title={`apiKey: ${record.apiKey}`}>
             <span>{label}</span>
           </Tooltip>
         ) : (
@@ -93,7 +93,7 @@ export default function TasksPage() {
   return (
     <div>
       <PageHeader
-        title="任务管理"
+        title="任务记录"
         extra={(
           <>
             <Select
