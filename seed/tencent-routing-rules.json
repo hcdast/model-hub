@@ -1,6 +1,6 @@
 [
   {
-    "model_id": "tencent-cloud/kling-v3.0-pro/motion-control",
+    "model_id": "kling-v3.0-pro/characterswap",
     "apiKey": "",
     "strategy_type": "fixed",
     "fixed_provider": "tencent-cloud",
@@ -12,7 +12,7 @@
     "updated_at": "2026-04-18T14:01:33.850Z"
   },
   {
-    "model_id": "tencent-cloud/kling-v3.0-std/motion-control",
+    "model_id": "kling-v3.0-std/characterswap",
     "apiKey": "",
     "strategy_type": "fixed",
     "fixed_provider": "tencent-cloud",
@@ -24,7 +24,7 @@
     "updated_at": "2026-04-18T14:01:33.850Z"
   },
   {
-    "model_id": "tencent-cloud/kling-v2.6-pro/motion-control",
+    "model_id": "kling-v2.6-pro/characterswap",
     "apiKey": "",
     "strategy_type": "fixed",
     "fixed_provider": "tencent-cloud",
@@ -36,7 +36,7 @@
     "updated_at": "2026-04-18T14:01:33.850Z"
   },
   {
-    "model_id": "tencent-cloud/kling-v2.6-std/motion-control",
+    "model_id": "kling-v2.6-std/characterswap",
     "apiKey": "",
     "strategy_type": "fixed",
     "fixed_provider": "tencent-cloud",

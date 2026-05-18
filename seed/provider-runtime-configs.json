@@ -1,5 +1,5 @@
 {
-  "_comment": "npm run seed:providers:apply 写入 MongoDB provider_runtime_configs；密钥请在「账号池」页面管理，此文件仅包含非密钥全局配置",
+  "_comment": "npm run seed:providers 写入 MongoDB provider_runtime_configs；密钥请在「账号池」页面管理，此文件仅包含非密钥全局配置",
   "wavespeed-ai": {
     "baseUrl": "https://api.wavespeed.ai/api/v3",
     "maxConcurrent": 10,

@@ -1,5 +1,5 @@
 {
-  "_comment": "npm run seed:providers:apply 写入 MongoDB account_pool_entries；api_key 请在管理端填写，勿提交真实密钥",
+  "_comment": "npm run seed:providers 写入 MongoDB account_pool_entries；api_key 请在管理端填写，勿提交真实密钥",
   "entries": [
     {
       "provider_name": "wavespeed-ai",
