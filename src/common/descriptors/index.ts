@@ -189,14 +189,6 @@ export const apiClientDescriptor: FeatureModuleDescriptor = {
       sortOrder: 5,
       requiredPermission: 'api-client:read',
     },
-    {
-      path: '/api-keys',
-      label: 'API 密钥管理',
-      icon: 'KeyOutlined',
-      parentKey: 'system',
-      sortOrder: 10,
-      requiredPermission: 'api-client:read',
-    },
   ],
 };
 
@@ -243,8 +235,8 @@ export const statsDescriptor: FeatureModuleDescriptor = {
       path: '/stats',
       label: '统计报表',
       icon: 'BarChartOutlined',
-      parentKey: 'system',
-      sortOrder: 20,
+      parentKey: 'overview',
+      sortOrder: 5,
       requiredPermission: 'stats:read',
     },
   ],

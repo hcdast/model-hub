@@ -5,8 +5,14 @@ export const MODEL_CONFIG_MODEL_TYPES = [
   'textToVideo',
   'imageToVideo',
   'videoToVideo',
-  'characterFaceswap',
+  'characterSwap',
   'videoUpscale',
+  'textGenerate',
+  'music',
+  'tts',
+  'talkingPhoto',
+  'referenceToVideo',
+  'imageUpscale',
 ] as const;
 
 export type ModelConfigModelType = (typeof MODEL_CONFIG_MODEL_TYPES)[number];

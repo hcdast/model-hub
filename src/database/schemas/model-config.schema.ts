@@ -55,7 +55,8 @@ export class ModelConfig {
 
 export const ModelConfigSchema = SchemaFactory.createForClass(ModelConfig);
 
-ModelConfigSchema.index({ model_id: 1, model_type: 1 }, { unique: true });
+/** model_id 非唯一；一条配置以 provider_model_name 唯一标识 */
+ModelConfigSchema.index({ model_id: 1, model_type: 1 });
 ModelConfigSchema.index({ model_type: 1, disabled: 1, sort: -1 });
 ModelConfigSchema.index({ provider: 1, model_type: 1 });
 ModelConfigSchema.index({ create_time: -1 });
