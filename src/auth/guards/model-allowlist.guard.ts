@@ -36,10 +36,11 @@ export class ModelAllowlistGuard implements CanActivate {
       return true;
     }
 
-    // 从请求体中获取 model 字段
-    const model = request.body?.model as string;
+    // Guards 在 ValidationPipe 之前执行，需同时读 model_id
+    const raw = request.body?.model_id ?? request.body?.model;
+    const model = raw != null ? String(raw).trim() : '';
     if (!model) {
-      // 没有 model 字段，放行（由后续 DTO 校验处理）
+      // 没有模型字段，放行（由后续 DTO 校验处理）
       return true;
     }
 

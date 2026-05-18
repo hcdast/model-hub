@@ -5,6 +5,8 @@ import { ModelConfig, ModelConfigDocument } from '../database/schemas/model-conf
 import { ProviderRegistry } from '../provider/provider.registry';
 import { resolveConfigModelTypeForLookup } from '../common/utils/model-config-type.util';
 import { ProviderRoutingService, RoutingRuleSimulationResult } from './provider-routing.service';
+import { findModelConfigForTask } from './model-config-resolver.util';
+import { inferInternalFeatureFromPathSegment } from '../common/utils/model-path-infer.util';
 
 export interface RoutingPreviewInput {
   model: string;
@@ -67,17 +69,6 @@ export class RoutingPreviewService {
       : this.resolveTaskFeatureType(model, input.options);
     const configModelTypeUsed = resolveConfigModelTypeForLookup(inferredFeatureType, rawFeatureOption);
 
-    const cfg = await this.modelConfigModel
-      .findOne({
-        model_id: model,
-        ...(configModelTypeUsed != null ? { model_type: configModelTypeUsed } : {}),
-      })
-      .lean();
-
-    if (cfg?.disabled) {
-      warnings.push('该模型在 model_configs 中已禁用，实际创建任务将返回错误');
-    }
-
     const ruleSimulation = await this.providerRouting.simulateFromRules(model, apiKey, at);
 
     let provider: string | null = null;
@@ -86,14 +77,20 @@ export class RoutingPreviewService {
     let routingMetrics: RoutingRuleHitRoutingMetrics | undefined;
     const fallbackDetail: Record<string, unknown> = {};
 
+    const cfgFallback = await findModelConfigForTask(
+      this.modelConfigModel,
+      model,
+      configModelTypeUsed ?? undefined,
+    );
+
     if (ruleSimulation.hit) {
       provider = ruleSimulation.hit.provider;
       routeId = ruleSimulation.hit.routeId;
       routingSource = 'routing_rule';
       routingMetrics = ruleSimulation.hit.routingMetrics;
     } else {
-      const cfgProvider = cfg?.provider != null ? String(cfg.provider).trim() : '';
-      if (cfg && cfgProvider !== '') {
+      const cfgProvider = cfgFallback?.provider != null ? String(cfgFallback.provider).trim() : '';
+      if (cfgFallback && cfgProvider !== '') {
         fallbackDetail.model_config_provider = cfgProvider;
         if (!this.providerRegistry.hasAdapter(cfgProvider)) {
           warnings.push(`model_configs.provider="${cfgProvider}" 未注册 Adapter`);
@@ -113,6 +110,17 @@ export class RoutingPreviewService {
           );
         }
       }
+    }
+
+    const cfg = await findModelConfigForTask(
+      this.modelConfigModel,
+      model,
+      configModelTypeUsed ?? undefined,
+      provider ?? undefined,
+    );
+
+    if (cfg?.disabled) {
+      warnings.push('该模型在 model_configs 中已禁用，实际创建任务将返回错误');
     }
 
     const adapterRegistered = provider != null && this.providerRegistry.hasAdapter(provider);
@@ -155,6 +163,7 @@ export class RoutingPreviewService {
       textToVideo: 'text_to_video',
       imageToVideo: 'image_to_video',
       videoToVideo: 'image_to_video',
+      characterSwap: 'character_swap',
       characterFaceswap: 'character_swap',
       videoUpscale: 'video_upscale',
     };
@@ -180,22 +189,10 @@ export class RoutingPreviewService {
   }
 
   private inferFeatureType(lastSegment: string): string {
-    const map: Record<string, string> = {
-      'text-to-image': 'image_generate',
-      'image-to-image': 'image_to_image',
-      edit: 'image_to_image',
-      'edit-sequential': 'image_to_image',
-      'text-to-video': 'text_to_video',
-      'image-to-video': 'image_to_video',
-      'reference-to-video': 'image_to_video',
-      'video-to-video': 'image_to_video',
-      'video-edit': 'image_to_video',
-      'video-edit-fast': 'image_to_video',
-      'motion-control': 'character_swap',
-      animate: 'character_swap',
-      'video-upscale': 'video_upscale',
-    };
-    return map[lastSegment] || 'unknown';
+    if (lastSegment === 'edit' || lastSegment === 'edit-sequential') {
+      return 'image_to_image';
+    }
+    return inferInternalFeatureFromPathSegment(lastSegment);
   }
 
   private tryResolveProviderFromModelPath(

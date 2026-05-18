@@ -32,6 +32,8 @@ import { BillingAdapter } from '../billing/billing.adapter';
 import { BillingService } from '../billing/billing.service';
 import { InsufficientBalanceException } from '../billing/exceptions/insufficient-balance.exception';
 import { TaskResourceMetadataEnqueueService } from '../queue/task-resource-metadata-enqueue.service';
+import { findModelConfigForTask } from './model-config-resolver.util';
+import { inferInternalFeatureFromPathSegment } from '../common/utils/model-path-infer.util';
 
 @Injectable()
 export class TaskService {
@@ -70,10 +72,10 @@ export class TaskService {
       }
     }
 
-    let provider: string;
+    let provider = '';
     let featureType: string;
     let routeId: string | undefined;
-    let routingSource: 'routing_rule' | 'model_config_provider' | 'model_path';
+    let routingSource: 'routing_rule' | 'model_config_provider' | 'model_path' = 'model_path';
     let providerModel: string | undefined; // 实际发送给提供商的模型标识
     let routingMetrics: Record<string, any> | undefined; // latency/cost 策略的路由决策指标
 
@@ -84,30 +86,8 @@ export class TaskService {
       dto.options?.featureType as string | undefined,
     );
 
-    // 查询 model_configs：model_id 与 dto.model 一致，model_type 为 camelCase 能力类型（可缺省则仅按 model_id）
-    const cfg = await this.modelConfigModel.findOne({
-      model_id: dto.model,
-      ...(configModelType ? { model_type: configModelType } : {}),
-    }).lean();
-
-    if (cfg?.disabled) {
-      ErrorLogger.logWarning(
-        this.logger,
-        'Model is disabled',
-        { apiKey, model: dto.model, modelType: configModelType },
-      );
-      throw new BadRequestException(`Model is disabled: ${dto.model}`);
-    }
-
-    // 如果配置中有 provider_model_name，使用它作为发送给提供商的模型标识
-    if (cfg?.provider_model_name) {
-      providerModel = cfg.provider_model_name;
-      this.logger.log(
-        `Using provider_model_name: ${providerModel} for model: ${dto.model}, type: ${configModelType}`,
-      );
-    }
-
     const ruleHit = await this.providerRouting.tryResolveFromRules(dto.model, apiKey);
+
     if (ruleHit) {
       provider = ruleHit.provider;
       routeId = ruleHit.routeId || undefined;
@@ -116,7 +96,32 @@ export class TaskService {
       this.logger.log(
         `Provider from model_routing_rules routeId=${routeId} → ${provider}, model=${dto.model}`,
       );
-    } else {
+    }
+
+    const cfg = await findModelConfigForTask(
+      this.modelConfigModel,
+      dto.model,
+      configModelType ?? undefined,
+      ruleHit?.provider,
+    );
+
+    if (cfg?.disabled) {
+      ErrorLogger.logWarning(
+        this.logger,
+        'Model is disabled',
+        { apiKey, model: dto.model, modelType: configModelType, provider: cfg.provider },
+      );
+      throw new BadRequestException(`Model is disabled: ${dto.model}`);
+    }
+
+    if (cfg?.provider_model_name) {
+      providerModel = cfg.provider_model_name;
+      this.logger.log(
+        `Using provider_model_name: ${providerModel} for model: ${dto.model}, type: ${configModelType}, provider: ${cfg.provider}`,
+      );
+    }
+
+    if (!ruleHit) {
       const cfgProvider = cfg?.provider != null ? String(cfg.provider).trim() : '';
       if (cfg && cfgProvider !== '') {
         if (!this.providerRegistry.hasAdapter(cfgProvider)) {
@@ -137,6 +142,10 @@ export class TaskService {
         provider = fb.provider;
         routingSource = 'model_path';
       }
+    }
+
+    if (!provider) {
+      throw new BadRequestException(`Unable to resolve provider for model: ${dto.model}`);
     }
 
     if (!this.providerRegistry.hasAdapter(provider)) {
@@ -457,6 +466,7 @@ export class TaskService {
         textToVideo: 'text_to_video',
         imageToVideo: 'image_to_video',
         videoToVideo: 'image_to_video',
+        characterSwap: 'character_swap',
         characterFaceswap: 'character_swap',
         videoUpscale: 'video_upscale',
       };
@@ -480,22 +490,10 @@ export class TaskService {
   }
 
   private inferFeatureType(lastSegment: string): string {
-    const map: Record<string, string> = {
-      'text-to-image': 'image_generate',
-      'image-to-image': 'image_to_image',
-      edit: 'image_to_image',
-      'edit-sequential': 'image_to_image',
-      'text-to-video': 'text_to_video',
-      'image-to-video': 'image_to_video',
-      'reference-to-video': 'image_to_video',
-      'video-to-video': 'image_to_video',
-      'video-edit': 'image_to_video',
-      'video-edit-fast': 'image_to_video',
-      'motion-control': 'character_swap',
-      animate: 'character_swap',
-      'video-upscale': 'video_upscale',
-    };
-    return map[lastSegment] || 'unknown';
+    if (lastSegment === 'edit' || lastSegment === 'edit-sequential') {
+      return 'image_to_image';
+    }
+    return inferInternalFeatureFromPathSegment(lastSegment);
   }
 
   private toResponse(task: TaskDocument, billingRecord?: any) {

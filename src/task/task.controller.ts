@@ -34,6 +34,8 @@ export class TaskController {
   @ApiOperation({ 
     summary: '创建任务', 
     description: `提交 AI 模型任务，立即返回 taskId，任务异步处理。
+
+请求体使用 \`model_id\`（推荐，与 model_configs.model_id 一致）或 \`model\`（兼容字段），二选一。
     
 路由优先级：
 1. model_routing_rules (fixed/weighted/primary_fallback)

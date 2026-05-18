@@ -10,6 +10,8 @@ const SERVICE_TO_PROVIDER: Record<string, string> = {
   alibaba: 'alibaba',
   /** 火山豆包 / ARK，对应 SeedanceAdapter */
   bytedance: 'seedance',
+  /** 腾讯 VOD Kling，AGI service 为 tencent */
+  tencent: 'tencent-cloud',
 };
 
 /**
