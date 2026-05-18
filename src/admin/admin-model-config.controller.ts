@@ -28,7 +28,16 @@ export class AdminModelConfigController {
   @ApiQuery({ name: 'provider', required: false })
   @ApiQuery({ name: 'model_type', required: false, description: '能力类型字符串，如 textToVideo' })
   @ApiQuery({ name: 'keyword', required: false, description: '匹配 model_id / model_name' })
-  @ApiQuery({ name: 'includeDisabled', required: false, description: 'true 时包含禁用' })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    description: '启用状态：enabled（仅启用）| disabled（仅禁用）| all（全部，默认）',
+  })
+  @ApiQuery({
+    name: 'includeDisabled',
+    required: false,
+    description: '已废弃，请用 status=all；true 时等同 status=all',
+  })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'pageSize', required: false })
   @ApiResponse({ status: 200, description: '查询成功' })
@@ -36,6 +45,7 @@ export class AdminModelConfigController {
     @Query('provider') provider?: string,
     @Query('model_type') modelType?: string,
     @Query('keyword') keyword?: string,
+    @Query('status') status?: string,
     @Query('includeDisabled') includeDisabled?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
@@ -45,7 +55,13 @@ export class AdminModelConfigController {
     if (modelType !== undefined && modelType !== '') {
       query.model_type = modelType.trim();
     }
-    if (includeDisabled !== 'true') query.disabled = { $ne: true };
+    const statusNorm = (status || '').trim().toLowerCase();
+    if (statusNorm === 'enabled') {
+      query.disabled = { $ne: true };
+    } else if (statusNorm === 'disabled') {
+      query.disabled = true;
+    }
+    // status=all 或未传：返回全部；includeDisabled=true 保留兼容，等同全部
     if (keyword && keyword.trim()) {
       const esc = keyword.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const re = new RegExp(esc, 'i');
@@ -101,13 +117,26 @@ export class AdminModelConfigController {
 
   @Get('detail')
   @RequirePermissions('model:read')
-  @ApiOperation({ summary: '模型详情（按 model_id 查询）' })
-  @ApiQuery({ name: 'model_id', required: true, description: '完整模型标识，含 / 需 URL 编码' })
+  @ApiOperation({ summary: '模型详情（按 _id 或 model_id+provider 查询）' })
+  @ApiQuery({ name: 'id', required: false, description: 'MongoDB _id' })
+  @ApiQuery({ name: 'model_id', required: false, description: '对外 model_id，含 / 需 URL 编码' })
+  @ApiQuery({ name: 'provider', required: false, description: '与 model_id 联用，多厂商同名时必填' })
   @ApiResponse({ status: 200, description: '查询成功' })
-  async detail(@Query('model_id') modelId?: string) {
-    if (!modelId) return { code: 1001, message: 'model_id is required' };
+  async detail(
+    @Query('id') id?: string,
+    @Query('model_id') modelId?: string,
+    @Query('provider') provider?: string,
+  ) {
+    if (id) {
+      const model = await this.modelConfigModel.findById(id).lean();
+      if (!model) return { code: 3001, message: 'Model not found' };
+      return { code: 0, data: model };
+    }
+    if (!modelId) return { code: 1001, message: 'id or model_id is required' };
     const decoded = decodeURIComponent(modelId);
-    const model = await this.modelConfigModel.findOne({ model_id: decoded }).lean();
+    const query: Record<string, string> = { model_id: decoded };
+    if (provider?.trim()) query.provider = provider.trim();
+    const model = await this.modelConfigModel.findOne(query).sort({ sort: -1 }).lean();
     if (!model) return { code: 3001, message: 'Model not found' };
     return { code: 0, data: model };
   }
@@ -116,12 +145,23 @@ export class AdminModelConfigController {
   @RequirePermissions('model:update')
   @ApiOperation({ summary: '启用/禁用模型' })
   @ApiResponse({ status: 200, description: '操作成功' })
-  async toggle(@Body() body: { model_id: string; disabled: boolean }) {
-    if (!body.model_id) return { code: 1001, message: 'model_id is required' };
+  async toggle(
+    @Body() body: { id?: string; model_id?: string; provider?: string; disabled: boolean },
+  ) {
     if (typeof body.disabled !== 'boolean') return { code: 1001, message: 'disabled must be boolean' };
 
+    const filter: Record<string, unknown> = {};
+    if (body.id) {
+      filter._id = body.id;
+    } else if (body.model_id) {
+      filter.model_id = body.model_id;
+      if (body.provider?.trim()) filter.provider = body.provider.trim();
+    } else {
+      return { code: 1001, message: 'id or model_id is required' };
+    }
+
     const result = await this.modelConfigModel.findOneAndUpdate(
-      { model_id: body.model_id },
+      filter,
       { $set: { disabled: body.disabled, update_time: Date.now() } },
       { new: true },
     );

@@ -103,6 +103,20 @@ export class MenuManagementService {
     await this.menuRegistryService.reloadFromDb();
   }
 
+  /** 删除菜单（不存在时静默跳过），用于清理已废弃的侧栏项 */
+  async deleteIfExists(key: string): Promise<boolean> {
+    const menu = await this.menuConfigModel.findOne({ key }).lean().exec();
+    if (!menu) return false;
+
+    const children = await this.menuConfigModel.countDocuments({ parentKey: key }).exec();
+    if (children > 0) {
+      return false;
+    }
+
+    await this.menuConfigModel.deleteOne({ key }).exec();
+    return true;
+  }
+
   async upsertFromDescriptor(item: {
     key: string;
     label: string;

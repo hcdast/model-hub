@@ -164,13 +164,23 @@ export class PricingService {
     switch (modelType) {
       case 'textToImage':
       case 'imageToImage':
+      case 'characterSwap':
       case 'characterFaceswap':
       case 'videoUpscale':
         return UsageType.COUNT;
       case 'textToVideo':
       case 'imageToVideo':
       case 'videoToVideo':
+      case 'referenceToVideo':
+      case 'talkingPhoto':
         return UsageType.DURATION;
+      case 'imageUpscale':
+        return UsageType.COUNT;
+      case 'textGenerate':
+      case 'tts':
+        return UsageType.TOKEN;
+      case 'music':
+        return UsageType.COUNT;
       default:
         return UsageType.TOKEN;
     }

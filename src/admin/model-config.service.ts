@@ -41,29 +41,7 @@ export class ModelConfigService {
   ): Promise<UniquenessCheckResult> {
     const conflicts: ConflictInfo[] = [];
 
-    // model_id + model_type 组合唯一
-    if (config.model_id && config.model_type) {
-      const query: any = {
-        model_id: config.model_id,
-        model_type: config.model_type,
-      };
-
-      // 更新时排除自身
-      if (excludeId) {
-        query._id = { $ne: excludeId };
-      }
-
-      const existing = await this.modelConfigModel.findOne(query).lean();
-      if (existing) {
-        conflicts.push({
-          field: 'model_id+model_type',
-          value: `${config.model_id}+${config.model_type}`,
-          existingModelName: existing.model_id,
-        });
-      }
-    }
-
-    // 检查 provider_model_name 唯一性
+    // model_id 可与多条 provider_model_name 对应；仅以 provider_model_name 唯一
     if (config.provider_model_name) {
       const query: any = {
         provider_model_name: config.provider_model_name,
@@ -243,7 +221,7 @@ export class ModelConfigService {
       },
       'face-swap': {
         model_id: '',
-        model_type: 'characterFaceswap',
+        model_type: 'characterSwap',
         provider: '',
         provider_model_name: '',
         model_name: '',

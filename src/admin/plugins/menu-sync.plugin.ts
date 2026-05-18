@@ -9,6 +9,9 @@ import { MenuManagementService } from '../menu-management.service';
  * 负责从功能模块描述符中收集菜单配置，注册到 MenuRegistryService 并持久化到数据库。
  * 执行顺序 order=30，在 PermissionSync(10) 和 AuditAnchor(20) 之后执行。
  */
+/** 已从描述符移除的侧栏菜单 key，启动时从库中删除避免重复入口 */
+const DEPRECATED_MENU_KEYS = ['/api-keys'];
+
 @Injectable()
 export class MenuSyncPlugin implements SyncPlugin {
   readonly name = 'menu-sync';
@@ -48,6 +51,13 @@ export class MenuSyncPlugin implements SyncPlugin {
         });
 
         registered++;
+      }
+    }
+
+    for (const key of DEPRECATED_MENU_KEYS) {
+      const removed = await this.menuManagementService.deleteIfExists(key);
+      if (removed) {
+        this.logger.log(`已移除废弃菜单：${key}`);
       }
     }
 
