@@ -2932,7 +2932,7 @@ chore: 构建/辅助工具
 
 | 路径 | 标签 | 父级 | 排序 |
 |------|------|------|------|
-| /stats | 统计报表 | system | 20 |
+| /stats | 统计报表 | overview | 5 |
 <!-- AUTO:stats:END -->
 
 <!-- AUTO:billing:START -->

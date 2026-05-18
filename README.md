@@ -144,11 +144,14 @@ npm run seed:models:collect
 npm run seed:models:apply
 npm run seed:models:apply -- --force
 
+# apply 默认同时导入 seed/tencent-routing-rules.json；仅导入模型配置时加 --no-routing
+# 生成联调文档附录：npm run seed:models:collect -- --appendix
+
 # 若曾报 E11000 duplicate key … index: modelId_1：库中遗留了 modelId 唯一索引，与 aimodelconfigs（主键 model_name）不一致。
 # apply 脚本启动时会尝试 dropIndex('modelId_1')；亦可手动：db.model_configs.dropIndex("modelId_1")
 ```
 
-创建任务联调参数示例（含 AGI 字段对照、分厂商 curl、**142 条全量 `model_name` 附录表**）见：**[docs/create-task-demos.md](docs/create-task-demos.md)**。更新枚举并重新生成种子后，可执行 **`npm run docs:task-demos-appendix`** 同步 `docs/_task-demo-appendix.generated.md`。
+创建任务联调参数示例见 **[docs/create-task-demos.md](docs/create-task-demos.md)**（全量模型表可由 `npm run seed:models:collect -- --appendix` 生成 `docs/_task-demo-appendix.generated.md`）。
 
 启动成功后访问（端口以根目录 `ecosystem.config.js` 为准，可用环境变量 `PORT` 覆盖）：
 
@@ -408,7 +411,7 @@ curl http://localhost:7000/metrics             # Prometheus 指标
 | `callback.timeoutMs` | number | 回调超时（ms） |
 | `callback.maxRetries` | number | 回调最大重试次数 |
 | `polling.*` | - | 轮询配置（间隔/批量/最大次数/最大时长等） |
-| （厂商密钥/URL/限流） | - | 厂商 URL 和限流见 MongoDB `provider_runtime_configs`；**API 密钥统一在 `account_pool_entries` 管理**（见下方迁移指南），或 `npm run seed:providers:apply` |
+| （厂商密钥/URL/限流） | - | 厂商 URL 和限流见 MongoDB `provider_runtime_configs`；**API 密钥在 `account_pool_entries` 管理**；首次部署可 `npm run seed:providers` |
 | `admin.jwtSecret` | string | 管理后台 JWT 签名密钥 |
 | `admin.jwtExpiresIn` | string | JWT 有效期（如 `2h`） |
 | `admin.defaultUsername` | string | 首次启动创建的管理员用户名 |
@@ -627,8 +630,7 @@ model-hub/
 |------|------|--------------|------|
 | 登录 | `/login` | — | 用户名/密码登录 |
 | 总览 | `/` | — | 核心指标；菜单由后端下发 |
-| 应用管理 | `/api-clients` | `api-client:read` 等 | 业务应用与客户端列表 |
-| API 密钥管理 | `/api-keys` | `api-client:read` 等 | 与「应用管理」同一页面，侧栏独立入口 |
+| 应用管理 | `/api-clients` | `api-client:read` 等 | 业务应用与 API 客户端（密钥、限流、白名单等） |
 | 任务记录 | `/tasks`、`/tasks/:taskId` | `task:read` 等 | 列表、详情、时间线、回调重放等 |
 | 队列监控 | `/queues` | `queue:read` | 队列状态卡片 |
 | 路由策略 | `/model-routing-rules` | `model:read` | 模型路由策略 CRUD |
@@ -640,7 +642,7 @@ model-hub/
 | 成本分析 | `/account-costs` | `provider:read` | 账号成本聚合（侧栏归「计费与成本」） |
 | 用量账单 | `/billing/records` | `billing:read` | 计费流水 |
 | 余额充值 | `/billing/wallets` | `billing:read` | 余额与手工调账等 |
-| 统计报表 | `/stats` | `stats:read` | 每日统计等 |
+| 统计报表 | `/stats` | `stats:read` | 每日统计等（侧栏归「仪表盘」，与总览同组） |
 | 审计日志 | `/audit-logs` | `audit:read` | 操作审计 |
 | 通知规则/记录/消息中心 | `/notification-rules` 等 | `notification:read` | 通知子系统 |
 | 回调日志 | `/callback-logs` | `callback-log:read` | 回调投递日志 |
@@ -666,9 +668,8 @@ pm2 start ecosystem.config.js  # PM2 启动全部服务
 npm test                 # 单元测试
 npm run lint             # ESLint 检查
 npm run sync:docs        # 根据 src/common/descriptors 更新 docs 中带 AUTO 标记的章节（建议先 npm run build）
-npm run migrate:clientid # 将 tasks / idempotency_records 的 tenantId 迁移为 clientId
-npm run migrate:secrets  # ★ 将 provider_runtime_configs 中的密钥迁移到 account_pool_entries
-npm run cleanup:provider-secrets  # ★ 迁移验证后，清理 provider_runtime_configs 中的密钥字段
+npm run seed:init        # 首次部署：厂商配置 + 默认 API 客户端 + RBAC 种子
 npm run seed:api-client  # 若 api_clients 为空则创建默认客户端并打印 apiKey
-npm run seed:providers:apply  # 导入厂商配置 + 账号池种子数据
+npm run seed:providers   # 导入厂商配置 + 账号池种子数据
+npm run seed:rbac        # 初始化权限与超级管理员
 ```
