@@ -5,7 +5,7 @@ const SNAKE_TO_CAMEL: Record<string, ModelConfigModelType> = {
   image_to_image: 'imageToImage',
   text_to_video: 'textToVideo',
   image_to_video: 'imageToVideo',
-  character_swap: 'characterFaceswap',
+  character_swap: 'characterSwap',
   video_upscale: 'videoUpscale',
 };
 

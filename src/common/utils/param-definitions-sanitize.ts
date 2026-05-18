@@ -1,4 +1,5 @@
 import type { ParamType } from '../interfaces/param-definition.interface';
+import { normalizeEnumArray } from './param-enum.util';
 
 /**
  * 写入前规范化 params：移除已废弃字段，并删除与 type 不匹配的约束键。
@@ -17,6 +18,9 @@ export function sanitizeParamDefinitions(
     }
     const d = { ...v };
     delete d.configs;
+    if (Array.isArray(d.enum) && d.enum.length > 0) {
+      d.enum = normalizeEnumArray(d.enum);
+    }
     const t = d.type as ParamType | undefined;
     if (t !== 'string') {
       delete d.minLength;

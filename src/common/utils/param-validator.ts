@@ -3,6 +3,7 @@ import {
   ParamValidationError,
   ParamValidationResult,
 } from '../interfaces/param-definition.interface';
+import { resolveEnumValues } from './param-enum.util';
 
 /**
  * 根据 ParamDefinitions 校验请求参数。
@@ -52,12 +53,13 @@ export function validateParams(
       continue; // 类型不对，跳过后续约束校验
     }
 
-    // 3. 枚举检查
-    if (def.enum && def.enum.length > 0 && !def.enum.includes(value)) {
+    // 3. 枚举检查（兼容 enum: [{ value, label }] 与 ['a','b']）
+    const enumValues = resolveEnumValues(def.enum);
+    if (enumValues.length > 0 && !enumValues.includes(value)) {
       errors.push({
         field,
-        message: `${field} 的值必须是 [${def.enum.join(', ')}] 之一`,
-        expected: def.enum,
+        message: `${field} 的值必须是 [${enumValues.join(', ')}] 之一`,
+        expected: enumValues,
         actual: value,
       });
     }
