@@ -8,10 +8,12 @@ import type { ColumnsType } from 'antd/es/table';import {
   ReloadOutlined, PlusOutlined, EditOutlined, DeleteOutlined,
   WarningOutlined, MinusCircleOutlined,
 } from '@ant-design/icons';
-import { accountPoolApi, providerConfigApi } from '../services/api';
+import { accountPoolApi } from '../services/api';
 import { ErrorHandler } from '../utils/error-handler';
 import type { ProviderConfigItem } from '../services/api';
 import PageHeader from '../components/PageHeader';
+import ProviderSelect from '../components/ProviderSelect';
+import { useProviderOptions } from '../hooks/useProviderOptions';
 
 interface AccountEntry {
   _id: string;
@@ -91,18 +93,7 @@ export default function AccountPoolPage() {
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
 
-  // 厂商配置列表（用于下拉选择和状态展示）
-  const [providerConfigs, setProviderConfigs] = useState<ProviderConfigItem[]>([]);
-
-  const fetchProviderConfigs = useCallback(async () => {
-    try {
-      const res: any = await providerConfigApi.list();
-      const d = res.data || {};
-      setProviderConfigs(d.items || []);
-    } catch {
-      // 静默失败 — 筛选仍可从账号数据中获取
-    }
-  }, []);
+  const { items: providerConfigs, refresh: refreshProviderConfigs } = useProviderOptions();
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -119,21 +110,12 @@ export default function AccountPoolPage() {
     setLoading(false);
   }, [page, pageSize, filterProvider]);
 
-  useEffect(() => { void fetchProviderConfigs(); }, [fetchProviderConfigs]);
   useEffect(() => { void fetchData(); }, [fetchData]);
 
   const providerConfigMap = useMemo(
     () => new Map(providerConfigs.map((p) => [p.provider_name, p])),
     [providerConfigs],
   );
-
-  // 合并厂商名称列表（用于筛选下拉）
-  const providerNames = [
-    ...new Set([
-      ...providerConfigs.map((p) => p.provider_name),
-      ...items.map((i) => i.provider_name),
-    ]),
-  ].sort();
 
   /** 根据选择的 provider 预填充 extra_credentials 模板 */
   const handleProviderChange = (providerName: string) => {
@@ -444,15 +426,12 @@ export default function AccountPoolPage() {
         )}
         extra={(
           <>
-            <Select
-              placeholder="按厂商筛选"
-              allowClear
+            <ProviderSelect
               style={{ width: 180 }}
-              options={providerNames.map((p) => ({ label: p, value: p }))}
               value={filterProvider}
               onChange={(v) => { setFilterProvider(v); setPage(1); }}
             />
-            <Button icon={<ReloadOutlined />} onClick={() => { void fetchData(); void fetchProviderConfigs(); }} loading={loading}>刷新</Button>
+            <Button icon={<ReloadOutlined />} onClick={() => { void fetchData(); void refreshProviderConfigs(); }} loading={loading}>刷新</Button>
           </>
         )}
       />

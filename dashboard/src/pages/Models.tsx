@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Table, Card, Button, Space, Input, Select, Drawer, Switch, message, Tag, Spin,
@@ -11,6 +11,10 @@ import { ErrorHandler } from '../utils/error-handler';
 import PricingModal from '../components/PricingModal';
 import PageHeader from '../components/PageHeader';
 import ModelDetailContent from '../components/ModelDetailContent';
+import ProviderSelect from '../components/ProviderSelect';
+
+/** 启用状态筛选：默认全部（不传 status） */
+type ModelStatusFilter = 'all' | 'enabled' | 'disabled';
 
 export default function ModelsPage() {
   const navigate = useNavigate();
@@ -21,51 +25,63 @@ export default function ModelsPage() {
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [provider, setProvider] = useState<string | undefined>();
-  const [includeDisabled, setIncludeDisabled] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<ModelStatusFilter>('all');
   const [detail, setDetail] = useState<any | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [pricingOpen, setPricingOpen] = useState(false);
   const [pricingModel, setPricingModel] = useState<any | null>(null);
+  const fetchSeqRef = useRef(0);
 
-  const fetchData = async (
+  const fetchData = useCallback(async (
     p = page,
     ps = pageSize,
-    filterOverride?: { keyword: string; provider: string | undefined; includeDisabled: boolean },
+    filterOverride?: {
+      keyword: string;
+      provider: string | undefined;
+      statusFilter: ModelStatusFilter;
+    },
   ) => {
     const kw = filterOverride ? filterOverride.keyword : keyword;
     const prov = filterOverride ? filterOverride.provider : provider;
-    const inc = filterOverride ? filterOverride.includeDisabled : includeDisabled;
+    const status = filterOverride ? filterOverride.statusFilter : statusFilter;
+    const seq = ++fetchSeqRef.current;
     setLoading(true);
+    setItems([]);
     try {
       const res: any = await modelApi.list({
         page: p,
         pageSize: ps,
         keyword: kw.trim() || undefined,
         provider: prov || undefined,
-        includeDisabled: inc ? 'true' : undefined,
+        status: status === 'all' ? undefined : status,
       });
-      setItems(res.data?.items || []);
+      if (seq !== fetchSeqRef.current) return;
+      const nextItems = Array.isArray(res.data?.items) ? res.data.items : [];
+      setItems(nextItems);
       setTotal(res.data?.total ?? 0);
       setPage(res.data?.page ?? p);
       setPageSize(res.data?.pageSize ?? ps);
     } catch (err) {
+      if (seq !== fetchSeqRef.current) return;
       ErrorHandler.handleApiError(err, '加载失败');
+    } finally {
+      if (seq === fetchSeqRef.current) setLoading(false);
     }
-    setLoading(false);
-  };
+  }, [page, pageSize, keyword, provider, statusFilter]);
 
   useEffect(() => {
-    fetchData(1, pageSize);
+    void fetchData(1, pageSize);
+    // 状态筛选切换时自动刷新；关键词/厂商需点「查询」
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [includeDisabled]);
+  }, [statusFilter]);
 
-  const openDetail = async (modelId: string) => {
+  const openDetail = async (record: any) => {
     setDetailOpen(true);
     setDetailLoading(true);
     setDetail(null);
     try {
-      const res: any = await modelApi.getDetail(modelId);
+      const res: any = await modelApi.getDetail(record._id, { byMongoId: true });
       setDetail(res.data || null);
     } catch (err) {
       ErrorHandler.handleApiError(err, '加载详情失败');
@@ -75,7 +91,7 @@ export default function ModelsPage() {
 
   const handleToggle = async (record: any, disabled: boolean) => {
     try {
-      await modelApi.toggle(record.model_id, disabled);
+      await modelApi.toggle({ id: record._id, disabled });
       message.success(disabled ? '已禁用' : '已启用');
       fetchData(page, pageSize);
     } catch (err) {
@@ -85,7 +101,7 @@ export default function ModelsPage() {
 
   const openPricing = async (record: any) => {
     try {
-      const res: any = await modelApi.getDetail(record.model_id);
+      const res: any = await modelApi.getDetail(record._id, { byMongoId: true });
       setPricingModel(res.data || null);
       setPricingOpen(true);
     } catch (err) {
@@ -123,7 +139,7 @@ export default function ModelsPage() {
       width: 200,
       render: (_: unknown, r: any) => (
         <Space size={0} wrap>
-          <Button type="link" size="small" onClick={() => openDetail(r.model_id)}>详情</Button>
+          <Button type="link" size="small" onClick={() => openDetail(r)}>详情</Button>
           <Button
             type="link"
             size="small"
@@ -136,7 +152,7 @@ export default function ModelsPage() {
             type="link"
             size="small"
             icon={<EditOutlined />}
-            onClick={() => navigate(`/models/edit/${encodeURIComponent(r.model_id)}`)}
+            onClick={() => navigate(`/models/edit/${encodeURIComponent(r._id)}`)}
           >
             编辑
           </Button>
@@ -162,8 +178,8 @@ export default function ModelsPage() {
   const handleResetFilters = () => {
     setKeyword('');
     setProvider(undefined);
-    setIncludeDisabled(false);
-    void fetchData(1, pageSize, { keyword: '', provider: undefined, includeDisabled: false });
+    setStatusFilter('all');
+    void fetchData(1, pageSize, { keyword: '', provider: undefined, statusFilter: 'all' });
   };
 
   return (
@@ -185,27 +201,31 @@ export default function ModelsPage() {
               placeholder="搜索 model_id / model_name"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
-              onPressEnter={() => fetchData(1, pageSize)}
+              onPressEnter={() => { setPage(1); void fetchData(1, pageSize); }}
               style={{ width: 220 }}
               allowClear
             />
-            <Input
-              placeholder="provider 筛选"
-              value={provider ?? ''}
-              onChange={(e) => setProvider(e.target.value || undefined)}
-              style={{ width: 140 }}
-              allowClear
+            <ProviderSelect
+              placeholder="按厂商筛选"
+              value={provider}
+              onChange={(v) => setProvider(v)}
+              style={{ width: 160 }}
             />
-            <Select
-              value={includeDisabled ? 'yes' : 'no'}
-              style={{ width: 120 }}
+            <Select<ModelStatusFilter>
+              value={statusFilter}
+              style={{ width: 110 }}
               options={[
-                { value: 'no', label: '仅启用' },
-                { value: 'yes', label: '含禁用' },
+                { value: 'all', label: '全部' },
+                { value: 'enabled', label: '启用' },
+                { value: 'disabled', label: '禁用' },
               ]}
-              onChange={(v) => setIncludeDisabled(v === 'yes')}
+              onChange={(v) => setStatusFilter(v ?? 'all')}
             />
-            <Button type="primary" icon={<SearchOutlined />} onClick={() => fetchData(1, pageSize)}>
+            <Button
+              type="primary"
+              icon={<SearchOutlined />}
+              onClick={() => { setPage(1); void fetchData(1, pageSize); }}
+            >
               查询
             </Button>
             <Button icon={<UndoOutlined />} onClick={handleResetFilters}>
@@ -222,7 +242,7 @@ export default function ModelsPage() {
         <Table
           columns={columns}
           dataSource={items}
-          rowKey={(r: any) => r.model_id || r.provider_model_name || r._id}
+          rowKey={(r: any) => String(r._id ?? `${r.model_id}|${r.provider}|${r.provider_model_name}`)}
           loading={loading}
           size="small"
           scroll={{ x: 1300 }}
@@ -232,7 +252,10 @@ export default function ModelsPage() {
             total,
             showSizeChanger: true,
             showTotal: (t) => `共 ${t} 条`,
-            onChange: (p, ps) => fetchData(p, ps || pageSize),
+            onChange: (p, ps) => {
+              setPage(p);
+              void fetchData(p, ps || pageSize);
+            },
           }}
         />
       </Card>

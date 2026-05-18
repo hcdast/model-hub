@@ -6,7 +6,8 @@ import { ReloadOutlined } from '@ant-design/icons';
 import PageHeader from '../components/PageHeader';
 import dayjs from 'dayjs';
 import ReactEChartsCore from 'echarts-for-react';
-import { accountCostApi, accountPoolApi, providerConfigApi } from '../services/api';
+import { accountCostApi, accountPoolApi } from '../services/api';
+import ProviderSelect from '../components/ProviderSelect';
 
 interface DailyCostRow {
   _id?: string;
@@ -50,9 +51,6 @@ export default function AccountCostPage() {
   const [filterProvider, setFilterProvider] = useState<string | undefined>();
   const [filterAccount, setFilterAccount] = useState<string | undefined>();
 
-  const [providerConfigs, setProviderConfigs] = useState<{ provider_name: string }[]>([]);
-
-  // Load account list for alias mapping + provider configs for filter dropdown
   useEffect(() => {
     (async () => {
       try {
@@ -60,21 +58,9 @@ export default function AccountCostPage() {
         setAccounts(res.data?.items || []);
       } catch { /* ignore */ }
     })();
-    (async () => {
-      try {
-        const res: any = await providerConfigApi.list();
-        setProviderConfigs(res.data?.items || []);
-      } catch { /* ignore */ }
-    })();
   }, []);
 
   const accountAliasMap = new Map(accounts.map((a) => [a._id, a.account_alias]));
-  const providerNames = [
-    ...new Set([
-      ...providerConfigs.map((p) => p.provider_name),
-      ...accounts.map((a) => a.provider_name),
-    ]),
-  ].sort();
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -208,11 +194,8 @@ export default function AccountCostPage() {
                 if (ds[0] && ds[1]) setDateRange([ds[0], ds[1]]);
               }}
             />
-            <Select
-              placeholder="按厂商筛选"
-              allowClear
+            <ProviderSelect
               style={{ width: 180 }}
-              options={providerNames.map((p) => ({ label: p, value: p }))}
               value={filterProvider}
               onChange={setFilterProvider}
             />

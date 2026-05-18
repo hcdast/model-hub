@@ -14,6 +14,7 @@ import { pickBasic } from './helpers';
 import { ParamDefinitionsEditor } from './ParamDefinitionsEditor';
 import { UnitPriceMapSection } from './UnitPriceMapSection';
 import { MODEL_CONFIG_MODEL_TYPES } from '../../constants/model-config-model-type';
+import ProviderSelect from '../ProviderSelect';
 
 const MODEL_TYPE_SELECT_OPTIONS = MODEL_CONFIG_MODEL_TYPES.map((v) => ({
   label: v,
@@ -41,6 +42,7 @@ export function ModelConfigStructuredEditor({
   );
 
   const [basicForm] = Form.useForm();
+  const providerValue = Form.useWatch('provider', basicForm);
 
   const basicSlice = JSON.stringify(pickBasic(value));
   useEffect(() => {
@@ -84,7 +86,9 @@ export function ModelConfigStructuredEditor({
             label="provider（Adapter 注册名）"
             rules={[{ required: true, message: '必填' }]}
           >
-            <Input />
+            <ProviderSelect
+              extraValues={providerValue ? [String(providerValue)] : undefined}
+            />
           </Form.Item>
           <Form.Item name="provider_model_name" label="provider_model_name">
             <Input placeholder="可选" />

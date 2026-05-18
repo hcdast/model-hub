@@ -11,7 +11,8 @@ import {
 import PageHeader from '../components/PageHeader';
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
-import { modelRoutingApi, providerConfigApi, modelApi, apiClientApi } from '../services/api';
+import { modelRoutingApi, modelApi, apiClientApi } from '../services/api';
+import ProviderSelect from '../components/ProviderSelect';
 
 type Strategy = 'fixed' | 'weighted' | 'primary_fallback' | 'latency' | 'cost';
 
@@ -71,7 +72,7 @@ const SIM_FEATURE_OPTIONS = [
   { label: 'textToVideo', value: 'textToVideo' },
   { label: 'imageToVideo', value: 'imageToVideo' },
   { label: 'videoToVideo', value: 'videoToVideo' },
-  { label: 'characterFaceswap', value: 'characterFaceswap' },
+  { label: 'characterSwap', value: 'characterSwap' },
   { label: 'videoUpscale', value: 'videoUpscale' },
 ];
 
@@ -104,7 +105,6 @@ export default function ModelRoutingRulesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<RuleRow | null>(null);
   const [form] = Form.useForm();
-  const [providers, setProviders] = useState<string[]>([]);
   const [loadingProviderPricing, setLoadingProviderPricing] = useState(false);
 
   const [simForm] = Form.useForm();
@@ -133,20 +133,9 @@ export default function ModelRoutingRulesPage() {
 
   useEffect(() => {
     void fetchData(1, pageSize);
-    void fetchProviders();
     void loadClientOptions();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅挂载时拉取首屏
   }, []);
-
-  const fetchProviders = async () => {
-    try {
-      const res: any = await providerConfigApi.list();
-      const providerNames = (res.data?.items || []).map((item: any) => item.provider_name);
-      setProviders(providerNames);
-    } catch {
-      message.error('加载厂商列表失败');
-    }
-  };
 
   const loadClientOptions = async () => {
     try {
@@ -641,12 +630,7 @@ export default function ModelRoutingRulesPage() {
               if (st === 'fixed') {
                 return (
                   <Form.Item name="fixed_provider" label="fixed_provider" rules={[{ required: true, message: '必填' }]}>
-                    <Select
-                      placeholder="选择厂商"
-                      showSearch
-                      allowClear
-                      options={providers.map((p) => ({ label: p, value: p }))}
-                    />
+                    <ProviderSelect />
                   </Form.Item>
                 );
               }
@@ -660,13 +644,7 @@ export default function ModelRoutingRulesPage() {
                           {fields.map(({ key, name, ...rest }) => (
                             <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
                               <Form.Item {...rest} name={[name, 'provider']} rules={[{ required: true, message: 'provider' }]}>
-                                <Select
-                                  placeholder="选择厂商"
-                                  showSearch
-                                  allowClear
-                                  style={{ width: 200 }}
-                                  options={providers.map((p) => ({ label: p, value: p }))}
-                                />
+                                <ProviderSelect style={{ width: 200 }} />
                               </Form.Item>
                               <Form.Item {...rest} name={[name, 'weight']} rules={[{ required: true, message: 'weight' }]}>
                                 <InputNumber min={1} placeholder="weight" />
@@ -687,20 +665,10 @@ export default function ModelRoutingRulesPage() {
                 return (
                   <>
                     <Form.Item name="primary_provider" label="primary_provider（主）" rules={[{ required: true }]}>
-                      <Select
-                        placeholder="选择主厂商"
-                        showSearch
-                        allowClear
-                        options={providers.map((p) => ({ label: p, value: p }))}
-                      />
+                      <ProviderSelect placeholder="选择主厂商" />
                     </Form.Item>
                     <Form.Item name="fallback_provider" label="fallback_provider（备，可空）">
-                      <Select
-                        placeholder="选择备用厂商"
-                        showSearch
-                        allowClear
-                        options={providers.map((p) => ({ label: p, value: p }))}
-                      />
+                      <ProviderSelect placeholder="选择备用厂商" />
                     </Form.Item>
                     <Space>
                       <Form.Item name="primary_weight" label="primary_weight">
@@ -741,13 +709,7 @@ export default function ModelRoutingRulesPage() {
                                 name={name}
                                 rules={[{ required: true, message: '请选择 Provider' }]}
                               >
-                                <Select
-                                  placeholder="选择厂商"
-                                  showSearch
-                                  allowClear
-                                  style={{ width: 280 }}
-                                  options={providers.map((p) => ({ label: p, value: p }))}
-                                />
+                                <ProviderSelect style={{ width: 280 }} />
                               </Form.Item>
                               {fields.length > 2 && (
                                 <Button
@@ -825,13 +787,7 @@ export default function ModelRoutingRulesPage() {
                                 name={[name, 'provider']}
                                 rules={[{ required: true, message: '请选择 Provider' }]}
                               >
-                                <Select
-                                  placeholder="选择厂商"
-                                  showSearch
-                                  allowClear
-                                  style={{ width: 200 }}
-                                  options={providers.map((p) => ({ label: p, value: p }))}
-                                />
+                                <ProviderSelect style={{ width: 200 }} />
                               </Form.Item>
                               <Form.Item
                                 {...rest}

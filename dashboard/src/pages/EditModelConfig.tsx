@@ -74,10 +74,10 @@ export default function EditModelConfigPage() {
     setHasChanges(jsonValue !== originalValue);
   }, [jsonValue, originalValue]);
 
-  const loadConfig = async (modelName: string) => {
+  const loadConfig = async (mongoId: string) => {
     setLoading(true);
     try {
-      const res: any = await modelApi.getDetail(modelName);
+      const res: any = await modelApi.getDetail(mongoId, { byMongoId: true });
 
       if (res.code === 0 && res.data) {
         setMongoId(res.data._id);

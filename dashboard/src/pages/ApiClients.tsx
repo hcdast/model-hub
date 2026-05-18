@@ -9,7 +9,6 @@ import {
 } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import dayjs from 'dayjs';
-import { useLocation } from 'react-router-dom';
 import { apiClientApi, modelApi } from '../services/api';
 import { ErrorHandler } from '../utils/error-handler';
 import { usePermission } from '../hooks/usePermission';
@@ -37,7 +36,7 @@ const FEATURE_TYPE_OPTIONS = [
   { label: '文生视频 (textToVideo)', value: 'textToVideo' },
   { label: '图生视频 (imageToVideo)', value: 'imageToVideo' },
   { label: '视频生视频 (videoToVideo)', value: 'videoToVideo' },
-  { label: '角色换装 (characterFaceswap)', value: 'characterFaceswap' },
+  { label: '角色换装 (characterSwap)', value: 'characterSwap' },
   { label: '视频超分 (videoUpscale)', value: 'videoUpscale' },
 ];
 
@@ -172,8 +171,7 @@ function UsageChart({ apiKey }: { apiKey: string }) {
 }
 
 export default function ApiClientsPage() {
-  const location = useLocation();
-  const pageTitle = location.pathname === '/api-keys' ? 'API 密钥管理' : '应用管理';
+  const pageTitle = '应用管理';
   const { hasPermission } = usePermission();
   const canCreateClient = hasPermission('api-client:create');
   const canUpdateClient = hasPermission('api-client:update');

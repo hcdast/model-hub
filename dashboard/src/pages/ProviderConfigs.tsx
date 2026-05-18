@@ -5,6 +5,7 @@ import PageHeader from '../components/PageHeader';
 import ProviderAccountPoolModal from '../components/ProviderAccountPoolModal';
 import { providerConfigApi, accountPoolApi } from '../services/api';
 import type { ProviderConfigItem } from '../services/api';
+import { invalidateProviderOptionsCache } from '../hooks/useProviderOptions';
 
 type PoolStat = { total: number; enabled: number };
 
@@ -124,6 +125,7 @@ export default function ProviderConfigsPage() {
         poll_limits: Object.keys(poll_limits).length ? poll_limits : undefined,
       });
       message.success(editing ? '已保存' : '已添加');
+      invalidateProviderOptionsCache();
       setModalOpen(false);
       void fetchData();
     } catch (e: any) {

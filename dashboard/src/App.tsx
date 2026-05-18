@@ -516,7 +516,7 @@ function AppLayout() {
             <Route path="/account-pool" element={<PermissionRoute permission="provider:read"><AccountPoolPage /></PermissionRoute>} />
             <Route path="/account-costs" element={<PermissionRoute permission="provider:read"><AccountCostPage /></PermissionRoute>} />
             <Route path="/api-clients" element={<PermissionRoute permission="api-client:read"><ApiClientsPage /></PermissionRoute>} />
-            <Route path="/api-keys" element={<PermissionRoute permission="api-client:read"><ApiClientsPage /></PermissionRoute>} />
+            <Route path="/api-keys" element={<Navigate to="/api-clients" replace />} />
             {/* 计费与成本路由 */}
             <Route path="/billing/records" element={<PermissionRoute permission="billing:read"><BillingRecordsPage /></PermissionRoute>} />
             <Route path="/billing/wallets" element={<PermissionRoute permission="billing:read"><WalletManagementPage /></PermissionRoute>} />

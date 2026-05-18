@@ -70,13 +70,20 @@ export const auditApi = {
 
 export const modelApi = {
   list: (params: Record<string, any>) => api.get('/models', { params }),
-  getDetail: (modelId: string) =>
-    api.get('/models/detail', { params: { model_id: modelId } }),
+  getDetail: (idOrModelId: string, opts?: { provider?: string; byMongoId?: boolean }) =>
+    opts?.byMongoId
+      ? api.get('/models/detail', { params: { id: idOrModelId } })
+      : api.get('/models/detail', {
+          params: {
+            model_id: idOrModelId,
+            ...(opts?.provider ? { provider: opts.provider } : {}),
+          },
+        }),
   /** 获取模型在各厂商的定价信息（用于成本优先路由规则） */
   getProviderPricing: (modelId: string) =>
     api.get('/models/provider-pricing', { params: { model_id: modelId } }),
-  toggle: (model_id: string, disabled: boolean) =>
-    api.put('/models/toggle', { model_id, disabled }),
+  toggle: (payload: { id: string; disabled: boolean }) =>
+    api.put('/models/toggle', payload),
   getTemplates: () => api.get('/models/templates'),
   create: (data: Record<string, any>) => api.post('/models', data),
   update: (id: string, data: Record<string, any>) => api.put(`/models/${encodeURIComponent(id)}`, data),
