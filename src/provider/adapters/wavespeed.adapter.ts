@@ -8,6 +8,7 @@ import { ProviderConfigService } from '../provider-config.service';
 import { createRuntimeConfiguredAxios } from '../create-runtime-axios';
 import { AccountPoolService } from '../account-pool/account-pool.service';
 import { ErrorLogger } from '../../common/utils/error-logger.util';
+import { inferCamelFeatureFromPathSegment } from '../../common/utils/model-path-infer.util';
 
 @Injectable()
 export class WaveSpeedAdapter implements IProviderAdapter {
@@ -127,13 +128,7 @@ export class WaveSpeedAdapter implements IProviderAdapter {
 
   private inferFeature(model: string): string {
     const last = model.split('/').pop() || '';
-    const map: Record<string, string> = {
-      'text-to-image': 'textToImage', 'image-to-image': 'imageToImage',
-      'text-to-video': 'textToVideo', 'image-to-video': 'imageToVideo',
-      'video-to-video': 'videoToVideo', 'video-upscale': 'videoUpscale',
-      'animate': 'characterFaceswap',
-    };
-    return map[last] || 'textToImage';
+    return inferCamelFeatureFromPathSegment(last);
   }
 
   private transformInput(input: Record<string, any>, featureType: string, options?: Record<string, any>): Record<string, any> {
@@ -185,6 +180,7 @@ export class WaveSpeedAdapter implements IProviderAdapter {
         if (bgm) body.bgm = bgm;
         break;
 
+      case 'characterSwap':
       case 'characterFaceswap':
         if (image) body.image = image;
         if (face_image) body.face_image = face_image;

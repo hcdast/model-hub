@@ -12,6 +12,7 @@ import { ProviderConfigService } from '../provider-config.service';
 import { AccountPoolService } from '../account-pool/account-pool.service';
 import { ResolvedAccountCredentials } from '../account-pool/resolved-account-credentials.interface';
 import { ErrorLogger } from '../../common/utils/error-logger.util';
+import { normalizeCharacterSwapModelPath } from '../../common/utils/model-path-infer.util';
 
 // 腾讯云 SDK 类型定义
 interface TencentCredential {
@@ -82,12 +83,36 @@ interface DescribeTaskDetailResponse {
 /**
  * Model name → Tencent VOD API parameter mapping
  */
-const TencentKlingModelMap: Record<string, { version: string; mode: string; resolution: string }> = {
-  'tencent-cloud/kling-v3.0-pro/motion-control': { version: '3.0', mode: 'pro', resolution: '1080p' },
-  'tencent-cloud/kling-v3.0-std/motion-control': { version: '3.0', mode: 'std', resolution: '1080p' },
-  'tencent-cloud/kling-v2.6-pro/motion-control': { version: '2.6', mode: 'pro', resolution: '1080p' },
-  'tencent-cloud/kling-v2.6-std/motion-control': { version: '2.6', mode: 'std', resolution: '1080p' },
-};
+type TencentKlingModelParams = { version: string; mode: string; resolution: string };
+
+const TENCENT_KLING_MODEL_SPECS: Array<{ base: string; params: TencentKlingModelParams }> = [
+  { base: 'kling-v3.0-pro', params: { version: '3.0', mode: 'pro', resolution: '1080p' } },
+  { base: 'kling-v3.0-std', params: { version: '3.0', mode: 'std', resolution: '1080p' } },
+  { base: 'kling-v2.6-pro', params: { version: '2.6', mode: 'pro', resolution: '1080p' } },
+  { base: 'kling-v2.6-std', params: { version: '2.6', mode: 'std', resolution: '1080p' } },
+];
+
+/** 支持 provider_model_name（motion-control）与路径型兼容键 */
+function buildTencentKlingModelMap(): Record<string, TencentKlingModelParams> {
+  const map: Record<string, TencentKlingModelParams> = {};
+  for (const { base, params } of TENCENT_KLING_MODEL_SPECS) {
+    for (const suffix of ['characterswap', 'character-swap', 'motion-control']) {
+      map[`tencent-cloud/${base}/${suffix}`] = params;
+      map[`tencent/${base}/${suffix}`] = params;
+      map[`${base}/${suffix}`] = params;
+    }
+  }
+  return map;
+}
+
+const TencentKlingModelMap = buildTencentKlingModelMap();
+
+function resolveTencentKlingModel(model: string): TencentKlingModelParams | undefined {
+  return (
+    TencentKlingModelMap[model] ??
+    TencentKlingModelMap[normalizeCharacterSwapModelPath(model)]
+  );
+}
 
 /**
  * 用于缓存 VOD 客户端的 key，避免每次请求都重新创建
@@ -226,7 +251,7 @@ export class TencentAdapter implements IProviderAdapter {
     const { secretId, secretKey, region, subAppId, accountId } = await this.resolveCredentials();
     const vodClient = await this.getOrCreateClient(secretId, secretKey, region);
 
-    const modelConfig = TencentKlingModelMap[request.model];
+    const modelConfig = resolveTencentKlingModel(request.model);
     if (!modelConfig) {
       throw new Error(`Unsupported Tencent model: ${request.model}`);
     }
