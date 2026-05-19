@@ -29,6 +29,8 @@ import { PermissionGuard } from './guards/permission.guard';
 import { RequirePermissions } from './decorators/require-permissions.decorator';
 
 const STRATEGIES = new Set(['fixed', 'weighted', 'primary_fallback', 'latency', 'cost']);
+const ROUTING_PRIORITY_MIN = 0;
+const ROUTING_PRIORITY_MAX = 100;
 
 @ApiTags('管理后台 - 模型路由策略')
 @ApiBearerAuth('AdminJwt')
@@ -121,11 +123,18 @@ export class AdminModelRoutingController {
   @ApiResponse({ status: 200, description: '成功' })
   async create(@Body() body: Record<string, unknown>) {
     this.validateUpsert(body, true);
+    const modelId = String(body.model_id).trim();
+    const existing = await this.ruleModel.findOne({ model_id: modelId }).lean();
+    if (existing) {
+      throw new BadRequestException(
+        `model_id「${modelId}」已存在路由策略，请编辑现有规则而非新建`,
+      );
+    }
     const doc = await this.ruleModel.create({
       model_id: String(body.model_id).trim(),
       apiKey: body.apiKey != null ? String(body.apiKey).trim() : '',
       enabled: body.enabled !== false,
-      priority: typeof body.priority === 'number' ? body.priority : parseInt(String(body.priority || '0'), 10) || 0,
+      priority: parseRoutingPriority(body.priority, true),
       effective_from: body.effective_from ? new Date(String(body.effective_from)) : undefined,
       effective_until: body.effective_until ? new Date(String(body.effective_until)) : undefined,
       strategy_type: body.strategy_type,
@@ -152,11 +161,22 @@ export class AdminModelRoutingController {
     this.validateUpsert(body, false);
     const $set: Record<string, unknown> = {};
     // 允许编辑 model_id
-    if (body.model_id !== undefined) $set.model_id = String(body.model_id).trim();
+    if (body.model_id !== undefined) {
+      const newModelId = String(body.model_id).trim();
+      const dup = await this.ruleModel
+        .findOne({ model_id: newModelId, _id: { $ne: new Types.ObjectId(id) } })
+        .lean();
+      if (dup) {
+        throw new BadRequestException(
+          `model_id「${newModelId}」已被其他路由策略占用`,
+        );
+      }
+      $set.model_id = newModelId;
+    }
     if (body.apiKey !== undefined) $set.apiKey = String(body.apiKey).trim();
     if (body.enabled !== undefined) $set.enabled = Boolean(body.enabled);
     if (body.priority !== undefined) {
-      $set.priority = typeof body.priority === 'number' ? body.priority : parseInt(String(body.priority), 10) || 0;
+      $set.priority = parseRoutingPriority(body.priority, false);
     }
     if (body.effective_from !== undefined) {
       $set.effective_from = body.effective_from ? new Date(String(body.effective_from)) : null;
@@ -199,6 +219,9 @@ export class AdminModelRoutingController {
   private validateUpsert(body: Record<string, unknown>, isCreate: boolean) {
     if (isCreate && (!body.model_id || String(body.model_id).trim() === '')) {
       throw new BadRequestException('model_id is required');
+    }
+    if (body.priority !== undefined) {
+      parseRoutingPriority(body.priority, false);
     }
     if (body.strategy_type != null && !STRATEGIES.has(String(body.strategy_type))) {
       throw new BadRequestException(`strategy_type must be one of: ${[...STRATEGIES].join(', ')}`);
@@ -314,6 +337,27 @@ export class AdminModelRoutingController {
       }
     }
   }
+}
+
+function parseRoutingPriority(v: unknown, allowDefault: boolean): number {
+  if (v === undefined || v === null || v === '') {
+    if (allowDefault) return ROUTING_PRIORITY_MIN;
+    throw new BadRequestException(
+      `priority must be an integer between ${ROUTING_PRIORITY_MIN} and ${ROUTING_PRIORITY_MAX}`,
+    );
+  }
+  const n = typeof v === 'number' ? v : parseInt(String(v), 10);
+  if (!Number.isFinite(n) || !Number.isInteger(n)) {
+    throw new BadRequestException(
+      `priority must be an integer between ${ROUTING_PRIORITY_MIN} and ${ROUTING_PRIORITY_MAX}`,
+    );
+  }
+  if (n < ROUTING_PRIORITY_MIN || n > ROUTING_PRIORITY_MAX) {
+    throw new BadRequestException(
+      `priority must be between ${ROUTING_PRIORITY_MIN} and ${ROUTING_PRIORITY_MAX}`,
+    );
+  }
+  return n;
 }
 
 function parseOptionalNonNegNumber(v: unknown): number | undefined {

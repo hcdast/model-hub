@@ -64,6 +64,10 @@ function strategySummary(r: RuleRow): string {
   return `${p} / ${f}（${r.primary_weight ?? 100}:${r.fallback_weight ?? 0}）`;
 }
 
+/** 路由策略 priority：0 最低，100 最高（越大越优先） */
+const ROUTING_PRIORITY_MIN = 0;
+const ROUTING_PRIORITY_MAX = 100;
+
 /** 与创建任务 options.featureType 一致（可选，用于 model_configs 查询） */
 const SIM_FEATURE_OPTIONS = [
   { label: '（按 model 路径推断）', value: '' },
@@ -176,20 +180,6 @@ export default function ModelRoutingRulesPage() {
     setSimLoading(false);
   };
 
-  /** 从模型配置「配置路由」跳转：`/model-routing-rules?action=new&model_id=...` */
-  useEffect(() => {
-    if (queryConsumedRef.current) return;
-    const action = searchParams.get('action');
-    const mn = searchParams.get('model_id');
-    if (action !== 'new' || !mn?.trim()) return;
-    queryConsumedRef.current = true;
-    setEditing(null);
-    form.resetFields();
-    form.setFieldsValue(getCreateFormDefaults(mn.trim()));
-    setModalOpen(true);
-    navigate('/model-routing-rules', { replace: true });
-  }, [searchParams, form, navigate]);
-
   const openCreate = () => {
     setEditing(null);
     form.resetFields();
@@ -197,7 +187,7 @@ export default function ModelRoutingRulesPage() {
     setModalOpen(true);
   };
 
-  const openEdit = (r: RuleRow) => {
+  const openEdit = useCallback((r: RuleRow) => {
     setEditing(r);
     form.setFieldsValue({
       model_id: r.model_id,
@@ -218,7 +208,62 @@ export default function ModelRoutingRulesPage() {
       note: r.note,
     });
     setModalOpen(true);
-  };
+  }, [form]);
+
+  const openCreateWithModelId = useCallback((modelId: string) => {
+    setEditing(null);
+    form.resetFields();
+    form.setFieldsValue(getCreateFormDefaults(modelId));
+    setModalOpen(true);
+  }, [form]);
+
+  /** 同一 model_id 优先全站规则（apiKey 空），否则取 priority 最高的一条 */
+  const pickRuleForModel = useCallback((rules: RuleRow[]): RuleRow | null => {
+    if (rules.length === 0) return null;
+    const sorted = [...rules].sort((a, b) => {
+      const aGlobal = !a.apiKey?.trim() ? 1 : 0;
+      const bGlobal = !b.apiKey?.trim() ? 1 : 0;
+      if (aGlobal !== bGlobal) return bGlobal - aGlobal;
+      return (b.priority ?? 0) - (a.priority ?? 0);
+    });
+    return sorted[0];
+  }, []);
+
+  /** 从模型配置「配置路由」跳转：`/model-routing-rules?action=new&model_id=...` */
+  useEffect(() => {
+    if (queryConsumedRef.current) return;
+    const action = searchParams.get('action');
+    const mn = searchParams.get('model_id');
+    if (action !== 'new' || !mn?.trim()) return;
+    queryConsumedRef.current = true;
+    const modelId = mn.trim();
+    navigate('/model-routing-rules', { replace: true });
+
+    void (async () => {
+      try {
+        const res: any = await modelRoutingApi.list({
+          page: 1,
+          pageSize: 20,
+          model_id: modelId,
+        });
+        const found: RuleRow[] = res.data?.items || [];
+        setKeyword(modelId);
+        const existing = pickRuleForModel(found);
+        if (existing) {
+          openEdit(existing);
+          if (found.length > 1) {
+            message.info(`该 model_id 已有 ${found.length} 条路由规则，已打开主规则供编辑`);
+          }
+        } else {
+          openCreateWithModelId(modelId);
+        }
+        void fetchData(1, pageSize, modelId);
+      } catch {
+        message.error('加载路由策略失败');
+        openCreateWithModelId(modelId);
+      }
+    })();
+  }, [searchParams, navigate, pickRuleForModel, openEdit, openCreateWithModelId, fetchData, pageSize]);
 
   const buildPayload = (v: Record<string, unknown>) => {
     const strategy = v.strategy_type as Strategy;
@@ -268,6 +313,18 @@ export default function ModelRoutingRulesPage() {
         await modelRoutingApi.update(editing._id, payload);
         message.success('已更新');
       } else {
+        const modelId = String(payload.model_id || '').trim();
+        if (modelId) {
+          const res: any = await modelRoutingApi.list({ page: 1, pageSize: 1, model_id: modelId });
+          const existing = pickRuleForModel((res.data?.items || []) as RuleRow[]);
+          if (existing) {
+            await modelRoutingApi.update(existing._id, payload);
+            message.success('该 model_id 已有路由策略，已更新现有规则');
+            setModalOpen(false);
+            fetchData(page, pageSize);
+            return;
+          }
+        }
         await modelRoutingApi.create(payload);
         message.success('已创建');
       }
@@ -599,8 +656,25 @@ export default function ModelRoutingRulesPage() {
             <Form.Item name="enabled" label="启用" valuePropName="checked">
               <Switch />
             </Form.Item>
-            <Form.Item name="priority" label="优先级（越大越优先）">
-              <InputNumber min={0} style={{ width: 120 }} />
+            <Form.Item
+              name="priority"
+              label={`优先级（${ROUTING_PRIORITY_MIN}–${ROUTING_PRIORITY_MAX}，越大越优先）`}
+              rules={[
+                { required: true, message: '请输入优先级' },
+                {
+                  type: 'number',
+                  min: ROUTING_PRIORITY_MIN,
+                  max: ROUTING_PRIORITY_MAX,
+                  message: `优先级须在 ${ROUTING_PRIORITY_MIN}–${ROUTING_PRIORITY_MAX} 之间`,
+                },
+              ]}
+            >
+              <InputNumber
+                min={ROUTING_PRIORITY_MIN}
+                max={ROUTING_PRIORITY_MAX}
+                precision={0}
+                style={{ width: 120 }}
+              />
             </Form.Item>
           </Space>
           <Space wrap>
