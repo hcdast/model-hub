@@ -29,5 +29,12 @@ export async function findModelConfigForTask(
     return enabled[0];
   }
 
-  return modelConfigModel.findOne(base).sort({ sort: -1 }).lean();
+  const doc = await modelConfigModel.findOne(base).sort({ sort: -1 }).lean();
+  if (doc || !modelType) {
+    return doc;
+  }
+
+  // model_type 与库中不一致时，仍按 model_id 匹配（避免漏配 params / provider）
+  const byIdOnly: FilterQuery<ModelConfig> = { model_id: modelId };
+  return modelConfigModel.findOne(byIdOnly).sort({ sort: -1 }).lean();
 }

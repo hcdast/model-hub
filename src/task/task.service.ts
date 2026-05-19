@@ -28,12 +28,15 @@ import { validateParams } from '../common/utils/param-validator';
 import { transformParams } from '../common/utils/param-transformer';
 import { ParamDefinitions } from '../common/interfaces/param-definition.interface';
 import { roundMoney } from '../common/utils/money.util';
+import { normalizeTaskResultPayload } from './task-result.util';
 import { BillingAdapter } from '../billing/billing.adapter';
 import { BillingService } from '../billing/billing.service';
 import { InsufficientBalanceException } from '../billing/exceptions/insufficient-balance.exception';
 import { TaskResourceMetadataEnqueueService } from '../queue/task-resource-metadata-enqueue.service';
 import { findModelConfigForTask } from './model-config-resolver.util';
 import { inferInternalFeatureFromPathSegment } from '../common/utils/model-path-infer.util';
+import { normalizeAkoolSwapClientInput } from '../common/utils/akool-swap-input.util';
+import { inferProviderFallback } from './model-service-provider.map';
 
 @Injectable()
 export class TaskService {
@@ -161,7 +164,8 @@ export class TaskService {
     if (cfg?.params && Object.keys(cfg.params).length > 0) {
       const definitions = cfg.params as ParamDefinitions;
 
-      // 归一化 image/images：根据 config 期望的字段转换客户端输入
+      // 归一化 image/images、video/video_url、mappings[].image 等
+      normalizeAkoolSwapClientInput(dto.input);
       this.normalizeImageFields(dto.input, definitions);
 
       const validationResult = validateParams(dto.input, definitions);
@@ -468,10 +472,11 @@ export class TaskService {
         videoToVideo: 'image_to_video',
         characterSwap: 'character_swap',
         characterFaceswap: 'character_swap',
+        headSwap: 'head_swap',
         videoUpscale: 'video_upscale',
       };
       if (camelToInternal[opt]) return camelToInternal[opt];
-      if (/^(image_generate|image_to_image|text_to_video|image_to_video|character_swap|video_upscale|unknown)$/.test(opt)) {
+      if (/^(image_generate|image_to_image|text_to_video|image_to_video|character_swap|head_swap|video_upscale|unknown)$/.test(opt)) {
         return opt;
       }
     }
@@ -480,11 +485,19 @@ export class TaskService {
     return this.inferFeatureType(last);
   }
 
-  /** 无 model_configs / 无 provider 时的兜底：路径首段当作 provider（兼容旧调用） */
+  /** 无 model_configs / 无 provider 时的兜底（勿将 akool-premium 等模型名首段当作 provider） */
   private resolveProviderFromModel(model: string) {
     const parts = model.split('/');
-    if (parts.length < 2) throw new BadRequestException(`Invalid model format: ${model}`);
-    const provider = parts[0];
+    if (parts.length < 2) {
+      throw new BadRequestException(`Invalid model format: ${model}`);
+    }
+    const provider = inferProviderFallback(model, (name) => this.providerRegistry.hasAdapter(name));
+    if (!provider) {
+      throw new BadRequestException(
+        `Unable to resolve provider for model: ${model}. ` +
+          'Ensure model_configs is seeded (npm run seed:models:apply) or use a model_id whose first segment is a registered provider.',
+      );
+    }
     const featureType = this.inferFeatureType(parts[parts.length - 1]);
     return { provider, featureType };
   }
@@ -507,7 +520,9 @@ export class TaskService {
       featureType: task.featureType,
       routeId: task.routeId,
       routingSource: task.metadata?.routingSource,
-      result: task.resultPayload || undefined,
+      result: task.resultPayload != null
+        ? normalizeTaskResultPayload(task.resultPayload)
+        : undefined,
       error: task.error || undefined,
       createdAt: (task as any).createdAt,
       updatedAt: (task as any).updatedAt,
