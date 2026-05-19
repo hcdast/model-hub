@@ -135,6 +135,7 @@ export class WaveSpeedAdapter implements IProviderAdapter {
     const { prompt, negative_prompt, image, images, aspect_ratio, resolution, duration,
       generate_audio, seed, guidance_scale, cfg_scale, video, last_image, end_image,
       face_image, pose_image, sound, movement_amplitude, bgm, multi_prompt, element_list,
+      character_orientation, keep_original_sound, shot_type,
       ...rest } = input;
 
     // 仅保留 WaveSpeed API 已知字段，过滤掉上游传入的未知字段（如 scale）避免 400
@@ -181,10 +182,20 @@ export class WaveSpeedAdapter implements IProviderAdapter {
         break;
 
       case 'characterSwap':
+        // Kling motion-control：image + video + character_orientation 等为必填/常用字段
+        if (image) body.image = image;
+        if (video) body.video = video;
+        body.character_orientation = character_orientation || 'video';
+        if (keep_original_sound !== undefined) body.keep_original_sound = keep_original_sound;
+        if (shot_type) body.shot_type = shot_type;
+        if (element_list?.length) body.element_list = element_list;
+        break;
+
       case 'characterFaceswap':
         if (image) body.image = image;
         if (face_image) body.face_image = face_image;
         if (pose_image) body.pose_image = pose_image;
+        if (video) body.video = video;
         if (duration) body.duration = duration;
         if (aspect_ratio) body.aspect_ratio = aspect_ratio;
         break;
