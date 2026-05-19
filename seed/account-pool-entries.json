@@ -23,8 +23,10 @@
       "provider_name": "akool",
       "account_alias": "akool-default",
       "api_key": "",
-      "description": "akool 默认账号",
-      "extra_credentials": {},
+      "description": "akool 算法队列：api_key 可填预生成 JWT；推荐在 extra_credentials.jwt_secret 填与 AGI-Content 相同的 JWT 密钥以自动签发 token",
+      "extra_credentials": {
+        "jwt_secret": ""
+      },
       "weight": 1,
       "enabled": true
     },

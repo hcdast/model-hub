@@ -8,6 +8,13 @@ import { ProviderConfigService } from '../provider-config.service';
 import { createRuntimeConfiguredAxios } from '../create-runtime-axios';
 import { AccountPoolService } from '../account-pool/account-pool.service';
 import { ErrorLogger } from '../../common/utils/error-logger.util';
+import {
+  buildAkoolSwapAlgorithmData,
+  isAkoolSwapModelId,
+  resolveAkoolSwapSubmitOptions,
+} from '../../common/utils/akool-swap-input.util';
+import { resolveAlgorithmQueueAuth } from '../utils/algorithm-queue-auth.util';
+import { buildAlgorithmPublishBody } from '../utils/algorithm-queue-publish.util';
 
 @Injectable()
 export class AkoolAdapter implements IProviderAdapter {
@@ -29,14 +36,48 @@ export class AkoolAdapter implements IProviderAdapter {
   }
 
   async submitTask(request: NormalizedTaskRequest): Promise<SubmitResult> {
-    const body = {
-      algorithmFrom: request.options?.algorithmFrom, algorithmType: request.options?.algorithmType,
-      priority: request.options?.priority || 0, data: request.input,
-      webhookOverride: request.options?.webhook, queueName: request.options?.queueName, taskName: request.options?.taskName,
-    };
-    this.logger.debug(`Submitting to Akool: model=${request.model}`);
-    const response = await this.httpClient.post('/api/v1/task/publish', body);
-    return { providerTaskId: response.data.task_id || response.data.id, isSync: false, rawResponse: response.data };
+    const modelKey = request.model;
+    const publicModelId = (request.options?.publicModelId as string) || modelKey;
+    const opts = resolveAkoolSwapSubmitOptions(publicModelId, request.options);
+    const swapModelKey = isAkoolSwapModelId(publicModelId) || isAkoolSwapModelId(modelKey);
+    const data = swapModelKey
+      ? buildAkoolSwapAlgorithmData(request.input, publicModelId)
+      : request.input;
+
+    const teamId = opts.team_id ?? opts.metadata?.team_id ?? 1;
+    const uid = opts.uid ?? opts.metadata?.uid ?? 1;
+
+    const body = buildAlgorithmPublishBody({
+      algorithmFrom: String(opts.algorithmFrom ?? ''),
+      algorithmType: String(opts.algorithmType ?? ''),
+      taskName: opts.taskName as string | undefined,
+      queueName: opts.queueName as string | undefined,
+      priority: Number(opts.priority ?? 0),
+      data,
+      webhookOverride: (opts.webhook ?? opts.webhookOverride) as string | undefined,
+    });
+
+    const account = await this.accountPoolService.selectAccount(this.providerName);
+    const authToken = resolveAlgorithmQueueAuth(account, teamId, uid);
+
+    this.logger.debug(
+      `Submitting to Akool: model=${modelKey}, swap=${swapModelKey}, team_id=${teamId}, uid=${uid}`,
+    );
+
+    const response = await this.httpClient.post('/api/v1/task/publish', body, {
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+    });
+
+    const root = response.data;
+    const taskId = root?.task_id ?? root?.data?.task_id ?? root?.id;
+    if (taskId == null || taskId === '') {
+      const err = new Error(
+        `Algorithm queue response missing task_id: ${JSON.stringify(root)?.slice(0, 500)}`,
+      );
+      ErrorLogger.logError(this.logger, err, { model: modelKey, provider: this.providerName });
+      throw Object.assign(err, { response: { status: 502, data: root } });
+    }
+    return { providerTaskId: String(taskId), isSync: false, rawResponse: root };
   }
 
   async queryTask(providerTaskId: string, meta?: Record<string, any>): Promise<QueryResult> {
@@ -54,8 +95,15 @@ export class AkoolAdapter implements IProviderAdapter {
   }
 
   mapError(providerError: any) {
-    const message = providerError?.response?.data?.message || providerError?.message || 'Unknown Akool error';
     const status = providerError?.response?.status;
+    const raw = providerError?.response?.data;
+    let detail = '';
+    if (typeof raw === 'string') detail = raw.slice(0, 500);
+    else if (raw && typeof raw === 'object') {
+      detail = JSON.stringify(raw.error_msg ?? raw.message ?? raw).slice(0, 500);
+    }
+    const message =
+      [providerError?.message || 'Unknown Akool error', detail].filter(Boolean).join(' | ');
     return { code: `AKOOL_${status || 'ERR'}`, message, retryable: status === 429 || status >= 500 };
   }
 

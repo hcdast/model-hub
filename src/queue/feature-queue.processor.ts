@@ -23,6 +23,7 @@ import { UsageType } from '../billing/interfaces/billing.interface';
 import { computeActualUsageValue } from '../billing/actual-usage.util';
 import { UsageTrackerService } from '../api-client/usage-tracker.service';
 import { TaskResourceMetadataEnqueueService } from './task-resource-metadata-enqueue.service';
+import { normalizeTaskResultPayload } from '../task/task-result.util';
 
 @Injectable()
 export class FeatureQueueProcessor {
@@ -138,10 +139,16 @@ export class FeatureQueueProcessor {
     const providerStart = Date.now();
     try {
       const result = await adapter.submitTask({
-        taskId, 
-        model: task.providerModel || task.model, // 优先使用 providerModel
+        taskId,
+        model: task.providerModel || task.model,
         input: task.requestPayload?.input || {},
-        options: task.requestPayload?.options,
+        options: {
+          ...task.requestPayload?.options,
+          publicModelId: task.model,
+          metadata: task.metadata,
+          team_id: task.metadata?.team_id,
+          uid: task.metadata?.uid,
+        },
       });
 
       const latencyMs = Date.now() - providerStart;
@@ -163,9 +170,11 @@ export class FeatureQueueProcessor {
         await this.timingService.recordTiming(taskId, 'completedAt', completedAt);
         await this.timingService.calculateAndSave(taskId);
 
+        const normalizedResult = normalizeTaskResultPayload(result.result);
+
         await this.taskRepo.updateStatus(taskId, TaskStatus.PENDING, TaskStatus.SUCCESS, {
           providerTask: { providerTaskId: result.providerTaskId, rawMeta: result.rawResponse },
-          resultPayload: result.result,
+          resultPayload: normalizedResult,
         });
 
         const e2eMs = completedAt.getTime() - (task as any).createdAt.getTime();
@@ -178,13 +187,13 @@ export class FeatureQueueProcessor {
         try {
           const actualUsage = await this.extractActualUsage(
             task.model,
-            result.result,
+            normalizedResult,
             task.requestPayload?.input,
           );
           await this.billingAdapter.settle({
             taskId,
             actualUsage,
-            resultPayload: result.result,
+            resultPayload: normalizedResult,
           });
         } catch (billingErr: any) {
           this.logger.error(
@@ -274,7 +283,7 @@ export class FeatureQueueProcessor {
    */
   private async extractActualUsage(
     model: string,
-    result?: Record<string, any>,
+    result?: unknown,
     requestInput?: Record<string, any>,
   ): Promise<{ usageType: UsageType; usageValue: number }> {
     const { usageType, durationStep } = await this.pricingService.getUnitPrice(model);
@@ -324,6 +333,7 @@ export class FeatureQueueProcessor {
       image_to_video: 'image-to-video',
       text_to_video: 'image-to-video',
       character_swap: 'character-swap',
+      head_swap: 'character-swap',
       video_upscale: 'video-upscale',
     };
     return map[featureType] || 'task-submit';
