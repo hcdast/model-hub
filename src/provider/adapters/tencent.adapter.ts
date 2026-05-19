@@ -403,7 +403,7 @@ export class TencentAdapter implements IProviderAdapter {
             } else {
               result.status = 'succeeded';
               result.progress = 100;
-              result.result = outputs.length === 1 ? outputs[0] : outputs;
+              result.result = outputs;
 
               // 提取视频时长
               const duration = fileInfos[0]?.MetaData?.Duration;

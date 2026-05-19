@@ -1,9 +1,18 @@
 import { createHash } from 'crypto';
+import { isBareHttpUrlString } from './task-result.util';
 
 /** 递归收集 payload 中的 http(s) URL（去重后排序，用于指纹） */
 export function collectHttpUrlsFromPayload(obj: unknown): string[] {
   const found: string[] = [];
   const walk = (o: unknown): void => {
+    if (isBareHttpUrlString(o)) {
+      found.push(o);
+      return;
+    }
+    if (Array.isArray(o)) {
+      for (const item of o) walk(item);
+      return;
+    }
     if (!o || typeof o !== 'object') return;
     for (const v of Object.values(o as Record<string, unknown>)) {
       if (typeof v === 'string' && /^https?:\/\//.test(v)) {

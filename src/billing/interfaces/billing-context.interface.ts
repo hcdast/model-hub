@@ -35,8 +35,8 @@ export interface BillingSettleContext {
     /** 实际用量值（token 数 / 次数 / 秒数） */
     usageValue: number;
   };
-  /** 供应商返回的结果负载（可选） */
-  resultPayload?: Record<string, any>;
+  /** 供应商返回的结果负载（可选）：URL 数组或结构化对象 */
+  resultPayload?: unknown;
 }
 
 /** 计费退款上下文 —— 任务失败或超时时传入 BillingAdapter.refund() */

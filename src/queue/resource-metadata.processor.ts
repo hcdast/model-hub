@@ -9,6 +9,7 @@ import { fingerprintTaskResourceUrls } from '../task/task-payload-urls.util';
 import { RemoteMetadataExtractorService } from '../metadata/remote-metadata-extractor.service';
 import { TaskCallbackEnqueueService } from '../callback/task-callback-enqueue.service';
 import { LinkConversionService } from '../link-conversion/link-conversion.service';
+import { normalizeTaskResultPayload } from '../task/task-result.util';
 
 const MAX_URLS_PER_SIDE = 5;
 
@@ -53,8 +54,14 @@ export class ResourceMetadataProcessor {
           task.resultPayload,
           taskId,
         );
-        if (changed && payload !== undefined) {
-          await this.taskModel.updateOne({ taskId }, { $set: { resultPayload: payload as Task['resultPayload'] } });
+        const normalizedPayload = normalizeTaskResultPayload(payload);
+        const shapeNeedsPersist =
+          JSON.stringify(normalizedPayload) !== JSON.stringify(task.resultPayload);
+        if ((changed || shapeNeedsPersist) && normalizedPayload !== undefined) {
+          await this.taskModel.updateOne(
+            { taskId },
+            { $set: { resultPayload: normalizedPayload as Task['resultPayload'] } },
+          );
           const refetched = await this.taskModel.findOne({ taskId }).lean();
           if (refetched) task = refetched;
         }

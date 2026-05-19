@@ -57,7 +57,7 @@ export class Task {
   requestPayload?: Record<string, any>;
 
   @Prop({ type: Object })
-  resultPayload?: Record<string, any>;
+  resultPayload?: unknown;
 
   @Prop(
     raw({

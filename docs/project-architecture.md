@@ -2465,8 +2465,9 @@ router.post('/webhooks/model-hub', async (req, res) => {
   if (!task) return res.status(404).end();
   
   if (status === 'SUCCESS') {
-    // 转存结果到 Akool CDN
-    const akoolUrl = await fileLinkConversionAkoolLink(result.output);
+    // result 为 URL 字符串数组（媒体类）；取首个输出
+    const outputUrl = Array.isArray(result) ? result[0] : result?.output?.[0];
+    const akoolUrl = await fileLinkConversionAkoolLink(outputUrl);
     await ImageContent.updateOne(
       { _id: task.bizId },
       { image_status: 3, url: akoolUrl }

@@ -21,6 +21,7 @@ import { UsageType } from '../billing/interfaces/billing.interface';
 import { computeActualUsageValue } from '../billing/actual-usage.util';
 import { UsageTrackerService } from '../api-client/usage-tracker.service';
 import { TaskResourceMetadataEnqueueService } from '../queue/task-resource-metadata-enqueue.service';
+import { normalizeTaskResultPayload } from '../task/task-result.util';
 
 @Injectable()
 export class PollingService {
@@ -233,19 +234,21 @@ export class PollingService {
         await this.timingService.recordTiming(task.taskId, 'completedAt', completedAt);
         await this.timingService.calculateAndSave(task.taskId);
 
+        const normalizedResult = normalizeTaskResultPayload(queryResult.result);
+
         // 计费结算：必须在任务状态更新为 SUCCESS 之前完成
         // 如果扣费失败，任务保持 PROCESSING 状态，下次轮询会重试
         let billingSettled = false;
         try {
           const actualUsage = await this.extractActualUsage(
             task.model,
-            queryResult.result,
+            normalizedResult,
             task.requestPayload?.input,
           );
           await this.billingAdapter.settle({
             taskId: task.taskId,
             actualUsage,
-            resultPayload: queryResult.result,
+            resultPayload: normalizedResult,
           });
           billingSettled = true;
         } catch (billingErr: any) {
@@ -258,7 +261,7 @@ export class PollingService {
         }
 
         // 计费成功后才更新任务状态为 SUCCESS
-        await this.taskRepo.updateStatus(task.taskId, [TaskStatus.SUBMITTED, TaskStatus.PROCESSING], TaskStatus.SUCCESS, { resultPayload: queryResult.result });
+        await this.taskRepo.updateStatus(task.taskId, [TaskStatus.SUBMITTED, TaskStatus.PROCESSING], TaskStatus.SUCCESS, { resultPayload: normalizedResult });
         const e2eMs = completedAt.getTime() - (task as any).createdAt.getTime();
         this.metrics.taskCompletedTotal.inc({ feature_type: task.featureType, provider: task.provider, status: 'SUCCESS' });
         this.metrics.taskDuration.observe({ feature_type: task.featureType, provider: task.provider }, e2eMs);
@@ -330,7 +333,7 @@ export class PollingService {
    */
   private async extractActualUsage(
     model: string,
-    result?: Record<string, any>,
+    result?: unknown,
     requestInput?: Record<string, any>,
   ): Promise<{ usageType: UsageType; usageValue: number }> {
     const { usageType, durationStep } = await this.pricingService.getUnitPrice(model);

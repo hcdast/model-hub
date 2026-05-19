@@ -13,6 +13,7 @@ import { AppConfig } from '../config/interfaces/config.interface';
 import { MetricsService } from '../observability/metrics.service';
 import { TaskTimelineService, TimelineEvent } from '../task/task-timeline.service';
 import { ErrorLogger } from '../common/utils/error-logger.util';
+import { normalizeTaskResultPayload } from '../task/task-result.util';
 
 export interface CallbackJobData { taskId: string; callbackUrl: string; callbackSecret?: string; }
 
@@ -44,7 +45,13 @@ export class CallbackProcessor {
       return;
     }
 
-    const payload = { taskId: task.taskId, status: task.status, result: task.resultPayload || null, error: task.error || null, completedAt: (task as any).updatedAt };
+    const payload = {
+      taskId: task.taskId,
+      status: task.status,
+      result: task.resultPayload != null ? normalizeTaskResultPayload(task.resultPayload) : null,
+      error: task.error || null,
+      completedAt: (task as any).updatedAt,
+    };
     const bodyStr = JSON.stringify(payload);
     const timestamp = Math.floor(Date.now() / 1000);
     const secret = callbackSecret || this.config.callback.defaultSecret;

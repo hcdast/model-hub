@@ -279,6 +279,12 @@ export class RemoteMetadataExtractorService {
   }
 
   extractUrls(obj: any, prefix = ''): ExtractedUrl[] {
+    if (typeof obj === 'string' && /^https?:\/\//.test(obj)) {
+      return [{ url: obj, resourceType: this.guessResourceTypeFromUrl(obj) }];
+    }
+    if (Array.isArray(obj)) {
+      return obj.flatMap((item) => this.extractUrls(item, prefix));
+    }
     if (!obj || typeof obj !== 'object') return [];
 
     const urls: ExtractedUrl[] = [];

@@ -4,6 +4,7 @@ import { LinkConversionConfig } from '../admin/link-conversion-config.types';
 import { ErrorLogger } from '../common/utils/error-logger.util';
 import type { StoragesvcUploadContext } from './interfaces/storage-adapter.interface';
 import { createLinkConversionStorageAdapter } from './adapters/akool-storagesvc.adapter';
+import { normalizeTaskResultPayload } from '../task/task-result.util';
 
 /**
  * 链接转换结果
@@ -64,7 +65,9 @@ export class LinkConversionService {
       results.push(r);
       this.logResultConversionSummary(results, taskId);
       return {
-        payload: r.converted && r.convertedUrl ? r.convertedUrl : resultPayload,
+        payload: normalizeTaskResultPayload(
+          r.converted && r.convertedUrl ? r.convertedUrl : resultPayload,
+        ),
         changed: r.converted,
       };
     }
@@ -73,7 +76,10 @@ export class LinkConversionService {
       const processed = JSON.parse(JSON.stringify(resultPayload)) as unknown[];
       await this.processResultArray(processed as any[], config, results, taskId);
       this.logResultConversionSummary(results, taskId);
-      return { payload: processed, changed: results.some((r) => r.converted) };
+      return {
+        payload: normalizeTaskResultPayload(processed),
+        changed: results.some((r) => r.converted),
+      };
     }
 
     if (typeof resultPayload !== 'object') {

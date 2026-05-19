@@ -12,10 +12,18 @@ import {
   Controller, Post, Get, Body, Param, Query, Headers,
   HttpCode, HttpStatus, UseGuards, UsePipes, ValidationPipe,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiHeader, ApiSecurity } from '@nestjs/swagger';
+import {
+  ApiTags, ApiOperation, ApiResponse, ApiHeader, ApiSecurity,
+  ApiOkResponse, ApiAcceptedResponse, ApiExtraModels,
+} from '@nestjs/swagger';
 import { TaskService } from './task.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { TaskListQueryDto } from './dto/task-list-query.dto';
+import {
+  TaskApiResponseDto,
+  TaskListApiResponseDto,
+  TaskCallbackPayloadDto,
+} from './dto/task-response.dto';
 import { ApiKeyGuard } from '../auth/guards/api-key.guard';
 import { ClientRateLimitGuard } from '../auth/guards/client-rate-limit.guard';
 import { ModelAllowlistGuard } from '../auth/guards/model-allowlist.guard';
@@ -23,6 +31,7 @@ import { ClientApiKey } from '../auth/decorators/client-api-key.decorator';
 
 @ApiTags('任务管理')
 @ApiSecurity('ApiKey')
+@ApiExtraModels(TaskCallbackPayloadDto)
 @Controller('v1/tasks')
 @UseGuards(ApiKeyGuard, ClientRateLimitGuard, ModelAllowlistGuard)
 @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
@@ -47,10 +56,14 @@ export class TaskController {
 - text_to_video (文生视频)
 - image_to_video (图生视频)
 - character_swap (角色换装)
-- video_upscale (视频超分)`
+- video_upscale (视频超分)
+
+**业务回调 payload**（POST 至 callbackUrl，Schema 名 \`TaskCallbackPayloadDto\`）：
+- \`result\`：媒体类成功结果为 URL 字符串数组，如 \`["https://cdn.example.com/out.mp4"]\`
+- 与查询任务接口 \`GET /v1/tasks/:taskId\` 的 \`data.result\` 格式一致`
   })
   @ApiHeader({ name: 'X-Idempotency-Key', required: false, description: '幂等键，相同 key 不会重复创建任务' })
-  @ApiResponse({ status: 202, description: '任务创建成功，返回 taskId 和路由信息' })
+  @ApiAcceptedResponse({ type: TaskApiResponseDto, description: '任务创建成功，返回 taskId 和路由信息' })
   @ApiResponse({ status: 400, description: '参数校验失败、不支持的模型或模型已禁用' })
   @ApiResponse({ status: 409, description: '重复提交（幂等命中）' })
   @ApiResponse({ status: 500, description: '服务器内部错误' })
@@ -78,9 +91,11 @@ export class TaskController {
 - 任务状态和结果
 - 使用的 provider 和 model
 - 路由信息（routeId, routingSource）
-- 创建和更新时间`
+- 创建和更新时间
+
+**result 字段**：任务 SUCCESS 时，图/视频/音频等资源 URL 统一为字符串数组，例如 \`["https://cdn.example.com/out.mp4"]\`；不再返回单个 URL 字符串。少数同步任务可能仍为结构化对象。`
   })
-  @ApiResponse({ status: 200, description: '查询成功' })
+  @ApiOkResponse({ type: TaskApiResponseDto, description: '查询成功。成功任务的 result 为 URL 字符串数组（媒体类）或结构化对象（少数同步任务）' })
   @ApiResponse({ status: 404, description: '任务不存在或无权访问' })
   async getTask(
     @Param('taskId') taskId: string,
@@ -100,7 +115,7 @@ export class TaskController {
 - featureType: 功能类型
 - page/pageSize: 分页参数`
   })
-  @ApiResponse({ status: 200, description: '查询成功，返回分页数据' })
+  @ApiOkResponse({ type: TaskListApiResponseDto, description: '查询成功，返回分页数据' })
   async listTasks(
     @Query() query: TaskListQueryDto,
     @ClientApiKey() apiKey: string,

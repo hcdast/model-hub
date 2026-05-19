@@ -335,7 +335,7 @@ Callback Queue     Callback Dispatcher     Client
    {
      "taskId": "xxx",
      "status": "SUCCESS",
-     "result": { ... },
+     "result": ["https://cdn.example.com/output.mp4"],
      "completedAt": "2026-04-04T12:00:00Z"
    }
    ```
@@ -1698,19 +1698,25 @@ X-API-Key: <api_key>
     "taskId": "01HXYZ1234567890ABCDEF",
     "status": "SUCCESS",
     "model": "text-to-image/sd-xl",
-    "provider": "replicate",
-    "result": {
-      "output": ["https://replicate.delivery/xxx/output.png"],
-      "metrics": {
-        "predict_time": 3.45
-      }
-    },
+    "provider": "wavespeed-ai",
+    "result": [
+      "https://cdn.example.com/output.mp4"
+    ],
     "createdAt": "2026-04-04T12:00:00.000Z",
     "submittedAt": "2026-04-04T12:00:01.000Z",
     "completedAt": "2026-04-04T12:00:05.000Z"
   }
 }
 ```
+
+**`data.result` 格式（SUCCESS 时）：**
+
+| 场景 | 类型 | 示例 |
+|------|------|------|
+| 图/视频/音频等 URL 输出 | `string[]` | `["https://cdn.example.com/out.mp4"]` |
+| 少数同步任务（含 usage 等） | `object` | `{ "output": ["https://..."], "usage": { "total_tokens": 128 } }` |
+
+裸 URL 不再以单个 `string` 返回；查询接口与业务回调均经 `normalizeTaskResultPayload` 统一。
 
 ### 10.3 查询任务列表
 
@@ -1793,23 +1799,17 @@ X-ModelHub-Event: task.completed
 
 ```json
 {
-  "event": "task.completed",
   "taskId": "01HXYZ1234567890ABCDEF",
   "status": "SUCCESS",
-  "model": "text-to-image/sd-xl",
-  "result": {
-    "output": ["https://replicate.delivery/xxx/output.png"]
-  },
-  "metadata": {
-    "userId": "user_123",
-    "orderId": "order_456"
-  },
-  "timestamps": {
-    "createdAt": "2026-04-04T12:00:00.000Z",
-    "completedAt": "2026-04-04T12:00:05.000Z"
-  }
+  "result": [
+    "https://cdn.example.com/output.mp4"
+  ],
+  "error": null,
+  "completedAt": "2026-04-04T12:00:05.000Z"
 }
 ```
+
+> **result 格式说明**：媒体类（图/视频/音频）成功结果统一为 **URL 字符串数组**；不再返回单个 URL 字符串。少数同步任务可能仍为结构化对象（如 `{ "output": [...], "usage": {...} }`）。
 
 ---
 
