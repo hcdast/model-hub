@@ -8,6 +8,7 @@ export const MODEL_CONFIG_MODEL_TYPES = [
   'imageToVideo',
   'videoToVideo',
   'characterSwap',
+  'headSwap',
   'videoUpscale',
   'textGenerate',
   'music',

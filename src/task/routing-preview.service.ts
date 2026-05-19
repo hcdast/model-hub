@@ -165,11 +165,12 @@ export class RoutingPreviewService {
       videoToVideo: 'image_to_video',
       characterSwap: 'character_swap',
       characterFaceswap: 'character_swap',
+      headSwap: 'head_swap',
       videoUpscale: 'video_upscale',
     };
     if (camelToInternal[opt]) return camelToInternal[opt];
     if (
-      /^(image_generate|image_to_image|text_to_video|image_to_video|character_swap|video_upscale|unknown)$/.test(
+      /^(image_generate|image_to_image|text_to_video|image_to_video|character_swap|head_swap|video_upscale|unknown)$/.test(
         opt,
       )
     ) {

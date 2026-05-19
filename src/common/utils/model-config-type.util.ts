@@ -6,6 +6,7 @@ const SNAKE_TO_CAMEL: Record<string, ModelConfigModelType> = {
   text_to_video: 'textToVideo',
   image_to_video: 'imageToVideo',
   character_swap: 'characterSwap',
+  head_swap: 'headSwap',
   video_upscale: 'videoUpscale',
 };
 
@@ -34,7 +35,7 @@ export function resolveConfigModelTypeFromOptions(
 
   if (ALLOWED.has(raw)) return raw as ModelConfigModelType;
 
-  if (/^(image_generate|image_to_image|text_to_video|image_to_video|character_swap|video_upscale|unknown)$/.test(raw)) {
+  if (/^(image_generate|image_to_image|text_to_video|image_to_video|character_swap|head_swap|video_upscale|unknown)$/.test(raw)) {
     return SNAKE_TO_CAMEL[raw] ?? null;
   }
 

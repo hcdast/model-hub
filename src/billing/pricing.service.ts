@@ -166,6 +166,7 @@ export class PricingService {
       case 'imageToImage':
       case 'characterSwap':
       case 'characterFaceswap':
+      case 'headSwap':
       case 'videoUpscale':
         return UsageType.COUNT;
       case 'textToVideo':

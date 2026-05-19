@@ -4,8 +4,14 @@ import {
   isCharacterSwapPathSegment,
   isCharacterSwapModelId,
 } from '../constants/character-swap.constants';
+import {
+  HEAD_SWAP_MODEL_TYPE,
+  isHeadswapPathSegment,
+  isHeadswapModelId,
+} from '../constants/headswap.constants';
 
 export { CHARACTER_SWAP_PATH_SEGMENTS, isCharacterSwapPathSegment, isCharacterSwapModelId };
+export { isHeadswapPathSegment, isHeadswapModelId };
 
 /** 路径末段 → 内部 featureType（snake_case，任务队列等） */
 const PATH_SEGMENT_TO_INTERNAL: Record<string, string> = {
@@ -57,6 +63,9 @@ export function normalizeCharacterSwapModelPath(modelPath: string): string {
 }
 
 export function inferInternalFeatureFromPathSegment(lastSegment: string): string {
+  if (isHeadswapPathSegment(lastSegment) || isHeadswapModelId(lastSegment)) {
+    return 'head_swap';
+  }
   if (isCharacterSwapPathSegment(lastSegment) || isCharacterSwapModelId(lastSegment)) {
     return 'character_swap';
   }
@@ -64,6 +73,9 @@ export function inferInternalFeatureFromPathSegment(lastSegment: string): string
 }
 
 export function inferCamelFeatureFromPathSegment(lastSegment: string): string {
+  if (isHeadswapPathSegment(lastSegment) || isHeadswapModelId(lastSegment)) {
+    return HEAD_SWAP_MODEL_TYPE;
+  }
   if (isCharacterSwapPathSegment(lastSegment) || isCharacterSwapModelId(lastSegment)) {
     return CHARACTER_SWAP_MODEL_TYPE;
   }

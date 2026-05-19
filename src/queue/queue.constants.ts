@@ -46,6 +46,7 @@ export const FEATURE_TYPE_TO_QUEUE: Record<string, FeatureQueueName> = {
   image_to_video: 'image-to-video',
   text_to_video: 'image-to-video',
   character_swap: 'character-swap',
+  head_swap: 'character-swap',
   video_upscale: 'video-upscale',
 };
 
