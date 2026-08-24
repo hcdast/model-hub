@@ -10,7 +10,20 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Request } from 'express';
 import { ApiClient, ApiClientDocument } from '../../database/schemas/api-client.schema';
+import {
+  PortalApiKey,
+  PortalApiKeyDocument,
+} from '../../database/schemas/portal-api-key.schema';
+import {
+  PortalUser,
+  PortalUserDocument,
+} from '../../database/schemas/portal-user.schema';
+import { getRolePermissions } from '../../portal-auth/role-permissions.config';
 
+
+interface ModelRequest extends Request {
+  apiKey?: string;
+}
 /**
  * 模型白名单 Guard
  *
@@ -24,12 +37,17 @@ export class ModelAllowlistGuard implements CanActivate {
   private readonly logger = new Logger(ModelAllowlistGuard.name);
 
   constructor(
-    @InjectModel(ApiClient.name) private readonly apiClientModel: Model<ApiClientDocument>,
+    @InjectModel(ApiClient.name)
+    private readonly apiClientModel: Model<ApiClientDocument>,
+    @InjectModel(PortalApiKey.name)
+    private readonly portalApiKeyModel: Model<PortalApiKeyDocument>,
+    @InjectModel(PortalUser.name)
+    private readonly portalUserModel: Model<PortalUserDocument>,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<Request>();
-    const apiKey = (request as any).apiKey as string;
+    const request = context.switchToHttp().getRequest<ModelRequest>();
+    const apiKey = request.apiKey;
 
     if (!apiKey) {
       // 没有 apiKey 说明 ApiKeyGuard 未执行或未设置，直接放行
@@ -77,8 +95,20 @@ export class ModelAllowlistGuard implements CanActivate {
       .select('modelAllowlist')
       .lean()
       .exec();
+    if (doc) return doc.modelAllowlist ?? [];
 
-    return doc?.modelAllowlist ?? [];
+    const portalKey = await this.portalApiKeyModel
+      .findOne({ billingKey: apiKey, enabled: true })
+      .select('userId')
+      .lean()
+      .exec();
+    if (!portalKey) return [];
+    const user = await this.portalUserModel
+      .findOne({ _id: portalKey.userId, status: 'active', deletedAt: null })
+      .select('role')
+      .lean()
+      .exec();
+    return user ? getRolePermissions(user.role).models.allowedModels : [];
   }
 
   /**

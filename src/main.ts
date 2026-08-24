@@ -40,7 +40,8 @@ async function bootstrap() {
     app.getHttpAdapter().getInstance().use((req: Request, res: Response, next: NextFunction) => {
       if (req.method !== 'GET' && req.method !== 'HEAD') return next();
       const p = req.path || '';
-      if (p.startsWith('/api') || p.startsWith('/apidoc') || p.startsWith('/health')) return next();
+      // 只跳过真正的 API 路由，不跳过前端路由（如 /api-clients）
+      if (p.startsWith('/api/v1/') || p.startsWith('/apidoc') || p.startsWith('/health')) return next();
       if (/\.[a-zA-Z0-9]+$/.test(p)) return next();
       if (!existsSync(indexHtml)) return next();
       res.sendFile(indexHtml, (err) => (err ? next(err) : undefined));

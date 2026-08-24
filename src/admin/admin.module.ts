@@ -18,7 +18,9 @@ import { AdminAccountCostController } from './admin-account-cost.controller';
 import { AdminBillingController } from './admin-billing.controller';
 import { AdminMenuController } from './admin-menu.controller';
 import { ProviderHealthController } from './provider-health.controller';
+import { AdminWorkflowController } from './admin-workflow.controller';
 import { AdminJwtGuard } from './guards/admin-jwt.guard';
+import { RolesGuard } from './guards/roles.guard';
 import { ModelConfigService } from './model-config.service';
 import { TaskTimelineService } from '../task/task-timeline.service';
 import { TaskTimingService } from '../task/task-timing.service';
@@ -27,10 +29,12 @@ import { RbacModule } from './rbac.module';
 import { TaskModule } from '../task/task.module';
 import { QueueModule } from '../queue/queue.module';
 import { ProviderHealthModule } from '../provider-health/provider-health.module';
+import { WorkflowModule } from '../workflow/workflow.module';
 import { AdminLinkConversionConfigController } from './admin-link-conversion-config.controller';
 import { LinkConversionConfigModule } from './link-conversion-config.module';
 import { AdminCallbackLogsController } from './admin-callback-logs.controller';
 import { AdminSystemInfoController } from './admin-system-info.controller';
+import { AdminPortalUserController } from './admin-portal-user.controller';
 import { AuditInterceptor } from './interceptors/audit.interceptor';
 
 @Module({
@@ -44,6 +48,7 @@ import { AuditInterceptor } from './interceptors/audit.interceptor';
     TaskModule,
     QueueModule,
     ProviderHealthModule,
+    WorkflowModule,
     BullModule.registerQueue({ name: 'callback' }),
   ],
   controllers: [
@@ -60,13 +65,16 @@ import { AuditInterceptor } from './interceptors/audit.interceptor';
     AdminBillingController,
     AdminMenuController,
     ProviderHealthController,
+    AdminWorkflowController,
     AdminLinkConversionConfigController,
     AdminCallbackLogsController,
     AdminSystemInfoController,
+    AdminPortalUserController,
   ],
   providers: [
     AdminAuthService,
     AdminJwtGuard,
+    RolesGuard,
     ModelConfigService,
     TaskTimelineService,
     TaskTimingService,

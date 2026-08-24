@@ -13,6 +13,14 @@ import Redis from 'ioredis';
 import { Request } from 'express';
 import { REDIS_CLIENT } from '../../redis/redis.constants';
 import { ApiClient, ApiClientDocument } from '../../database/schemas/api-client.schema';
+import {
+  PortalApiKey,
+  PortalApiKeyDocument,
+} from '../../database/schemas/portal-api-key.schema';
+
+interface RateLimitedRequest extends Request {
+  apiKey?: string;
+}
 
 /** 系统默认限流配置 */
 const DEFAULT_RATE_LIMITS = {
@@ -35,12 +43,15 @@ export class ClientRateLimitGuard implements CanActivate {
 
   constructor(
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
-    @InjectModel(ApiClient.name) private readonly apiClientModel: Model<ApiClientDocument>,
+    @InjectModel(ApiClient.name)
+    private readonly apiClientModel: Model<ApiClientDocument>,
+    @InjectModel(PortalApiKey.name)
+    private readonly portalApiKeyModel: Model<PortalApiKeyDocument>,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<Request>();
-    const apiKey = (request as any).apiKey as string;
+    const request = context.switchToHttp().getRequest<RateLimitedRequest>();
+    const apiKey = request.apiKey;
 
     if (!apiKey) {
       // 没有 apiKey 说明 ApiKeyGuard 未执行或未设置，直接放行
@@ -99,13 +110,25 @@ export class ClientRateLimitGuard implements CanActivate {
       .lean()
       .exec();
 
-    if (!doc || !doc.rateLimits) {
-      return DEFAULT_RATE_LIMITS;
+    if (doc?.rateLimits) {
+      return {
+        maxQps: doc.rateLimits.maxQps ?? DEFAULT_RATE_LIMITS.maxQps,
+        maxDailyRequests:
+          doc.rateLimits.maxDailyRequests ?? DEFAULT_RATE_LIMITS.maxDailyRequests,
+      };
     }
 
+    const portalKey = await this.portalApiKeyModel
+      .findOne({ billingKey: apiKey, enabled: true })
+      .select('rateLimit')
+      .lean()
+      .exec();
+    if (!portalKey?.rateLimit) return DEFAULT_RATE_LIMITS;
+
     return {
-      maxQps: doc.rateLimits.maxQps ?? DEFAULT_RATE_LIMITS.maxQps,
-      maxDailyRequests: doc.rateLimits.maxDailyRequests ?? DEFAULT_RATE_LIMITS.maxDailyRequests,
+      maxQps: portalKey.rateLimit.maxQps ?? DEFAULT_RATE_LIMITS.maxQps,
+      maxDailyRequests:
+        portalKey.rateLimit.maxDailyRequests ?? DEFAULT_RATE_LIMITS.maxDailyRequests,
     };
   }
 

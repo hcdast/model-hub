@@ -1,7 +1,12 @@
 # Model-Hub 可落地项目架构清单
 
-> 本文档为开发团队提供直接可落地的项目结构、模块清单、类/接口命名、Schema 定义、配置文件模板等。  
-> 配合 `technical-design.md` 使用。
+> 本文档为开发团队提供直接可落地的项目结构、模块清单、类/接口命名、Schema 定义、配置文件模板等。
+> 配合以下文档使用：
+> - `technical-design.md` — 技术方案与设计取舍
+> - `workflow-and-portal.md` — 工作流引擎与开发者门户
+> - `notification-system.md` — 通知系统
+> - `provider-health.md` — 供应商健康度与熔断器
+> - `billing-system.md` — 计费系统
 
 ### 与当前仓库的一致性说明
 
@@ -254,8 +259,86 @@ model-hub/
 │   │   └── interfaces/
 │   │       └── admin-auth.interface.ts    # ☆ JWT payload 等类型
 │   │
-│   └── dashboard/                         # ☆ 管理后台静态资源托管模块
-│       └── dashboard.module.ts            # ☆ ServeStaticModule 注册
+│   ├── dashboard/                         # ☆ 管理后台静态资源托管模块
+│   │   └── dashboard.module.ts            # ☆ ServeStaticModule 注册
+│   │
+│   ├── workflow/                          # ★ 工作流引擎模块
+│   │   ├── workflow.module.ts             # 工作流 CRUD + 执行调度
+│   │   ├── workflow.controller.ts         # 工作流 API（v1/workflows）
+│   │   ├── workflow.service.ts            # 工作流业务逻辑
+│   │   ├── workflow-execution.service.ts  # 执行生命周期管理
+│   │   ├── execution-graph.resolver.ts    # DAG 解析 + 拓扑排序 + 环检测
+│   │   ├── node.executor.ts              # 节点执行器（Bull: workflow-node）
+│   │   ├── port-schema.service.ts         # 节点端口定义
+│   │   ├── workflow-template.service.ts   # 模板管理
+│   │   ├── workflow-run.controller.ts     # 执行运行 API
+│   │   └── workflow-template.controller.ts # 模板 API
+│   │
+│   ├── portal-auth/                       # ★ 开发者门户鉴权模块
+│   │   ├── portal-auth.module.ts          # 独立 JWT 鉴权
+│   │   ├── portal-auth.controller.ts      # 注册/登录/Token 管理
+│   │   ├── portal-auth.service.ts         # HMAC-SHA256 JWT 签发
+│   │   ├── portal-api-key.controller.ts   # API Key 管理
+│   │   ├── portal-api-key.service.ts      # Key 生成（mh_ + ULID）
+│   │   ├── role-permissions.config.ts     # 角色配额配置（user/vip/admin）
+│   │   ├── guards/portal-jwt.guard.ts     # Portal JWT 守卫
+│   │   └── decorators/portal-user.decorator.ts
+│   │
+│   ├── notification/                      # ★ 通知系统模块
+│   │   ├── notification.module.ts         # 多渠道通知
+│   │   ├── services/                      # 核心服务
+│   │   │   ├── notification.service.ts    # 规则匹配 + 限流 + 入队
+│   │   │   ├── rule-matcher.service.ts    # 事件规则匹配
+│   │   │   ├── notification-rate-limiter.service.ts # 冷却 + 滑动窗口
+│   │   │   └── in-app-notification.service.ts # 站内信
+│   │   ├── channels/                      # 投递渠道
+│   │   │   ├── notification-channel.interface.ts
+│   │   │   ├── wecom.channel.ts           # 企业微信
+│   │   │   ├── email.channel.ts           # 邮件
+│   │   │   └── in-app.channel.ts          # 站内信
+│   │   ├── processors/notification.processor.ts # Bull 队列消费
+│   │   ├── listeners/notification.listener.ts   # 系统事件监听
+│   │   └── controllers/                   # 管理 API
+│   │
+│   ├── provider-health/                   # ★ 供应商健康度模块
+│   │   ├── provider-health.module.ts      # 熔断器 + 健康指标
+│   │   ├── circuit-breaker.service.ts     # 三态熔断器状态机
+│   │   ├── circuit-breaker-store.service.ts # Redis 状态存储（Lua CAS）
+│   │   ├── health-metrics-collector.service.ts # 滑动窗口指标采集
+│   │   └── circuit-breaker-config.service.ts # 熔断配置
+│   │
+│   ├── billing/                           # ★ 计费模块（@Global）
+│   │   ├── billing.module.ts              # Pricing + Billing + Wallet
+│   │   ├── billing.service.ts             # 计费记录生命周期
+│   │   ├── wallet.service.ts              # 钱包原子操作
+│   │   ├── pricing.service.ts             # 模型单价查询
+│   │   └── billing.adapter.ts             # 统一入口（按策略分发）
+│   │
+│   ├── common/                            # 公共模块
+│   │   ├── constants/error-codes.ts       # 错误码枚举
+│   │   ├── constants/task-status.ts       # 任务状态枚举
+│   │   ├── descriptors/index.ts           # ★ 功能模块描述符（18 个）
+│   │   ├── feature-registry.module.ts     # ★ 描述符注册 + 同步插件
+│   │   ├── process-type.util.ts           # ★ PROCESS_TYPE 校验（4 种 + monolith）
+│   │   └── ...
+│   │
+├── portal/                                # ★ 开发者门户前端（React + React Flow）
+│   ├── package.json                       # developer-portal
+│   ├── src/
+│   │   ├── main.tsx                       # 入口
+│   │   ├── App.tsx                        # 路由 + 布局
+│   │   ├── pages/                         # 页面
+│   │   │   ├── Login.tsx / Register.tsx   # 自助注册/登录
+│   │   │   ├── WorkflowList.tsx           # 工作流列表
+│   │   │   ├── WorkflowEditor.tsx         # React Flow 可视化编辑器
+│   │   │   ├── TemplateGallery.tsx        # 模板市场
+│   │   │   ├── ApiKeys.tsx                # API Key 管理
+│   │   │   └── Profile.tsx                # 个人中心
+│   │   ├── components/Node/               # 自定义 React Flow 节点
+│   │   ├── services/workflow-api.ts       # 工作流 API 封装
+│   │   └── store/                         # Zustand 状态管理
+│   ├── vite.config.ts
+│   └── tsconfig.json
 │
 ├── test/                                  # 测试目录
 │   ├── unit/
@@ -410,65 +493,69 @@ bootstrap();
 
 ### 2.2 app.module.ts 根模块
 
+> **重要**：`PROCESS_TYPE` 仅支持 4 种生产值（`api`、`worker`、`scheduler`、`admin-server`）+ 开发环境的 `monolith`。
+> 文档早期描述的 `worker-image-generate`、`worker-image-to-video` 等按功能拆分的进程类型**未实现**。
+> 队列隔离在 Bull 队列层面完成（见 §7），不在进程层面。
+
 ```typescript
 // src/app.module.ts
 import { Module } from '@nestjs/common';
+import { resolveProcessType, MONOLITH_PROCESS_TYPE } from './common/process-type.util';
 
-@Module({
-  imports: [
-    ConfigModule, DatabaseModule, RedisModule, ObservabilityModule,
+const processType = resolveProcessType(process.env.PROCESS_TYPE);
 
-    // API Server 专用
-    ...(isApi() ? [AuthModule, TaskModule, QueueModule, HealthModule] : []),
+function getProcessModules() {
+  // 所有进程共享的模块
+  const shared = [
+    AppConfigModule, DatabaseModule, RedisModule, QueueModule,
+    ResourceMetadataQueueModule, ProviderModule, ObservabilityModule,
+    FeatureRegistryModule, BillingModule,  // BillingModule 是 @Global 的
+  ];
 
-    // ☆ Admin Server 专用（管理后台 API + 前端静态资源）
-    ...(isAdminServer() ? [AdminModule, StatsModule, DashboardModule] : []),
-
-    // Worker 专用
-    ...(isWorker() ? [QueueModule, ProviderModule, CallbackModule] : []),
-
-    // Scheduler 专用
-    ...(isScheduler() ? [PollingModule, ProviderModule, StatsModule] : []),
-  ],
-})
-export class AppModule {}
-
-function isApi(): boolean {
-  return (process.env.PROCESS_TYPE || 'api') === 'api';
-}
-
-function isAdminServer(): boolean {
-  return process.env.PROCESS_TYPE === 'admin-server';
-}
-
-function isWorker(): boolean {
-  const type = process.env.PROCESS_TYPE;
-  return type?.startsWith('worker-') || false;
-}
-
-function isScheduler(): boolean {
-  return process.env.PROCESS_TYPE === 'scheduler';
+  switch (processType) {
+    case 'api':
+      return [...shared, AuthModule, TaskModule, HealthModule,
+              NotificationModule, ProviderHealthModule, WorkflowModule, PortalAuthModule];
+    case 'worker':
+      return [...shared, CallbackModule, NotificationModule, ProviderHealthModule];
+    case 'scheduler':
+      return [...shared, PollingModule, StatsModule, NotificationModule, ProviderHealthModule];
+    case 'admin-server':
+      return [...shared, AdminModule, StatsModule, DashboardModule, HealthModule, NotificationModule];
+    case MONOLITH_PROCESS_TYPE:
+      // 仅非 production：单进程加载全模块
+      return [...shared, AuthModule, TaskModule, CallbackModule, PollingModule,
+              StatsModule, AdminModule, HealthModule, NotificationModule,
+              ProviderHealthModule, WorkflowModule, PortalAuthModule];
+  }
 }
 ```
 
 ### 2.3 模块注册清单
 
-| 模块 | 文件路径 | 进程类型 | 全局 |
-|------|---------|---------|------|
-| ConfigModule | `src/config/config.module.ts` | 全部 | 是 |
-| DatabaseModule | `src/database/database.module.ts` | 全部 | 是 |
-| RedisModule | `src/redis/redis.module.ts` | 全部 | 是 |
-| AuthModule | `src/auth/auth.module.ts` | api | 否 |
-| TaskModule | `src/task/task.module.ts` | api, worker-* | 否 |
-| QueueModule | `src/queue/queue.module.ts` | api, worker-* | 否 |
-| ProviderModule | `src/provider/provider.module.ts` | worker-*, scheduler | 否 |
-| PollingModule | `src/polling/polling.module.ts` | scheduler | 否 |
-| CallbackModule | `src/callback/callback.module.ts` | worker-callback | 否 |
-| ★ StatsModule | `src/stats/stats.module.ts` | admin-server, scheduler | 否 |
-| HealthModule | `src/health/health.module.ts` | api | 否 |
-| ObservabilityModule | `src/observability/observability.module.ts` | 全部 | 是 |
-| ☆ AdminModule | `src/admin/admin.module.ts` | admin-server | 否 |
-| ☆ DashboardModule | `src/dashboard/dashboard.module.ts` | admin-server | 否 |
+| 模块 | 文件路径 | 进程类型 | 全局 | 说明 |
+|------|---------|---------|------|------|
+| AppConfigModule | `src/config/config.module.ts` | 全部 | 是 | Nacos/本地 JSON 配置 |
+| DatabaseModule | `src/database/database.module.ts` | 全部 | 是 | MongoDB 连接 + Schema |
+| RedisModule | `src/redis/redis.module.ts` | 全部 | 是 | ioredis + 分布式锁 + 限流 |
+| QueueModule | `src/queue/queue.module.ts` | 全部 | 是 | Bull 队列注册 |
+| ResourceMetadataQueueModule | `src/queue/resource-metadata-queue.module.ts` | 全部 | 是 | 资源元数据提取队列 |
+| ProviderModule | `src/provider/provider.module.ts` | 全部 | 是 | 厂商 Adapter 注册 |
+| ObservabilityModule | `src/observability/observability.module.ts` | 全部 | 是 | Prometheus 指标 |
+| FeatureRegistryModule | `src/common/feature-registry.module.ts` | 全部 | 是 | 功能描述符注册 + 同步插件 |
+| ★ BillingModule | `src/billing/billing.module.ts` | 全部 | 是 | 计费（Pricing/Billing/Wallet） |
+| AuthModule | `src/auth/auth.module.ts` | api | 否 | API Key 鉴权 |
+| TaskModule | `src/task/task.module.ts` | api | 否 | 任务 REST API |
+| HealthModule | `src/health/health.module.ts` | api, admin-server | 否 | liveness + readiness |
+| ★ WorkflowModule | `src/workflow/workflow.module.ts` | api | 否 | 工作流引擎 |
+| ★ PortalAuthModule | `src/portal-auth/portal-auth.module.ts` | api | 否 | 开发者门户鉴权 |
+| ★ NotificationModule | `src/notification/notification.module.ts` | api, worker, scheduler, admin-server | 否 | 多渠道通知 |
+| ★ ProviderHealthModule | `src/provider-health/provider-health.module.ts` | api, worker, scheduler | 否 | 熔断器 + 健康指标 |
+| CallbackModule | `src/callback/callback.module.ts` | worker | 否 | 回调投递 |
+| PollingModule | `src/polling/polling.module.ts` | scheduler | 否 | 定时轮询 |
+| StatsModule | `src/stats/stats.module.ts` | scheduler, admin-server | 否 | 数据聚合统计 |
+| AdminModule | `src/admin/admin.module.ts` | admin-server | 否 | 管理后台 API |
+| DashboardModule | `src/dashboard/dashboard.module.ts` | admin-server | 否 | 前端 SPA 托管 |
 
 ---
 
@@ -1804,7 +1891,7 @@ module.exports = {
       name: 'model-hub-worker',
       script: 'dist/main.js',
       instances: 1,
-      exec_mode: 'cluster',
+      exec_mode: 'fork',
       env: {
         PROCESS_TYPE: 'worker',
         PORT: 7001,
@@ -1828,6 +1915,17 @@ module.exports = {
       env: {
         PROCESS_TYPE: 'admin-server',
         PORT: 7003,
+      },
+    },
+    // ★ 开发者门户前端（Vite 开发服务器，生产环境用 Nginx 托管）
+    {
+      name: 'model-hub-portal',
+      script: 'node_modules/vite/bin/vite.js',
+      cwd: './portal',
+      instances: 1,
+      exec_mode: 'fork',
+      env: {
+        PORT: 7004,
       },
     },
   ],
@@ -1898,10 +1996,11 @@ pm2 save
 
 | 进程名 | PROCESS_TYPE | 端口 | 实例数 | 说明 |
 |--------|-------------|------|--------|------|
-| model-hub-api | api | 7000 | 1-4 | 业务 API 服务，可根据负载调整实例数 |
-| model-hub-worker | worker | 7001 | 1-4 | 队列消费者，可根据队列积压调整实例数 |
-| model-hub-scheduler | scheduler | 7002 | 1 | 定时任务，只能单实例运行 |
-| model-hub-admin-server | admin-server | 7003 | 1 | 管理后台，通常单实例即可 |
+| model-hub-api | api | 7000 | 1-4 | 业务 API + 工作流 API + Portal 鉴权，可根据负载调整 |
+| model-hub-worker | worker | 7001 | 1-4 | 消费所有 Bull 队列（任务提交 + 回调 + 通知 + 工作流节点），可根据队列积压调整 |
+| model-hub-scheduler | scheduler | 7002 | 1 | 定时轮询 + 统计聚合，只能单实例运行（分布式锁） |
+| model-hub-admin-server | admin-server | 7003 | 1 | 管理后台 API + React SPA 托管，通常单实例即可 |
+| model-hub-portal | — | 7004 | 1 | 开发者门户前端（Vite），生产环境建议用 Nginx 托管静态文件 |
 
 **扩容建议**：
 - **api**：根据 QPS 调整，建议 2-4 实例

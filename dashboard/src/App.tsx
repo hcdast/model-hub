@@ -1,4 +1,4 @@
-import { useState, useEffect, type CSSProperties, type ReactNode } from 'react';
+import { lazy, Suspense, useState, useEffect, type CSSProperties, type ReactNode } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { Layout, Menu, Typography, Avatar, Dropdown, theme, Modal, Form, Input, message, Spin, Badge, Space, ConfigProvider, Button } from 'antd';
 import type { MenuProps } from 'antd';
@@ -21,36 +21,39 @@ import { usePermission } from './hooks/usePermission';
 import { useMenuStore, type MenuGroup, type MenuItem as SidebarMenuItem } from './store/menu';
 import { useThemeStore } from './store/theme';
 import { userApi, inAppNotificationApi } from './services/api';
-import LoginPage from './pages/Login';
-import DashboardPage from './pages/Dashboard';
-import TasksPage from './pages/Tasks';
-import TaskDetailPage from './pages/TaskDetail';
-import QueuesPage from './pages/Queues';
-import StatsPage from './pages/Stats';
-import AuditLogsPage from './pages/AuditLogs';
-import ModelsPage from './pages/Models';
-import CreateModelConfigPage from './pages/CreateModelConfig';
-import EditModelConfigPage from './pages/EditModelConfig';
-import ApiClientsPage from './pages/ApiClients';
-import ModelRoutingRulesPage from './pages/ModelRoutingRules';
-import ProviderConfigsPage from './pages/ProviderConfigs';
-import UsersPage from './pages/Users';
-import RolesPage from './pages/Roles';
-import PermissionsPage from './pages/Permissions';
-import AccountPoolPage from './pages/AccountPool';
-import AccountCostPage from './pages/AccountCost';
-import NotificationRulesPage from './pages/NotificationRules';
-import NotificationRecordsPage from './pages/NotificationRecords';
-import InAppNotificationsPage from './pages/InAppNotifications';
-import ForbiddenPage from './pages/Forbidden';
-import ProviderHealthPage from './pages/ProviderHealth';
-import BillingRecordsPage from './pages/BillingRecords';
-import WalletManagementPage from './pages/WalletManagement';
-import LinkConversionConfigPage from './pages/LinkConversionConfig';
-import CallbackLogsPage from './pages/CallbackLogs';
-import SystemInfoPage from './pages/SystemInfo';
-import MenusPage from './pages/Menus';
-import NotFoundPage from './pages/NotFound';
+
+const LoginPage = lazy(() => import('./pages/Login'));
+const DashboardPage = lazy(() => import('./pages/Dashboard'));
+const TasksPage = lazy(() => import('./pages/Tasks'));
+const TaskDetailPage = lazy(() => import('./pages/TaskDetail'));
+const QueuesPage = lazy(() => import('./pages/Queues'));
+const StatsPage = lazy(() => import('./pages/Stats'));
+const AuditLogsPage = lazy(() => import('./pages/AuditLogs'));
+const ModelsPage = lazy(() => import('./pages/Models'));
+const CreateModelConfigPage = lazy(() => import('./pages/CreateModelConfig'));
+const EditModelConfigPage = lazy(() => import('./pages/EditModelConfig'));
+const ApiClientsPage = lazy(() => import('./pages/ApiClients'));
+const ModelRoutingRulesPage = lazy(() => import('./pages/ModelRoutingRules'));
+const ProviderConfigsPage = lazy(() => import('./pages/ProviderConfigs'));
+const UsersPage = lazy(() => import('./pages/Users'));
+const RolesPage = lazy(() => import('./pages/Roles'));
+const PermissionsPage = lazy(() => import('./pages/Permissions'));
+const AccountPoolPage = lazy(() => import('./pages/AccountPool'));
+const AccountCostPage = lazy(() => import('./pages/AccountCost'));
+const NotificationRulesPage = lazy(() => import('./pages/NotificationRules'));
+const NotificationRecordsPage = lazy(() => import('./pages/NotificationRecords'));
+const InAppNotificationsPage = lazy(() => import('./pages/InAppNotifications'));
+const ForbiddenPage = lazy(() => import('./pages/Forbidden'));
+const ProviderHealthPage = lazy(() => import('./pages/ProviderHealth'));
+const BillingRecordsPage = lazy(() => import('./pages/BillingRecords'));
+const WalletManagementPage = lazy(() => import('./pages/WalletManagement'));
+const LinkConversionConfigPage = lazy(() => import('./pages/LinkConversionConfig'));
+const CallbackLogsPage = lazy(() => import('./pages/CallbackLogs'));
+const SystemInfoPage = lazy(() => import('./pages/SystemInfo'));
+const MenusPage = lazy(() => import('./pages/Menus'));
+const PortalUsersPage = lazy(() => import('./pages/PortalUsers'));
+const WorkflowManagementPage = lazy(() => import('./pages/WorkflowManagement'));
+const NotFoundPage = lazy(() => import('./pages/NotFound'));
 
 const { Header, Sider, Content } = Layout;
 
@@ -517,6 +520,7 @@ function AppLayout() {
             <Route path="/account-costs" element={<PermissionRoute permission="provider:read"><AccountCostPage /></PermissionRoute>} />
             <Route path="/api-clients" element={<PermissionRoute permission="api-client:read"><ApiClientsPage /></PermissionRoute>} />
             <Route path="/api-keys" element={<Navigate to="/api-clients" replace />} />
+            <Route path="/workflows" element={<PermissionRoute permission="workflow:read"><WorkflowManagementPage /></PermissionRoute>} />
             {/* 计费与成本路由 */}
             <Route path="/billing/records" element={<PermissionRoute permission="billing:read"><BillingRecordsPage /></PermissionRoute>} />
             <Route path="/billing/wallets" element={<PermissionRoute permission="billing:read"><WalletManagementPage /></PermissionRoute>} />
@@ -529,6 +533,7 @@ function AppLayout() {
             <Route path="/callback-logs" element={<PermissionRoute permission="callback-log:read"><CallbackLogsPage /></PermissionRoute>} />
             <Route path="/system-info" element={<PermissionRoute permission="system:read"><SystemInfoPage /></PermissionRoute>} />
             <Route path="/users" element={<PermissionRoute permission="user:read"><UsersPage /></PermissionRoute>} />
+            <Route path="/portal-users" element={<PermissionRoute permission="user:read"><PortalUsersPage /></PermissionRoute>} />
             <Route path="/roles" element={<PermissionRoute permission="role:read"><RolesPage /></PermissionRoute>} />
             <Route path="/permissions" element={<PermissionRoute permission="permission:read"><PermissionsPage /></PermissionRoute>} />
             <Route path="/menus" element={<PermissionRoute permission="menu:read"><MenusPage /></PermissionRoute>} />
@@ -557,10 +562,12 @@ export default function App() {
   const themeMode = useThemeStore((s) => s.mode);
   return (
     <ConfigProvider locale={zhCN} theme={buildAntdTheme(themeMode)}>
-      <Routes>
-        <Route path="/login" element={<GuestGuard><LoginPage /></GuestGuard>} />
-        <Route path="/*" element={<AuthGuard><AppLayout /></AuthGuard>} />
-      </Routes>
+      <Suspense fallback={<Spin fullscreen />}>
+        <Routes>
+          <Route path="/login" element={<GuestGuard><LoginPage /></GuestGuard>} />
+          <Route path="/*" element={<AuthGuard><AppLayout /></AuthGuard>} />
+        </Routes>
+      </Suspense>
     </ConfigProvider>
   );
 }

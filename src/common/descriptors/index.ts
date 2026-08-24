@@ -510,6 +510,62 @@ export const menuDescriptor: FeatureModuleDescriptor = {
   ],
 };
 
+/** Portal 用户管理模块描述符 */
+export const portalUserDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'portal-user',
+  displayName: 'Portal 用户管理',
+  permissions: [
+    {
+      resource: 'portal-user',
+      actions: ['read', 'update', 'delete'],
+      displayNames: {
+        read: '查看 Portal 用户',
+        update: '更新 Portal 用户',
+        delete: '删除 Portal 用户',
+      },
+      module: 'portal-user-management',
+    },
+  ],
+  menus: [
+    {
+      path: '/portal-users',
+      label: 'Portal 用户',
+      icon: 'UserOutlined',
+      parentKey: 'access',
+      sortOrder: 25,
+      requiredPermission: 'portal-user:read',
+    },
+  ],
+};
+
+/** 工作流管理模块描述符 */
+export const workflowDescriptor: FeatureModuleDescriptor = {
+  moduleKey: 'workflow',
+  displayName: '工作流管理',
+  permissions: [
+    {
+      resource: 'workflow',
+      actions: ['read', 'update', 'delete'],
+      displayNames: {
+        read: '查看工作流',
+        update: '更新工作流',
+        delete: '删除工作流',
+      },
+      module: 'workflow-management',
+    },
+  ],
+  menus: [
+    {
+      path: '/workflows',
+      label: '工作流管理',
+      icon: 'ApartmentOutlined',
+      parentKey: 'business',
+      sortOrder: 35,
+      requiredPermission: 'workflow:read',
+    },
+  ],
+};
+
 /** All built-in module descriptors */
 export const builtInDescriptors: FeatureModuleDescriptor[] = [
   overviewDescriptor,
@@ -529,4 +585,6 @@ export const builtInDescriptors: FeatureModuleDescriptor[] = [
   billingDescriptor,
   linkConversionDescriptor,
   menuDescriptor,
+  portalUserDescriptor,
+  workflowDescriptor,
 ];

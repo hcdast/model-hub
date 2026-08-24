@@ -5,7 +5,7 @@ import {
   Progress,
 } from 'antd';
 import {
-  PlusOutlined, ReloadOutlined, KeyOutlined, EditOutlined, BarChartOutlined, CopyOutlined,
+  PlusOutlined, ReloadOutlined, KeyOutlined, EditOutlined, BarChartOutlined,
 } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import dayjs from 'dayjs';
@@ -70,7 +70,7 @@ function RateLimitStatusTag({ dailyRequests, maxDailyRequests }: { dailyRequests
 }
 
 /** 用量图表组件：展示最近 7 天每日请求趋势 */
-function UsageChart({ apiKey }: { apiKey: string }) {
+function UsageChart({ clientId }: { clientId: string }) {
   const [loading, setLoading] = useState(false);
   const [usageData, setUsageData] = useState<any[]>([]);
 
@@ -80,16 +80,15 @@ function UsageChart({ apiKey }: { apiKey: string }) {
       try {
         const to = dayjs().format('YYYYMMDD');
         const from = dayjs().subtract(6, 'day').format('YYYYMMDD');
-        const res: any = await apiClientApi.getUsage(apiKey, { from, to });
+        const res: any = await apiClientApi.getUsage(clientId, { from, to });
         setUsageData(res.data || []);
       } catch {
-        // 静默处理，图表区域显示空状态
         setUsageData([]);
       }
       setLoading(false);
     };
     fetchUsage();
-  }, [apiKey]);
+  }, [clientId]);
 
   const chartOption = useMemo(() => {
     // 生成最近 7 天日期列表
@@ -231,7 +230,7 @@ export default function ApiClientsPage() {
       const summaryList: any[] = res.data || [];
       const map = new Map<string, any>();
       summaryList.forEach((item: any) => {
-        map.set(item.apiKey, item);
+        map.set(item.id, item);
       });
       setUsageSummaryMap(map);
     } catch {
@@ -301,9 +300,9 @@ export default function ApiClientsPage() {
               </Typography.Paragraph>
             )}
             <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-              新建客户端的调用密钥与上表「apiKey」相同，请在网关/客户端配置的 API Key 请求头（如 X-API-Key）中传入该值。
+              请在网关或客户端的 API Key 请求头（如 X-API-Key）中使用该值。
             </Typography.Text>
-            <Typography.Text type="secondary">关闭后将无法再次在界面中展示（列表仍显示 apiKey，即密钥本身）。</Typography.Text>
+            <Typography.Text type="secondary">关闭后将无法再次查看完整密钥；列表仅显示掩码。</Typography.Text>
           </div>
         ),
       });
@@ -316,13 +315,13 @@ export default function ApiClientsPage() {
     setCreating(false);
   };
 
-  const onRotate = (apiKey: string) => {
+  const onRotate = (clientId: string) => {
     Modal.confirm({
       title: '轮换密钥？',
       content: '旧密钥将立即失效，请保存新密钥。',
       onOk: async () => {
         try {
-          const res: any = await apiClientApi.rotate(apiKey);
+          const res: any = await apiClientApi.rotate(clientId);
           const key = res.data?.fullCredential ?? res.data?.plainKey ?? res.data?.apiKey;
           Modal.success({
             title: '新 API Key',
@@ -352,7 +351,7 @@ export default function ApiClientsPage() {
 
   const onToggle = async (record: any, enabled: boolean) => {
     try {
-      await apiClientApi.setEnabled(record.apiKey, enabled);
+      await apiClientApi.setEnabled(record.id, enabled);
       message.success(enabled ? '已启用' : '已禁用');
       fetchData(page, pageSize);
     } catch (err) {
@@ -370,7 +369,7 @@ export default function ApiClientsPage() {
     const values = await priorityForm.validateFields().catch(() => null);
     if (!values || !editingClient) return;
     try {
-      await apiClientApi.updateDefaultPriority(editingClient.apiKey, values.defaultPriority);
+      await apiClientApi.updateDefaultPriority(editingClient.id, values.defaultPriority);
       message.success('默认优先级已更新');
       setPriorityOpen(false);
       setEditingClient(null);
@@ -392,7 +391,7 @@ export default function ApiClientsPage() {
     const values = await billingPolicyForm.validateFields().catch(() => null);
     if (!values || !billingPolicyClient) return;
     try {
-      await apiClientApi.updateBillingPolicy(billingPolicyClient.apiKey, values.billingPolicy);
+      await apiClientApi.updateBillingPolicy(billingPolicyClient.id, values.billingPolicy);
       message.success('计费策略已更新');
       setBillingPolicyOpen(false);
       setBillingPolicyClient(null);
@@ -419,7 +418,7 @@ export default function ApiClientsPage() {
     const values = await rateLimitForm.validateFields().catch(() => null);
     if (!values || !rateLimitClient) return;
     try {
-      await apiClientApi.updateRateLimits(rateLimitClient.apiKey, {
+      await apiClientApi.updateRateLimits(rateLimitClient.id, {
         maxQps: values.maxQps,
         maxConcurrent: values.maxConcurrent,
         maxDailyRequests: values.maxDailyRequests,
@@ -460,7 +459,7 @@ export default function ApiClientsPage() {
     const values = await allowlistForm.validateFields().catch(() => null);
     if (!values || !allowlistClient) return;
     try {
-      await apiClientApi.updateModelAllowlist(allowlistClient.apiKey, values.modelAllowlist || []);
+      await apiClientApi.updateModelAllowlist(allowlistClient.id, values.modelAllowlist || []);
       message.success('模型白名单已更新');
       setAllowlistOpen(false);
       setAllowlistClient(null);
@@ -479,7 +478,7 @@ export default function ApiClientsPage() {
   const columns = [
     {
       title: (
-        <Tooltip title="请求头（如 X-API-Key）传入此值；与库中主键一致。旧版复合密钥为 apiKey + '.' + 随机后缀。">
+        <Tooltip title="完整调用凭据仅在创建成功时返回一次；列表只显示不可用于认证的掩码。">
           <span style={{ fontSize: 12, fontWeight: 500 }}>API Key</span>
         </Tooltip>
       ),
@@ -490,13 +489,7 @@ export default function ApiClientsPage() {
       ellipsis: true,
       render: (apiKey: string) =>
         apiKey ? (
-          <Typography.Text
-            copyable={{
-              text: apiKey,
-              icon: <CopyOutlined style={{ fontSize: 11 }} />,
-            }}
-            style={API_KEY_CELL_FONT}
-          >
+          <Typography.Text style={API_KEY_CELL_FONT}>
             {apiKey}
           </Typography.Text>
         ) : (
@@ -506,6 +499,37 @@ export default function ApiClientsPage() {
         ),
     },
     { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true, width: 120 },
+    {
+      title: '来源',
+      key: 'source',
+      width: 100,
+      render: (_: unknown, r: any) => {
+        if (r.source === 'portal') {
+          return (
+            <Tooltip title={r.portalUser ? `${r.portalUser.email} (${r.portalUser.username})` : 'Portal 用户'}>
+              <Tag color="blue">Portal</Tag>
+            </Tooltip>
+          );
+        }
+        return <Tag color="green">管理后台</Tag>;
+      },
+    },
+    {
+      title: '关联用户',
+      key: 'portalUser',
+      width: 120,
+      ellipsis: true,
+      render: (_: unknown, r: any) => {
+        if (r.source === 'portal' && r.portalUser) {
+          return (
+            <Tooltip title={r.portalUser.email}>
+              <span>{r.portalUser.username || r.portalUser.email}</span>
+            </Tooltip>
+          );
+        }
+        return <span style={{ color: '#999' }}>—</span>;
+      },
+    },
     {
       title: '计费策略',
       dataIndex: 'billingPolicy',
@@ -562,7 +586,7 @@ export default function ApiClientsPage() {
       key: 'usageSummary',
       width: 160,
       render: (_: unknown, r: any) => {
-        const summary = usageSummaryMap.get(r.apiKey);
+        const summary = usageSummaryMap.get(r.id);
         if (!summary) {
           return <Typography.Text type="secondary" style={{ fontSize: 12 }}>暂无数据</Typography.Text>;
         }
@@ -606,7 +630,7 @@ export default function ApiClientsPage() {
       width: 70,
       render: (_: unknown, r: any) => (
         <Switch
-          disabled={!canUpdateClient}
+          disabled={!canUpdateClient || r.source === 'portal'}
           checked={r.enabled !== false}
           onChange={(v) => onToggle(r, v)}
           size="small"
@@ -619,7 +643,7 @@ export default function ApiClientsPage() {
       width: 360,
       render: (_: unknown, r: any) => (
         <Space wrap>
-          {canUpdateClient && (
+          {canUpdateClient && r.source === 'admin' && (
             <>
               <Button type="link" size="small" icon={<EditOutlined />} onClick={() => onEditRateLimits(r)}>
                 限流
@@ -642,15 +666,17 @@ export default function ApiClientsPage() {
                   </span>
                 </Tooltip>
               ) : (
-                <Button type="link" size="small" icon={<KeyOutlined />} onClick={() => onRotate(r.apiKey)}>
+                <Button type="link" size="small" icon={<KeyOutlined />} onClick={() => onRotate(r.id)}>
                   轮换
                 </Button>
               )}
             </>
           )}
-          <Button type="link" size="small" icon={<BarChartOutlined />} onClick={() => onShowUsageChart(r)}>
-            用量
-          </Button>
+          {r.source === 'admin' && (
+            <Button type="link" size="small" icon={<BarChartOutlined />} onClick={() => onShowUsageChart(r)}>
+              用量
+            </Button>
+          )}
         </Space>
       ),
     },
@@ -863,7 +889,7 @@ export default function ApiClientsPage() {
         width={700}
         destroyOnClose
       >
-        {usageChartClient && <UsageChart apiKey={usageChartClient.apiKey} />}
+        {usageChartClient && <UsageChart clientId={usageChartClient.id} />}
       </Modal>
     </div>
   );

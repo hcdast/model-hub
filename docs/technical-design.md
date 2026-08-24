@@ -1,16 +1,24 @@
 # Model-Hub 技术方案文档
 
-> 版本：v2.7（文档同步）  
-> 最后更新：2026-05-12  
-> 状态：设计阶段  
-> **与实现对齐**：默认 HTTP 端口、管理后台路由前缀、RBAC（`PermissionGuard` + `RequirePermissions`）、计费/钱包、菜单（`menu_configs` + `/api/v1/admin/menu` 与 `/api/v1/admin/menus`）等**运行时细节**以当前仓库代码及根目录 `README.md`、`ecosystem.config.js` 为准；本文档侧重方案与设计取舍。  
-> 变更：v2.7（续）已重写 **§24 管理后台**、补充 **§4.5 计费**、**§5.1 BillingModule**、**§8.11 运营数据模型**、**§14.2 管理端权限**，与当前 Controller / Schema 对齐。  
-> 变更：v2.6 统一密钥管理 — `provider_runtime_configs` 移除 `api_key`，所有密钥收敛到 `account_pool_entries`  
-> 变更：v2.5 Dashboard 总览页新增全部数据统计模块（历史累计任务统计）  
-> 变更：v2.4 轮询查询失败优雅重试机制（retryable/non-retryable 分类处理 + 退避调度）  
-> 变更：v2.3 完善错误日志系统、补充厂商适配器开发指南、添加故障排查手册  
-> 变更：v2.2 路由策略 `model_routing_rules` 落地（fixed / weighted / primary_fallback）、管理端 CRUD；补充「主挂了再切备」TODO  
-> 变更：v2.1 新增管理后台设计（前后端同项目不同服务）  
+> 版本：v2.8（文档同步）
+> 最后更新：2026-06-01
+> 状态：设计阶段
+> **与实现对齐**：默认 HTTP 端口、管理后台路由前缀、RBAC（`PermissionGuard` + `RequirePermissions`）、计费/钱包、菜单（`menu_configs` + `/api/v1/admin/menu` 与 `/api/v1/admin/menus`）等**运行时细节**以当前仓库代码及根目录 `README.md`、`ecosystem.config.js` 为准；本文档侧重方案与设计取舍。
+>
+> **配套文档**：
+> - `workflow-and-portal.md` — 工作流引擎与开发者门户（v2.8 新增）
+> - `notification-system.md` — 通知系统（v2.8 新增）
+> - `provider-health.md` — 供应商健康度与熔断器（v2.8 新增）
+> - `billing-system.md` — 计费系统详细设计（v2.8 新增）
+>
+> 变更：v2.8 补充工作流引擎、开发者门户、通知系统、熔断器、计费系统文档引用；修正 PROCESS_TYPE 描述（仅 4 种生产类型 + monolith）；更新 §6.8 熔断器已实现
+> 变更：v2.7（续）已重写 **§24 管理后台**、补充 **§4.5 计费**、**§5.1 BillingModule**、**§8.11 运营数据模型**、**§14.2 管理端权限**，与当前 Controller / Schema 对齐。
+> 变更：v2.6 统一密钥管理 — `provider_runtime_configs` 移除 `api_key`，所有密钥收敛到 `account_pool_entries`
+> 变更：v2.5 Dashboard 总览页新增全部数据统计模块（历史累计任务统计）
+> 变更：v2.4 轮询查询失败优雅重试机制（retryable/non-retryable 分类处理 + 退避调度）
+> 变更：v2.3 完善错误日志系统、补充厂商适配器开发指南、添加故障排查手册
+> 变更：v2.2 路由策略 `model_routing_rules` 落地（fixed / weighted / primary_fallback）、管理端 CRUD；补充「主挂了再切备」TODO
+> 变更：v2.1 新增管理后台设计（前后端同项目不同服务）
 > 变更：v2.0 新增多服务商热切换、按功能队列隔离、队列统计、数据聚合、时长跟踪、任务时间线
 
 ---
@@ -371,22 +379,32 @@ Callback Queue     Callback Dispatcher     Client
 
 ```
 AppModule
-├── ConfigModule          # Nacos 配置中心 + 环境变量校验
-├── DatabaseModule        # MongoDB 连接、Schema 注册
-├── RedisModule           # Redis 连接（队列 + 缓存 + 锁）
-├── AuthModule            # API Key / JWT / Service Token 鉴权
-├── TaskModule            # 任务核心业务逻辑
-├── QueueModule           # Bull 队列注册与消费
-├── ProviderModule        # 厂商 Adapter 注册与管理
-├── PollingModule         # 定时轮询调度
-├── CallbackModule        # 回调投递与重试
-├── StatsModule           # 数据聚合统计
-├── BillingModule         # ★ v2.7：用量账单、钱包、预扣/结算（与任务/API Client 策略联动）
-├── AdminModule           # ★ 管理后台 API（JWT + 细粒度权限 + RBAC/菜单）
-├── DashboardModule       # ★ 管理后台静态资源服务（serve SPA）
-├── HealthModule          # 健康检查（liveness + readiness）
-└── ObservabilityModule   # 日志、Metrics、Tracing
+├── AppConfigModule           # Nacos 配置中心 + 环境变量校验
+├── DatabaseModule            # MongoDB 连接、Schema 注册
+├── RedisModule               # Redis 连接（队列 + 缓存 + 锁）
+├── QueueModule               # Bull 队列注册与消费
+├── ResourceMetadataQueueModule # 资源元数据提取队列
+├── ProviderModule            # 厂商 Adapter 注册与管理
+├── ObservabilityModule       # Prometheus 指标
+├── FeatureRegistryModule     # 功能描述符注册 + 同步插件
+├── BillingModule             # 计费（@Global）：Pricing / Billing / Wallet
+│
+├── AuthModule                # [api] API Key 鉴权
+├── TaskModule                # [api] 任务核心业务逻辑
+├── HealthModule              # [api, admin-server] 健康检查
+├── WorkflowModule            # [api] ★ 工作流引擎（DAG 编排）
+├── PortalAuthModule          # [api] ★ 开发者门户鉴权（自助注册/登录/API Key）
+├── NotificationModule        # [api, worker, scheduler, admin-server] ★ 多渠道通知
+├── ProviderHealthModule      # [api, worker, scheduler] ★ 熔断器 + 健康指标
+│
+├── CallbackModule            # [worker] 回调投递与重试
+├── PollingModule             # [scheduler] 定时轮询调度
+├── StatsModule               # [scheduler, admin-server] 数据聚合统计
+├── AdminModule               # [admin-server] 管理后台 API（JWT + RBAC）
+└── DashboardModule           # [admin-server] 管理后台静态资源服务
 ```
+
+> **详细文档**：工作流引擎、通知系统、熔断器、计费系统的完整设计分别见配套文档。
 
 ### 5.2 模块依赖关系
 
@@ -663,20 +681,27 @@ ConfigModule.forRootAsync({
 | 改枚举/代码 + 部署 | **优先**改 `model_routing_rules` / `model_configs`；新增厂商 Adapter 仍需发版注册 |
 | 无平台级灰度表 | **weighted / primary_fallback** 支持比例灰度与主备比例 |
 
-### 6.8 【TODO】「主挂了再切备」（健康感知故障转移） {#todo-primary-fallback-health-failover}
+### 6.8 健康感知故障转移（熔断器）
 
-> 当前 **primary_fallback** 仅在**创建任务时**按权重在主次之间分流，**不**感知厂商实时健康状态。以下为实现「主不可用则自动走备」的候选方案，供后续迭代。
+> **v2.8 更新**：§6.8 原 TODO 中的「健康信号 + 熔断器」**已实现**，完整设计见 [provider-health.md](./provider-health.md)。
+
+**已实现的能力：**
+
+| 能力 | 实现 |
+|------|------|
+| **三态熔断器** | `CircuitBreakerService`：CLOSED → OPEN → HALF_OPEN 状态机，Redis Lua CAS 原子操作 |
+| **滑动窗口指标** | `HealthMetricsCollector`：5 分钟窗口成功率、错误率、平均延迟 |
+| **状态存储** | Redis `circuit:provider:{name}` + 1 秒本地缓存，多实例共享 |
+| **事件通知** | `system.provider_circuit_open` / `half_open` / `closed` 事件，对接通知系统 |
+| **手动覆盖** | 管理员可强制 OPEN/CLOSED，暂停自动状态转换 |
+| **Prometheus** | `modelhub_circuit_breaker_state` Gauge 实时暴露 |
+
+**待实现（仍为 TODO）：**
 
 | 方向 | 说明 |
 |------|------|
-| **健康信号** | 周期性探针或基于 Metrics 的滑动窗口（错误率、超时率、连续失败次数）；状态写入 Redis（如 `circuit:provider:{name}`）并设 TTL，多实例可读 |
-| **解析阶段** | `tryResolveFromRules` 若策略为 `primary_fallback`，在选中「主」前检查熔断器；若主为 OPEN，则**仅本次**选用备（需记录到 timeline / metadata） |
-| **提交失败路径** | 在 `FeatureQueueProcessor.submitToProvider` 首次失败且错误可重试、且映射为「厂商侧不可用」时，**可选**将任务改派到 `fallback_provider` 并重新入队（**强约束**：幂等键、任务状态、与 `providerTaskId` 一致性，避免重复扣费） |
-| **幂等与对账** | 改派必须满足：同一 `taskId` 仅一个对外厂商任务；或先取消主侧再提交备侧（若厂商 API 支持） |
-| **队列语义** | Job 已带 `provider`；若运行时改派，需更新 DB `task.provider` 并投递到新 `{feature}:{provider}` 队列，或统一经 `task-submit` 再转发 |
-| **配置** | 规则上可增加 `failover_on_submit_error: boolean`、白名单错误码等，避免所有错误都切备 |
-
-**建议落地顺序**：先 **解析阶段 + 熔断读 Redis**（仅影响新任务）→ 再评估提交失败自动改派（复杂度高）。
+| **解析阶段集成** | `tryResolveFromRules` 在选中「主」前检查熔断器状态；若主为 OPEN，则选用备 |
+| **提交失败改派** | `FeatureQueueProcessor` 首次失败且错误可重试时，改派到 `fallback_provider`（需处理幂等和对账） |
 
 ---
 

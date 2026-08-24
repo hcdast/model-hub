@@ -1,13 +1,14 @@
-import { Controller, Get, Post, Put, Body, Query } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { ModelConfig, ModelConfigDocument } from '../database/schemas/model-config.schema';
 import { generateParamDoc } from '../common/utils/param-doc-generator';
-import { validateMandatoryUnitPriceMap } from '../billing/unit-price-map.util';
+import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
 
 @ApiTags('模型配置')
 @Controller('v1/models')
+@UseGuards(ApiKeyOrJwtGuard)
 export class ModelConfigController {
   constructor(
     @InjectModel(ModelConfig.name)
@@ -96,77 +97,4 @@ export class ModelConfigController {
     return { code: 0, data: { items: docs, total: docs.length } };
   }
 
-  @Post()
-  @ApiOperation({ summary: '创建/更新模型配置', description: '按 model_id upsert 模型配置' })
-  @ApiResponse({ status: 200, description: '操作成功' })
-  async upsertModel(@Body() body: Record<string, any>) {
-    if (!body.model_id) return { code: 1001, message: 'model_id is required' };
-    const upmCheck = validateMandatoryUnitPriceMap(body.unit_price_map);
-    if (!upmCheck.valid) {
-      return { code: 1001, message: upmCheck.errors.join('；') };
-    }
-
-    const result = await this.modelConfigModel.findOneAndUpdate(
-      { model_id: body.model_id },
-      { $set: { ...body, update_time: Date.now() } },
-      { upsert: true, new: true },
-    );
-
-    return { code: 0, data: result };
-  }
-
-  @Post('batch')
-  @ApiOperation({ summary: '批量导入模型配置', description: '批量 upsert 模型配置（兼容 importAiModelConfigs 脚本格式）' })
-  @ApiResponse({ status: 200, description: '导入完成' })
-  async batchImport(@Body() body: { models: Record<string, any>[]; force?: boolean }) {
-    const { models, force = false } = body;
-    if (!Array.isArray(models)) return { code: 1001, message: 'models must be an array' };
-
-    let inserted = 0;
-    let updated = 0;
-    let skipped = 0;
-
-    for (const model of models) {
-      if (!model.model_id) { skipped++; continue; }
-
-      const upmCheck = validateMandatoryUnitPriceMap(model.unit_price_map);
-      if (!upmCheck.valid) {
-        return { code: 1001, message: `${model.model_id}: ${upmCheck.errors.join('；')}` };
-      }
-
-      const existing = await this.modelConfigModel.findOne({ model_id: model.model_id }).lean();
-
-      if (existing && !force) {
-        skipped++;
-        continue;
-      }
-
-      await this.modelConfigModel.findOneAndUpdate(
-        { model_id: model.model_id },
-        { $set: { ...model, update_time: Date.now() } },
-        { upsert: true },
-      );
-
-      if (existing) updated++;
-      else inserted++;
-    }
-
-    return { code: 0, data: { inserted, updated, skipped, total: models.length } };
-  }
-
-  @Put('toggle')
-  @ApiOperation({ summary: '启用/禁用模型', description: 'Body: { model_id, disabled }，model_id 含 `/` 时原样 JSON 传递即可' })
-  @ApiResponse({ status: 200, description: '操作成功' })
-  async toggleModel(@Body() body: { model_id: string; disabled: boolean }) {
-    if (!body.model_id) return { code: 1001, message: 'model_id is required' };
-    if (typeof body.disabled !== 'boolean') return { code: 1001, message: 'disabled must be boolean' };
-
-    const result = await this.modelConfigModel.findOneAndUpdate(
-      { model_id: body.model_id },
-      { $set: { disabled: body.disabled, update_time: Date.now() } },
-      { new: true },
-    );
-    if (!result) return { code: 3001, message: 'Model not found' };
-    return { code: 0, data: result };
-  }
 }

@@ -11,6 +11,7 @@ const SECRET_MIN_LEN = 16;
 
 /** 列表接口返回的单行（不含 secretHash） */
 export type ApiClientListRow = {
+  id: string;
   apiKey: string;
   name?: string;
   enabled: boolean;
@@ -50,7 +51,10 @@ export class ApiClientService {
 
     const parsed = this.parseCompoundCredential(trimmed);
     if (parsed) {
-      const doc = await this.apiClientModel.findOne({ apiKey: parsed.publicApiKey, enabled: true }).exec();
+      const doc = await this.apiClientModel
+        .findOne({ apiKey: parsed.publicApiKey, enabled: true })
+        .select('+secretHash')
+        .exec();
       if (!doc) return null;
       const ok = await bcrypt.compare(parsed.secret, doc.secretHash);
       if (!ok) return null;
@@ -58,7 +62,10 @@ export class ApiClientService {
     }
 
     if (!/^mh_[0-9A-Za-z_-]+$/.test(trimmed)) return null;
-    const doc = await this.apiClientModel.findOne({ apiKey: trimmed, enabled: true }).exec();
+    const doc = await this.apiClientModel
+      .findOne({ apiKey: trimmed, enabled: true })
+      .select('+secretHash')
+      .exec();
     if (!doc) return null;
     const ok = await bcrypt.compare(trimmed, doc.secretHash);
     if (!ok) return null;
@@ -112,29 +119,55 @@ export class ApiClientService {
   ): Promise<{ items: ApiClientListRow[]; total: number; page: number; pageSize: number }> {
     const p = Math.max(1, page);
     const ps = Math.min(100, Math.max(1, pageSize));
-    const [rows, total] = await Promise.all([
-      this.apiClientModel
-        .find()
-        .select(
-          // clientId：未跑迁移的旧库字段，列表需兼容合并为 apiKey 展示
-          'apiKey clientId name enabled defaultPriority billingPolicy rateLimits modelAllowlist createdAt updatedAt secretHash',
-        )
-        .sort({ createdAt: -1 })
-        .skip((p - 1) * ps)
-        .limit(ps)
-        .lean(),
+    const [items, total] = await Promise.all([
+      this.listSlice((p - 1) * ps, ps),
       this.apiClientModel.countDocuments(),
     ]);
-    const items: ApiClientListRow[] = rows.map((row: Record<string, unknown>) => {
-      const { secretHash, clientId, ...rest } = row;
-      const key = String((rest.apiKey ?? clientId) ?? '').trim();
-      return {
-        ...(rest as Omit<ApiClientListRow, 'plainCredentialOnly'>),
-        apiKey: key,
-        plainCredentialOnly: key.length > 0 && bcrypt.compareSync(key, String(secretHash)),
-      };
-    });
     return { items, total, page: p, pageSize: ps };
+  }
+
+  async listSlice(offset: number, limit: number): Promise<ApiClientListRow[]> {
+    const rows = await this.apiClientModel
+      .find()
+      .select(
+        'apiKey clientId name enabled defaultPriority billingPolicy rateLimits modelAllowlist createdAt updatedAt +secretHash',
+      )
+      .sort({ createdAt: -1 })
+      .skip(Math.max(0, offset))
+      .limit(Math.min(100, Math.max(0, limit)))
+      .lean();
+    return Promise.all(rows.map((row) => this.toListRow({ ...row })));
+  }
+  async count(): Promise<number> {
+    return this.apiClientModel.countDocuments();
+  }
+
+  async getCredentialKeyForAdmin(id: string): Promise<string> {
+    this.assertManagementId(id);
+    const client = await this.apiClientModel
+      .findById(id)
+      .select('apiKey')
+      .lean();
+    if (!client) throw new NotFoundException(`Api client not found: ${id}`);
+    return client.apiKey;
+  }
+
+  async getManagementIdentityMap(
+    apiKeys: string[],
+  ): Promise<Map<string, { id: string; apiKey: string }>> {
+    const clients = await this.apiClientModel
+      .find({ apiKey: { $in: apiKeys } })
+      .select('apiKey')
+      .lean();
+    return new Map(
+      clients.map((client) => [
+        client.apiKey,
+        {
+          id: client._id.toString(),
+          apiKey: this.maskCredential(client.apiKey),
+        },
+      ]),
+    );
   }
 
   async setEnabled(apiKey: string, enabled: boolean): Promise<void> {
@@ -143,7 +176,10 @@ export class ApiClientService {
   }
 
   async rotateSecret(apiKey: string): Promise<{ plainKey: string }> {
-    const doc = await this.apiClientModel.findOne({ apiKey }).exec();
+    const doc = await this.apiClientModel
+      .findOne({ apiKey })
+      .select('+secretHash')
+      .exec();
     if (!doc) throw new NotFoundException(`Api client not found: ${apiKey}`);
     if (await bcrypt.compare(apiKey, doc.secretHash)) {
       throw new BadRequestException(
@@ -206,5 +242,50 @@ export class ApiClientService {
     if (!/^mh_[0-9A-Za-z_-]+$/.test(apiKey)) {
       throw new BadRequestException('Invalid apiKey');
     }
+  }
+
+  private assertManagementId(id: string): void {
+    if (!/^[a-f\d]{24}$/i.test(id)) {
+      throw new BadRequestException('Invalid API client management ID');
+    }
+  }
+
+  private async toListRow(
+    row: Record<string, unknown>,
+  ): Promise<ApiClientListRow> {
+    const key = String(row.apiKey ?? row.clientId ?? '').trim();
+    const rateLimits =
+      row.rateLimits && typeof row.rateLimits === 'object'
+        ? row.rateLimits as Record<string, unknown>
+        : undefined;
+    const modelAllowlist = Array.isArray(row.modelAllowlist)
+      ? row.modelAllowlist.filter((item): item is string => typeof item === 'string')
+      : undefined;
+    return {
+      id: String(row._id),
+      apiKey: this.maskCredential(key),
+      name: typeof row.name === 'string' ? row.name : undefined,
+      enabled: row.enabled !== false,
+      defaultPriority:
+        typeof row.defaultPriority === 'number'
+          ? row.defaultPriority
+          : undefined,
+      billingPolicy:
+        typeof row.billingPolicy === 'string' ? row.billingPolicy : 'internal',
+      rateLimits,
+      modelAllowlist,
+      createdAt: row.createdAt instanceof Date ? row.createdAt : undefined,
+      updatedAt: row.updatedAt instanceof Date ? row.updatedAt : undefined,
+      plainCredentialOnly:
+        key.length > 0 &&
+        typeof row.secretHash === 'string' &&
+        await bcrypt.compare(key, row.secretHash),
+    };
+  }
+
+  private maskCredential(key: string): string {
+    return key.length > 14
+      ? `${key.slice(0, 9)}...${key.slice(-4)}`
+      : '********';
   }
 }

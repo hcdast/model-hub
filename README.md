@@ -255,8 +255,11 @@ npm run start:dev
 # Windows PowerShell: $env:PROCESS_TYPE="monolith"; npm run start:dev
 # Unix: PROCESS_TYPE=monolith npm run start:dev
 
-# 前端开发（热重载，自动代理 /api → 后端）
+# 管理后台前端开发（热重载，自动代理 /api → 后端）
 cd dashboard && npm run dev    # → http://localhost:5173
+
+# 开发者门户前端开发（热重载，自动代理 /api → 后端）
+cd portal && npm run dev       # → http://localhost:7004
 ```
 
 ### 多进程启动（模拟生产）
@@ -583,8 +586,13 @@ model-hub/
 ├── docs/
 │   ├── technical-design.md             # 技术方案（设计为主；运行时细节以 README + 代码为准）
 │   ├── project-architecture.md         # 架构清单（部分为规划稿，与仓库不一致时以代码为准）
+│   ├── workflow-and-portal.md          # 工作流引擎与开发者门户
+│   ├── notification-system.md          # 通知系统（规则匹配 + 多渠道投递）
+│   ├── provider-health.md              # 供应商健康度与熔断器
+│   ├── billing-system.md               # 计费系统（Pricing/Billing/Wallet）
 │   └── todo.md                         # Spec 顺序与待办备忘
-├── ecosystem.config.js                 # PM2 多进程配置（api/worker/scheduler/admin-server）
+├── portal/                             # 开发者门户前端（React + React Flow）
+├── ecosystem.config.js                 # PM2 多进程配置（api/worker/scheduler/admin-server/portal）
 ├── .env.example                        # 环境变量模板（仅 Nacos 连接参数）
 ├── package.json
 ├── tsconfig.json                       # include: ["src"]，排除前端

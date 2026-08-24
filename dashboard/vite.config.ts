@@ -29,7 +29,7 @@ export default defineConfig(() => {
     server: {
       port: 5173,
       proxy: {
-        '/api': {
+        '/api/v1': {
           target: 'http://localhost:3000',
           changeOrigin: true,
         },
@@ -42,8 +42,6 @@ export default defineConfig(() => {
         output: {
           manualChunks: {
             'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-            'vendor-antd': ['antd', '@ant-design/icons'],
-            'vendor-echarts': ['echarts', 'echarts-for-react'],
             'vendor-monaco': ['@monaco-editor/react'],
           },
         },

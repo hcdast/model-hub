@@ -2,7 +2,7 @@
  * @Author: huchen huchen@akool.com
  * @Date: 2026-04-06 17:59:25
  * @LastEditors: huchen
- * @LastEditTime: 2026-05-04 14:42:42
+ * @LastEditTime: 2026-05-26 11:44:52
  * @FilePath: \model-hub\ecosystem.config.js
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -46,6 +46,17 @@ module.exports = {
       env: {
         PROCESS_TYPE: 'admin-server',
         PORT: 7003,
+      },
+    },
+    {
+      name: 'model-hub-portal',
+      script: 'node_modules/serve/build/main.js',
+      args: ['-s', 'dist', '-l', '7004'],
+      cwd: './portal',
+      instances: 1,
+      exec_mode: 'fork',
+      env: {
+        PORT: 7004,
       },
     },
   ],

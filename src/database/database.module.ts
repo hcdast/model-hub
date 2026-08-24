@@ -44,6 +44,18 @@ import {
   LinkConversionSettings,
   LinkConversionSettingsSchema,
 } from './schemas/link-conversion-settings.schema';
+import { Workflow, WorkflowSchema } from './schemas/workflow.schema';
+import {
+  WorkflowRun,
+  WorkflowRunSchema,
+} from './schemas/workflow-run.schema';
+import {
+  WorkflowTemplate,
+  WorkflowTemplateSchema,
+} from './schemas/workflow-template.schema';
+import { PortalUser, PortalUserSchema } from './schemas/portal-user.schema';
+import { PortalApiKey, PortalApiKeySchema } from './schemas/portal-api-key.schema';
+import { PortalRefreshToken, PortalRefreshTokenSchema } from './schemas/portal-refresh-token.schema';
 
 @Module({
   imports: [
@@ -79,6 +91,12 @@ import {
       { name: Wallet.name, schema: WalletSchema },
       { name: WalletTransaction.name, schema: WalletTransactionSchema },
       { name: LinkConversionSettings.name, schema: LinkConversionSettingsSchema },
+      { name: Workflow.name, schema: WorkflowSchema },
+      { name: WorkflowRun.name, schema: WorkflowRunSchema },
+      { name: WorkflowTemplate.name, schema: WorkflowTemplateSchema },
+      { name: PortalUser.name, schema: PortalUserSchema },
+      { name: PortalApiKey.name, schema: PortalApiKeySchema },
+      { name: PortalRefreshToken.name, schema: PortalRefreshTokenSchema },
     ]),
   ],
   exports: [MongooseModule],

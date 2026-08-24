@@ -5,6 +5,10 @@ import {
   ApiClient,
   ApiClientDocument,
 } from '../database/schemas/api-client.schema';
+import {
+  PortalApiKey,
+  PortalApiKeyDocument,
+} from '../database/schemas/portal-api-key.schema';
 import { PricingService } from './pricing.service';
 import { BillingService } from './billing.service';
 import { WalletService } from './wallet.service';
@@ -41,6 +45,8 @@ export class BillingAdapter {
   constructor(
     @InjectModel(ApiClient.name)
     private readonly apiClientModel: Model<ApiClientDocument>,
+    @InjectModel(PortalApiKey.name)
+    private readonly portalApiKeyModel: Model<PortalApiKeyDocument>,
     private readonly pricingService: PricingService,
     private readonly billingService: BillingService,
     private readonly walletService: WalletService,
@@ -58,14 +64,19 @@ export class BillingAdapter {
       .select('billingPolicy')
       .lean();
 
-    if (!client || !client.billingPolicy) {
-      this.logger.warn(
-        `客户端 [${apiKey}] 未找到或未配置 billingPolicy，使用默认策略 internal`,
-      );
-      return BillingPolicy.INTERNAL;
+    if (client?.billingPolicy) {
+      return client.billingPolicy as BillingPolicy;
     }
 
-    return client.billingPolicy as BillingPolicy;
+    const portalKey = await this.portalApiKeyModel
+      .findOne({ billingKey: apiKey, enabled: true })
+      .select('billingPolicy')
+      .lean();
+    if (portalKey?.billingPolicy) {
+      return portalKey.billingPolicy as BillingPolicy;
+    }
+
+    throw new Error(`No billing policy found for client ${apiKey}`);
   }
 
   /**

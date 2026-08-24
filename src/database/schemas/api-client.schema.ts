@@ -10,7 +10,7 @@ export class ApiClient {
   apiKey!: string;
 
   /** bcrypt(secret) 旧版；新版为 bcrypt(apiKey) */
-  @Prop({ required: true })
+  @Prop({ required: true, select: false })
   secretHash!: string;
 
   @Prop()

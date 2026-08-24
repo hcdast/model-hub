@@ -18,6 +18,8 @@ import { NotificationModule } from './notification/notification.module';
 import { FeatureRegistryModule } from './common/feature-registry.module';
 import { ProviderHealthModule } from './provider-health/provider-health.module';
 import { BillingModule } from './billing/billing.module';
+import { WorkflowModule } from './workflow/workflow.module';
+import { PortalAuthModule } from './portal-auth/portal-auth.module';
 import { resolveProcessType, MONOLITH_PROCESS_TYPE } from './common/process-type.util';
 
 const processType = resolveProcessType(process.env.PROCESS_TYPE);
@@ -38,7 +40,7 @@ function getProcessModules() {
 
   switch (processType) {
     case 'api':
-      return [...shared, AuthModule, TaskModule, HealthModule, NotificationModule, ProviderHealthModule];
+      return [...shared, AuthModule, TaskModule, HealthModule, NotificationModule, ProviderHealthModule, WorkflowModule, PortalAuthModule];
 
     case 'worker':
       return [...shared, CallbackModule, NotificationModule, ProviderHealthModule];
@@ -62,6 +64,8 @@ function getProcessModules() {
         HealthModule,
         NotificationModule,
         ProviderHealthModule,
+        WorkflowModule,
+        PortalAuthModule,
       ];
   }
 }

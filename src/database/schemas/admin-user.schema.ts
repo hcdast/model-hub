@@ -36,7 +36,6 @@ export class AdminUser {
 export const AdminUserSchema = SchemaFactory.createForClass(AdminUser);
 
 // Performance indexes for RBAC queries
-AdminUserSchema.index({ username: 1 }, { unique: true });
 AdminUserSchema.index({ deletedAt: 1, enabled: 1 });
 AdminUserSchema.index({ roles: 1 });
 AdminUserSchema.index({ deletedAt: 1, createdAt: -1 });

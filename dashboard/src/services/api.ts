@@ -127,23 +127,23 @@ export const providerConfigApi = {
 export const apiClientApi = {
   list: (params: Record<string, any>) => api.get('/api-clients', { params }),
   create: (data: { name?: string }) => api.post('/api-clients', data),
-  setEnabled: (apiKey: string, enabled: boolean) =>
-    api.patch(`/api-clients/${encodeURIComponent(apiKey)}`, { enabled }),
-  rotate: (apiKey: string) => api.post(`/api-clients/${encodeURIComponent(apiKey)}/rotate`),
-  updateDefaultPriority: (apiKey: string, defaultPriority: number) =>
-    api.patch(`/api-clients/${encodeURIComponent(apiKey)}/priority`, { defaultPriority }),
+  setEnabled: (id: string, enabled: boolean) =>
+    api.patch(`/api-clients/${encodeURIComponent(id)}`, { enabled }),
+  rotate: (id: string) => api.post(`/api-clients/${encodeURIComponent(id)}/rotate`),
+  updateDefaultPriority: (id: string, defaultPriority: number) =>
+    api.patch(`/api-clients/${encodeURIComponent(id)}/priority`, { defaultPriority }),
   /** 修改 API 客户端计费策略 */
-  updateBillingPolicy: (apiKey: string, billingPolicy: string) =>
-    api.patch(`/api-clients/${encodeURIComponent(apiKey)}/billing-policy`, { billingPolicy }),
+  updateBillingPolicy: (id: string, billingPolicy: string) =>
+    api.patch(`/api-clients/${encodeURIComponent(id)}/billing-policy`, { billingPolicy }),
   /** 更新限流配置 */
-  updateRateLimits: (apiKey: string, rateLimits: { maxQps?: number; maxConcurrent?: number; maxDailyRequests?: number }) =>
-    api.put(`/api-clients/${encodeURIComponent(apiKey)}/rate-limits`, rateLimits),
+  updateRateLimits: (id: string, rateLimits: { maxQps?: number; maxConcurrent?: number; maxDailyRequests?: number }) =>
+    api.put(`/api-clients/${encodeURIComponent(id)}/rate-limits`, rateLimits),
   /** 更新模型白名单 */
-  updateModelAllowlist: (apiKey: string, modelAllowlist: string[]) =>
-    api.put(`/api-clients/${encodeURIComponent(apiKey)}/model-allowlist`, { modelAllowlist }),
+  updateModelAllowlist: (id: string, modelAllowlist: string[]) =>
+    api.put(`/api-clients/${encodeURIComponent(id)}/model-allowlist`, { modelAllowlist }),
   /** 查询单个客户端用量统计 */
-  getUsage: (apiKey: string, params: { from?: string; to?: string }) =>
-    api.get(`/api-clients/${encodeURIComponent(apiKey)}/usage`, { params }),
+  getUsage: (id: string, params: { from?: string; to?: string }) =>
+    api.get(`/api-clients/${encodeURIComponent(id)}/usage`, { params }),
   /** 查询所有客户端用量汇总 */
   getUsageSummary: () => api.get('/api-clients/usage/summary'),
 };
@@ -312,6 +312,55 @@ export const linkConversionConfigApi = {
     }),
   update: (body: LinkConversionConfigPayload) =>
     api.put('/link-conversion-config', body),
+};
+
+// ---- 工作流管理 API ----
+export const workflowApi = {
+  /** 工作流列表 */
+  list: (params?: Record<string, any>) => api.get('/workflows', { params }),
+  /** 工作流详情 */
+  get: (id: string) => api.get(`/workflows/${id}`),
+  /** 更新工作流状态 */
+  updateStatus: (id: string, status: string) =>
+    api.put(`/workflows/${id}/${status === 'active' ? 'activate' : status === 'draft' ? 'deactivate' : 'archive'}`),
+  /** 删除工作流 */
+  delete: (id: string) => api.delete(`/workflows/${id}`),
+  /** 执行历史列表 */
+  listRuns: (params?: Record<string, any>) => api.get('/workflows/runs', { params }),
+  /** 执行详情 */
+  getRun: (runId: string) => api.get(`/workflows/runs/${runId}`),
+};
+
+// ---- 工作流模板 API ----
+export const workflowTemplateApi = {
+  /** 模板列表 */
+  list: (params?: Record<string, any>) => api.get('/workflow-templates', { params }),
+  /** 创建模板 */
+  create: (data: Record<string, any>) => api.post('/workflows/templates', data),
+  /** 更新模板 */
+  update: (id: string, data: Record<string, any>) => api.put(`/workflows/templates/${id}`, data),
+  /** 删除模板 */
+  delete: (id: string) => api.delete(`/workflows/templates/${id}`),
+  /** 发布模板 */
+  publish: (id: string) => api.put(`/workflows/templates/${id}/publish`),
+  /** 取消发布模板 */
+  unpublish: (id: string) => api.put(`/workflows/templates/${id}/unpublish`),
+};
+
+// ---- Portal 用户管理 API ----
+export const portalUserApi = {
+  /** 获取用户列表 */
+  list: (params?: Record<string, any>) => api.get('/portal-users', { params }),
+  /** 获取用户详情 */
+  get: (id: string) => api.get(`/portal-users/${id}`),
+  /** 更新用户 */
+  update: (id: string, data: Record<string, any>) => api.put(`/portal-users/${id}`, data),
+  /** 删除用户 */
+  delete: (id: string) => api.delete(`/portal-users/${id}`),
+  /** 切换用户状态 */
+  toggleStatus: (id: string) => api.put(`/portal-users/${id}/toggle-status`),
+  /** 获取用户统计 */
+  getStats: () => api.get('/portal-users/stats/overview'),
 };
 
 export default api;

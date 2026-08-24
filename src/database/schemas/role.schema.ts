@@ -30,6 +30,5 @@ export class Role {
 export const RoleSchema = SchemaFactory.createForClass(Role);
 
 // Performance indexes for RBAC queries
-RoleSchema.index({ name: 1 }, { unique: true });
 RoleSchema.index({ enabled: 1 });
 RoleSchema.index({ isSystem: 1 });

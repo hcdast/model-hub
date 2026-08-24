@@ -30,6 +30,5 @@ export class Permission {
 export const PermissionSchema = SchemaFactory.createForClass(Permission);
 
 // Performance indexes for RBAC queries
-PermissionSchema.index({ code: 1 }, { unique: true });
 PermissionSchema.index({ module: 1 });
 PermissionSchema.index({ resource: 1, action: 1 });

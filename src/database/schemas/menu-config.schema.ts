@@ -44,6 +44,5 @@ export class MenuConfig {
 export const MenuConfigSchema = SchemaFactory.createForClass(MenuConfig);
 
 // 性能索引
-MenuConfigSchema.index({ key: 1 }, { unique: true });
 MenuConfigSchema.index({ parentKey: 1 });
 MenuConfigSchema.index({ moduleKey: 1 });
