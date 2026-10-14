@@ -3,7 +3,7 @@
  * 开发者门户用户数据模型
  */
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
+import { HydratedDocument, Schema as MongooseSchema } from 'mongoose';
 
 export type PortalUserDocument = HydratedDocument<PortalUser>;
 
@@ -17,6 +17,10 @@ export class PortalUser {
 
   @Prop({ required: true })
   passwordHash!: string;
+
+  // Preserve stored types so invalid authentication versions fail closed.
+  @Prop({ type: MongooseSchema.Types.Mixed, validate: (value: unknown) => Number.isSafeInteger(value) && Number(value) >= 0 })
+  authVersion?: number;
 
   @Prop()
   avatar?: string;

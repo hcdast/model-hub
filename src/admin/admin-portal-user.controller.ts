@@ -26,9 +26,10 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { AdminJwtGuard } from './guards/admin-jwt.guard';
 import { PermissionGuard } from './guards/permission.guard';
+import { RequirePermissions } from './decorators/require-permissions.decorator';
 import { RolesGuard } from './guards/roles.guard';
 import { Roles } from './decorators/roles.decorator';
-import { RequirePermissions } from './decorators/require-permissions.decorator';
+import { PortalAuthService } from '../portal-auth/portal-auth.service';
 import { PortalUser, PortalUserDocument } from '../database/schemas/portal-user.schema';
 import { PortalApiKey, PortalApiKeyDocument } from '../database/schemas/portal-api-key.schema';
 
@@ -86,8 +87,7 @@ class UpdatePortalUserDto {
 
 @ApiTags('管理后台 - Portal 用户管理')
 @Controller('api/v1/admin/portal-users')
-@UseGuards(AdminJwtGuard, PermissionGuard, RolesGuard)
-@Roles('admin')
+@UseGuards(AdminJwtGuard, PermissionGuard)
 @ApiBearerAuth()
 @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
 export class AdminPortalUserController {
@@ -96,6 +96,7 @@ export class AdminPortalUserController {
     private readonly portalUserModel: Model<PortalUserDocument>,
     @InjectModel(PortalApiKey.name)
     private readonly portalApiKeyModel: Model<PortalApiKeyDocument>,
+    private readonly portalAuthService: PortalAuthService,
   ) {}
 
   /**
@@ -323,6 +324,22 @@ export class AdminPortalUserController {
           return acc;
         }, {} as Record<string, number>),
       },
+    };
+  }
+
+  @Post(':id/reset-password')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(RolesGuard)
+  @Roles('super_admin')
+  @RequirePermissions('portal-user:update')
+  @ApiOperation({ summary: '重置 Portal 用户密码', description: '仅超级管理员可生成新密码并撤销所有刷新令牌' })
+  @ApiResponse({ status: 200, description: '密码重置成功，新密码仅返回一次' })
+  async resetPassword(@Param('id') id: string) {
+    const temporaryPassword = await this.portalAuthService.resetPassword(id);
+    return {
+      code: 0,
+      message: 'Password reset successfully',
+      data: { temporaryPassword },
     };
   }
 

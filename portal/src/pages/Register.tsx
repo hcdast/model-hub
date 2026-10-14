@@ -24,6 +24,11 @@ export default function Register() {
       return;
     }
 
+    if (username.trim().length < 3) {
+      message.error('Username must be at least 3 characters');
+      return;
+    }
+
     if (password !== confirmPassword) {
       message.error('Passwords do not match');
       return;
@@ -204,6 +209,8 @@ export default function Register() {
                 placeholder="Choose a username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
+                minLength={3}
+                maxLength={30}
                 size="large"
                 style={{
                   background: tokens.bg.tertiary,

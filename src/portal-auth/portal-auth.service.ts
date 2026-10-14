@@ -4,11 +4,13 @@
  */
 import {
   Injectable,
+  OnModuleInit,
   UnauthorizedException,
   ConflictException,
   BadRequestException,
   NotFoundException,
   Logger,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -19,11 +21,12 @@ import {
   PortalRefreshToken,
   PortalRefreshTokenDocument,
 } from '../database/schemas/portal-refresh-token.schema';
+import { generateTemporaryPassword } from '../admin/utils/password.util';
 
 const BCRYPT_ROUNDS = 10;
 
 @Injectable()
-export class PortalAuthService {
+export class PortalAuthService implements OnModuleInit {
   private readonly logger = new Logger(PortalAuthService.name);
   private readonly jwtSecret: string;
   private readonly accessTokenExpires: string;
@@ -71,6 +74,34 @@ export class PortalAuthService {
     }
   }
 
+  async onModuleInit(): Promise<void> {
+    let indexes: Awaited<ReturnType<typeof this.refreshTokenModel.collection.indexes>>;
+    try {
+      indexes = await this.refreshTokenModel.collection.indexes();
+    } catch (error) {
+      if (this.isMissingMongoResource(error, false)) return;
+      throw error;
+    }
+    const legacyTokenIndex = indexes.find((index) => {
+      const keys = Object.entries(index.key);
+      return index.unique === true && keys.length === 1 && keys[0][0] === 'token';
+    });
+    if (legacyTokenIndex?.name) {
+      try {
+        await this.refreshTokenModel.collection.dropIndex(legacyTokenIndex.name);
+      } catch (error) {
+        if (!this.isMissingMongoResource(error, true)) throw error;
+      }
+    }
+  }
+
+  private isMissingMongoResource(error: unknown, includeIndex: boolean): boolean {
+    const code = Reflect.get(Object(error), 'code');
+    const codeName = Reflect.get(Object(error), 'codeName');
+    if (code !== undefined) return code === 26 || (includeIndex && code === 27);
+    return codeName === 'NamespaceNotFound' || (includeIndex && codeName === 'IndexNotFound');
+  }
+
   /**
    * 用户注册
    */
@@ -106,6 +137,7 @@ export class PortalAuthService {
         email: email.toLowerCase(),
         username,
         passwordHash,
+        authVersion: 0,
         role: 'user',
         status: 'active',
       });
@@ -124,14 +156,16 @@ export class PortalAuthService {
       role: user.role,
     });
     let refreshToken: string;
+    const authVersion = this.getAuthVersion(user.authVersion, true);
     try {
       refreshToken = (
-        await this.createRefreshToken(user._id.toString())
+        await this.createRefreshToken(user._id.toString(), authVersion)
       ).token;
     } catch (error) {
       await this.userModel.deleteOne({ _id: user._id });
       throw error;
     }
+    await this.confirmIssuedToken(user._id.toString(), authVersion, refreshToken.split('.')[0]);
 
     this.logger.log(`User registered: ${email}`);
 
@@ -165,6 +199,7 @@ export class PortalAuthService {
       throw new UnauthorizedException('Account suspended');
     }
 
+    const authVersion = this.getAuthVersion(user.authVersion, true);
     // 验证密码
     const isValid = await bcrypt.compare(password, user.passwordHash);
     if (!isValid) {
@@ -184,8 +219,9 @@ export class PortalAuthService {
       role: user.role,
     });
     const refreshToken = (
-      await this.createRefreshToken(user._id.toString(), userAgent, ip)
+      await this.createRefreshToken(user._id.toString(), authVersion, userAgent, ip)
     ).token;
+    await this.confirmIssuedToken(user._id.toString(), authVersion, refreshToken.split('.')[0]);
 
     this.logger.log(`User logged in: ${email}`);
 
@@ -257,18 +293,24 @@ export class PortalAuthService {
     if (!user || user.deletedAt || user.status !== 'active') {
       throw new UnauthorizedException('User not found or inactive');
     }
+    const authVersion = this.getAuthVersion(refreshTokenDoc.authVersion);
+    if (authVersion !== this.getAuthVersion(user.authVersion, true)) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
 
     refreshTokenDoc.isValid = false;
     refreshTokenDoc.revokedAt = new Date();
 
     const replacement = await this.createRefreshToken(
       user._id.toString(),
+      authVersion,
       refreshTokenDoc.userAgent,
       refreshTokenDoc.ip,
       refreshTokenDoc.familyId,
     );
     refreshTokenDoc.replacedByTokenId = replacement.tokenId;
     await refreshTokenDoc.save();
+    await this.confirmIssuedToken(user._id.toString(), authVersion, replacement.tokenId);
 
     const accessToken = this.signAccessToken({
       sub: user._id.toString(),
@@ -346,14 +388,29 @@ export class PortalAuthService {
       throw new BadRequestException('Invalid old password');
     }
 
-    // 加密新密码
-    user.passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
-    await user.save();
-
-    // 使所有 refresh token 失效（强制重新登录）
-    await this.refreshTokenModel.updateMany({ userId }, { isValid: false });
+    const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    const updated = await this.updatePassword(user, passwordHash, true);
+    await this.revokeOlderTokens(updated._id.toString(), this.getAuthVersion(updated.authVersion));
 
     this.logger.log(`Password changed for user: ${userId}`);
+  }
+
+  /** 管理员重置密码；现有 access token 保持原有到期语义。 */
+  async resetPassword(userId: string): Promise<string> {
+    if (!/^[a-f\d]{24}$/i.test(userId)) {
+      throw new BadRequestException('Invalid user id');
+    }
+
+    const user = await this.userModel.findById(userId);
+    if (!user || user.deletedAt) {
+      throw new NotFoundException('User not found');
+    }
+
+    const temporaryPassword = generateTemporaryPassword();
+    const passwordHash = await bcrypt.hash(temporaryPassword, BCRYPT_ROUNDS);
+    const updated = await this.updatePassword(user, passwordHash, false);
+    await this.revokeOlderTokens(updated._id.toString(), this.getAuthVersion(updated.authVersion));
+    return temporaryPassword;
   }
 
   /**
@@ -433,10 +490,12 @@ export class PortalAuthService {
    */
   private async createRefreshToken(
     userId: string,
+    authVersion: number,
     userAgent?: string,
     ip?: string,
     familyId = randomBytes(16).toString('hex'),
   ): Promise<{ token: string; tokenId: string }> {
+    this.getAuthVersion(authVersion);
     const tokenId = randomBytes(16).toString('hex');
     const secret = randomBytes(32).toString('base64url');
     const secretHash = createHash('sha256').update(secret).digest('hex');
@@ -445,6 +504,7 @@ export class PortalAuthService {
 
     await this.refreshTokenModel.create({
       userId,
+      authVersion,
       tokenId,
       secretHash,
       familyId,
@@ -455,6 +515,69 @@ export class PortalAuthService {
     });
 
     return { token: `${tokenId}.${secret}`, tokenId };
+  }
+
+  private getAuthVersion(value: unknown, allowMissing = false): number {
+    if (value === undefined && allowMissing) return 0;
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+      throw new UnauthorizedException('Invalid authentication state');
+    }
+    return value;
+  }
+
+  private async updatePassword(
+    user: PortalUserDocument,
+    passwordHash: string,
+    checkPassword: boolean,
+  ): Promise<PortalUserDocument> {
+    this.getAuthVersion(user.authVersion, true);
+    const updated = await this.userModel.findOneAndUpdate(
+      {
+        _id: user._id,
+        deletedAt: null,
+        ...(checkPassword ? { passwordHash: user.passwordHash } : {}),
+        // Guard a concurrent increment at the safe-integer limit as well.
+        $or: [
+          { authVersion: { $exists: false } },
+          { authVersion: { $type: 'number', $gte: 0, $lt: Number.MAX_SAFE_INTEGER, $mod: [1, 0] } },
+        ],
+      },
+      { $set: { passwordHash }, $inc: { authVersion: 1 } },
+      { new: true },
+    );
+    if (!updated) throw new ConflictException('Authentication state changed; retry with current credentials');
+    return updated;
+  }
+
+  private async revokeOlderTokens(userId: string, authVersion: number): Promise<void> {
+    try {
+      await this.refreshTokenModel.updateMany(
+        { userId, $or: [{ authVersion: { $exists: false } }, { authVersion: { $lt: authVersion } }] },
+        { isValid: false, revokedAt: new Date() },
+      );
+    } catch {
+      throw new ServiceUnavailableException('Unable to complete session revocation');
+    }
+  }
+
+  private async confirmIssuedToken(userId: string, authVersion: number, tokenId: string): Promise<void> {
+    try {
+      const current = await this.userModel.findById(userId);
+      if (!current || current.deletedAt || current.status !== 'active' ||
+          this.getAuthVersion(current.authVersion, true) !== authVersion) {
+        throw new UnauthorizedException('Authentication state changed');
+      }
+    } catch (error) {
+      try {
+        await this.refreshTokenModel.updateOne(
+          { userId, tokenId },
+          { isValid: false, revokedAt: new Date() },
+        );
+      } catch {
+        // Version validation remains authoritative if best-effort cleanup fails.
+      }
+      throw error;
+    }
   }
 
   /**

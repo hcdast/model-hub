@@ -36,6 +36,7 @@ import { AdminCallbackLogsController } from './admin-callback-logs.controller';
 import { AdminSystemInfoController } from './admin-system-info.controller';
 import { AdminPortalUserController } from './admin-portal-user.controller';
 import { AuditInterceptor } from './interceptors/audit.interceptor';
+import { PortalAuthModule } from '../portal-auth/portal-auth.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { AuditInterceptor } from './interceptors/audit.interceptor';
     QueueModule,
     ProviderHealthModule,
     WorkflowModule,
+    PortalAuthModule,
     BullModule.registerQueue({ name: 'callback' }),
   ],
   controllers: [

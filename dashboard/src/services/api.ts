@@ -355,6 +355,12 @@ export const portalUserApi = {
   get: (id: string) => api.get(`/portal-users/${id}`),
   /** 更新用户 */
   update: (id: string, data: Record<string, any>) => api.put(`/portal-users/${id}`, data),
+  /** 重置密码 */
+  resetPassword: (id: string) => api.post<unknown, {
+    code: number;
+    message: string;
+    data: { temporaryPassword: string };
+  }>(`/portal-users/${id}/reset-password`),
   /** 删除用户 */
   delete: (id: string) => api.delete(`/portal-users/${id}`),
   /** 切换用户状态 */

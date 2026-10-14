@@ -3,7 +3,7 @@
  * 开发者门户用户 Refresh Token 管理
  */
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
+import { HydratedDocument, Schema as MongooseSchema } from 'mongoose';
 
 export type PortalRefreshTokenDocument = HydratedDocument<PortalRefreshToken>;
 
@@ -11,6 +11,9 @@ export type PortalRefreshTokenDocument = HydratedDocument<PortalRefreshToken>;
 export class PortalRefreshToken {
   @Prop({ required: true })
   userId!: string;
+
+  @Prop({ type: MongooseSchema.Types.Mixed, required: true, validate: (value: unknown) => Number.isSafeInteger(value) && Number(value) >= 0 })
+  authVersion!: number;
 
   @Prop({ required: true })
   tokenId!: string;

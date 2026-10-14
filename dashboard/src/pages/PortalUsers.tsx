@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Table, Card, Button, Space, Tag, Switch, message, Modal, Form, Input, Select,
   Typography, Popconfirm, Statistic, Row, Col, Descriptions, Badge, Tooltip,
@@ -10,10 +10,16 @@ import {
 import PageHeader from '../components/PageHeader';
 import dayjs from 'dayjs';
 import { portalUserApi } from '../services/api';
+import { useAuthStore } from '../store/auth';
+import { ErrorHandler } from '../utils/error-handler';
 
 const { Text } = Typography;
 
 export default function PortalUsersPage() {
+  const roles = useAuthStore((s) => s.roles);
+  const isSuperAdmin = roles.includes('super_admin');
+  const [resettingUserId, setResettingUserId] = useState<string | null>(null);
+  const resetPending = useRef(false);
   const [users, setUsers] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -162,6 +168,45 @@ export default function PortalUsersPage() {
     }
   };
 
+  const handleResetPassword = async (user: { _id: string; email: string }) => {
+    if (!useAuthStore.getState().roles.includes('super_admin') || resetPending.current) return;
+    resetPending.current = true;
+    setResettingUserId(user._id);
+    try {
+      const res = await portalUserApi.resetPassword(user._id);
+      if (res.code !== 0) {
+        ErrorHandler.handleApiError({ response: { data: res } }, '重置密码失败');
+        return;
+      }
+      const temporaryPassword = res.data.temporaryPassword;
+      Modal.success({
+        title: '密码已重置',
+        okText: '已保存，关闭',
+        content: (
+          <div>
+            <Typography.Paragraph>
+              用户 <strong>{user.email}</strong> 的新密码：
+            </Typography.Paragraph>
+            <Typography.Paragraph copyable={{ text: temporaryPassword }}>
+              <code>{temporaryPassword}</code>
+            </Typography.Paragraph>
+            <Typography.Paragraph>
+              新密码仅在此展示一次，请复制并通过安全渠道告知用户，关闭后无法再次查看。
+            </Typography.Paragraph>
+            <Typography.Text type="secondary">
+              旧密码和旧认证版本的刷新令牌已失效。已有访问令牌在到期前仍可使用，到期后用户需使用新密码重新登录。
+            </Typography.Text>
+          </div>
+        ),
+      });
+    } catch (err) {
+      ErrorHandler.handleApiError(err, '重置密码失败');
+    } finally {
+      resetPending.current = false;
+      setResettingUserId(null);
+    }
+  };
+
   // 表格列定义
   const columns = [
     {
@@ -252,6 +297,33 @@ export default function PortalUsersPage() {
           <Button size="small" onClick={() => handleEdit(record)}>
             编辑
           </Button>
+          {isSuperAdmin && (
+            <Popconfirm
+              title="确定重置此用户的密码？"
+              description={
+                <div>
+                  <Typography.Paragraph>目标用户：{record.email}</Typography.Paragraph>
+                  <Typography.Paragraph>旧密码和旧认证版本的刷新令牌将立即失效。</Typography.Paragraph>
+                  <Typography.Paragraph>已有访问令牌到期后，用户需使用新密码重新登录。</Typography.Paragraph>
+                </div>
+              }
+              onConfirm={() => handleResetPassword(record)}
+              okText="重置密码"
+              cancelText="取消"
+              okButtonProps={{ danger: true, loading: resettingUserId === record._id, disabled: resettingUserId !== null }}
+              cancelButtonProps={{ disabled: resettingUserId !== null }}
+              disabled={resettingUserId !== null}
+            >
+              <Button
+                size="small"
+                icon={<KeyOutlined />}
+                loading={resettingUserId === record._id}
+                disabled={resettingUserId !== null}
+              >
+                重置密码
+              </Button>
+            </Popconfirm>
+          )}
           <Popconfirm
             title="确定删除此用户？"
             description="删除后将禁用该用户的所有 API Key"

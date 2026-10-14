@@ -58,6 +58,16 @@ interface AuthState {
   updateProfile: (data: { username?: string; avatar?: string }) => Promise<void>;
 }
 
+function getApiErrorMessage(error: unknown, fallback: string): string {
+  if (!axios.isAxiosError(error)) return fallback;
+
+  const message = error.response?.data?.message;
+  if (Array.isArray(message)) return message.join('; ');
+  if (typeof message === 'string' && message.trim()) return message;
+  if (!error.response) return 'Unable to reach the server. Please try again.';
+  return fallback;
+}
+
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isAuthenticated: false,
@@ -76,9 +86,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       setPortalAccessToken(accessToken);
       set({ user, isAuthenticated: true, isLoading: false });
     } catch (error: unknown) {
-      const message = axios.isAxiosError(error)
-        ? String(error.response?.data?.message || 'Login failed')
-        : 'Login failed';
+      const message = getApiErrorMessage(error, 'Login failed');
       set({ error: message, isLoading: false });
       throw error;
     }
@@ -92,9 +100,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       setPortalAccessToken(accessToken);
       set({ user, isAuthenticated: true, isLoading: false });
     } catch (error: unknown) {
-      const message = axios.isAxiosError(error)
-        ? String(error.response?.data?.message || 'Registration failed')
-        : 'Registration failed';
+      const message = getApiErrorMessage(error, 'Registration failed');
       set({ error: message, isLoading: false });
       throw error;
     }
@@ -129,9 +135,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       const response = await authApi.updateMe(data) as unknown as ApiEnvelope<User>;
       set({ user: response.data, isLoading: false });
     } catch (error: unknown) {
-      const message = axios.isAxiosError(error)
-        ? String(error.response?.data?.message || 'Update failed')
-        : 'Update failed';
+      const message = getApiErrorMessage(error, 'Update failed');
       set({ error: message, isLoading: false });
       throw error;
     }
