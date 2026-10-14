@@ -1,4 +1,22 @@
+export interface WorkflowAssetMinioConfig {
+  endPoint: string;
+  port: number;
+  useSSL: boolean;
+  bucket: string;
+  region?: string;
+  publicBaseUrl: string;
+  pathPrefix?: string;
+  uploadTimeoutMs?: number;
+  allowInsecureHttp?: boolean;
+}
+
+export interface WorkflowAssetStorageConfig {
+  provider: 'storagesvc' | 'minio';
+  minio?: WorkflowAssetMinioConfig;
+}
+
 export interface AppConfig {
+  workflowAssetStorage?: WorkflowAssetStorageConfig;
   mongodb: {
     uri: string;
     maxPoolSize?: number;

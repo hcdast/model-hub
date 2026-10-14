@@ -19,6 +19,11 @@ import { PortalUser, PortalUserSchema } from '../database/schemas/portal-user.sc
 import { ApiClientModule } from '../api-client/api-client.module';
 import { AuthModule } from '../auth/auth.module';
 import { TaskModule } from '../task/task.module';
+import { WorkflowAsset, WorkflowAssetSchema } from '../database/schemas/workflow-asset.schema';
+import { WorkflowAssetController } from './workflow-asset.controller';
+import { WorkflowAssetService } from './workflow-asset.service';
+import { MinioWorkflowAssetStorageService } from './minio-workflow-asset-storage.service';
+import { LinkConversionConfigModule } from '../admin/link-conversion-config.module';
 
 /**
  * Workflow 模块
@@ -31,6 +36,7 @@ import { TaskModule } from '../task/task.module';
       { name: WorkflowRun.name, schema: WorkflowRunSchema },
       { name: WorkflowTemplate.name, schema: WorkflowTemplateSchema },
       { name: PortalUser.name, schema: PortalUserSchema },
+      { name: WorkflowAsset.name, schema: WorkflowAssetSchema },
     ]),
     BullModule.registerQueue({
       name: 'workflow-node',
@@ -38,9 +44,12 @@ import { TaskModule } from '../task/task.module';
     ApiClientModule,
     AuthModule,
     TaskModule,
+    LinkConversionConfigModule,
   ],
-  controllers: [WorkflowController, WorkflowRunController, WorkflowTemplateController],
+  controllers: [WorkflowController, WorkflowRunController, WorkflowTemplateController, WorkflowAssetController],
   providers: [
+    WorkflowAssetService,
+    MinioWorkflowAssetStorageService,
     WorkflowService,
     ExecutionGraphResolver,
     PortSchemaService,
