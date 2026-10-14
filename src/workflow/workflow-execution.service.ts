@@ -26,6 +26,7 @@ import type { NodeExecutionJob } from './node.executor';
 import { PortalApiKeyService } from '../portal-auth/portal-api-key.service';
 import { TaskService } from '../task/task.service';
 import { WorkflowPolicyService } from './workflow-policy.service';
+import { assignPortInput, readOutputPort } from './workflow-ports';
 
 const TERMINAL_NODE_STATES: Record<string, true> = {
   succeeded: true,
@@ -537,8 +538,19 @@ export class WorkflowExecutionService {
     return this.runModel.findOne({ runId, triggerId: clientId });
   }
 
+  async listWorkflowRuns(
+    workflowId: string,
+    clientId: string,
+    query: { status?: string; page?: number; pageSize?: number },
+  ) {
+    const workflow = await this.workflowModel.findOne({ _id: workflowId, creatorId: clientId });
+    if (!workflow) throw new NotFoundException('Workflow not found');
+    return this.listRuns({ ...query, workflowId, triggerId: clientId });
+  }
+
   async listRuns(query: {
     workflowId?: string;
+    triggerId?: string;
     status?: string;
     page?: number;
     pageSize?: number;
@@ -552,11 +564,12 @@ export class WorkflowExecutionService {
     const pageSize = Math.min(100, Math.max(1, query.pageSize ?? 20));
     const filter: Record<string, string> = {};
     if (query.workflowId) filter.workflowId = query.workflowId;
+    if (query.triggerId) filter.triggerId = query.triggerId;
     if (query.status) filter.status = query.status;
     const [items, total] = await Promise.all([
       this.runModel
         .find(filter)
-        .sort({ createdAt: -1 })
+        .sort({ createdAt: -1, _id: -1 })
         .skip((page - 1) * pageSize)
         .limit(pageSize),
       this.runModel.countDocuments(filter),
@@ -748,10 +761,16 @@ export class WorkflowExecutionService {
         nodeOutputs[sourceState.nodeId] = sourceState.output;
       }
     }
-    for (const edge of incoming) {
-      const sourceOutput = nodeOutputs[edge.source.nodeId];
-      input[edge.target.port] =
-        sourceOutput?.[edge.source.port] ?? sourceOutput;
+    let inputError: string | undefined;
+    try {
+      for (const edge of incoming) {
+        const source = workflow.nodes.find((item) => item.id === edge.source.nodeId);
+        if (!source) throw new Error(`源节点不存在: ${edge.source.nodeId}`);
+        const value = readOutputPort(source, nodeOutputs[source.id], edge.source.port);
+        assignPortInput(input, node, edge.target.port, value);
+      }
+    } catch (error) {
+      inputError = error instanceof Error ? error.message : String(error);
     }
 
     const attempt = state.attempt ?? state.retryCount ?? 0;
@@ -773,6 +792,10 @@ export class WorkflowExecutionService {
       },
     );
     if (claimed.modifiedCount !== 1) return false;
+    if (inputError) {
+      await this.onNodeFailed(run.runId, nodeId, { code: 'NODE_INPUT_INVALID', message: inputError });
+      return false;
+    }
 
     const jobData: NodeExecutionJob = {
       runId: run.runId,

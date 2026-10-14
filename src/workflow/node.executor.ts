@@ -11,6 +11,7 @@ import { SafeExpressionService } from './safe-expression.service';
 import { TaskService } from '../task/task.service';
 import { TaskStatus } from '../common/constants/task-status';
 import { setTimeout as delay } from 'timers/promises';
+import { modelTaskOutput } from './workflow-ports';
 
 /**
  * 节点执行任务数据
@@ -139,6 +140,9 @@ export class NodeExecutor {
       ...nodeData.parameters,
       ...input,
     };
+    if (params.prompt !== undefined && typeof params.prompt !== 'string') {
+      throw new Error('模型 prompt 参数必须是纯文本');
+    }
     const task = await this.taskService.createTask(
       apiKey,
       {
@@ -157,10 +161,7 @@ export class NodeExecutor {
     while (Date.now() < deadline) {
       const current = await this.taskService.getTask(apiKey, task.taskId);
       if (current.status === TaskStatus.SUCCESS) {
-        return {
-          taskId: current.taskId,
-          result: current.result,
-        };
+        return modelTaskOutput(current.taskId, current.result);
       }
       if (
         current.status === TaskStatus.FAILED ||
@@ -258,7 +259,7 @@ export class NodeExecutor {
       }),
     );
     if (loopConfig.outputMode === 'last') {
-      return results.at(-1);
+      return { __workflowLoopOutput: 1, result: results.at(-1) };
     }
     return { results };
   }

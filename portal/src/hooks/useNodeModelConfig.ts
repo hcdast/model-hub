@@ -1,10 +1,9 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { ModelConfigItem } from '../services/model-api';
 import { fetchModelDetail } from '../services/model-cache';
 import { useModels } from './useModels';
 import { NodeType } from '../types/node-types';
-import { nodeTypeSupportsModel } from '../utils/model-type-map';
-import { extractDefaultParams } from '../utils/model-params.util';
+import { compatibleParams } from '../utils/model-params.util';
 import { WorkflowNodeData } from '../store/workflow-store';
 
 interface Options {
@@ -15,44 +14,30 @@ interface Options {
   onUpdateNode: (nodeId: string, data: Partial<WorkflowNodeData>) => void;
 }
 
-/** 节点模型与参数：列表加载、默认选中、切换时写入默认参数 */
-export function useNodeModelConfig({
-  nodeId,
-  nodeType,
-  modelId,
-  parameters,
-  onUpdateNode,
-}: Options) {
-  const supportsModel = nodeTypeSupportsModel(nodeType);
-  const { models, loading } = useModels(supportsModel ? nodeType : undefined);
-
-  // 无模型时自动选中列表第一项（不依赖 parameters 引用，避免重复触发）
-  useEffect(() => {
-    if (!supportsModel || loading || modelId || models.length === 0) return;
-
-    const first = models[0];
-    const defaults = extractDefaultParams(first.params);
-    onUpdateNode(nodeId, {
-      modelId: first.model_id,
-      parameters: { ...parameters, ...defaults },
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在首次无 modelId 时执行
-  }, [supportsModel, loading, modelId, models.length, models[0]?.model_id, nodeId, onUpdateNode]);
-
+/** 只有用户明确选中模型才初始化默认值；异步详情不能覆盖后续模型选择或用户输入。 */
+export function useNodeModelConfig(options: Options) {
+  const latest = useRef(options);
+  latest.current = options;
+  const sequence = useRef(0);
+  useEffect(() => () => { sequence.current += 1; }, [options.nodeId]);
+  const list = useModels(options.nodeType);
   const updateModel = useCallback(async (nextModelId: string, model?: ModelConfigItem) => {
-    const detail = model ?? await fetchModelDetail(nextModelId);
-    const defaults = extractDefaultParams(detail?.params);
-    onUpdateNode(nodeId, {
+    const request = ++sequence.current;
+    const initial = latest.current;
+    const detail = model?.params ? model : await fetchModelDetail(nextModelId);
+    if (request !== sequence.current || latest.current.nodeId !== initial.nodeId || latest.current.modelId !== initial.modelId) return;
+    if (detail.disabled) throw new Error('该模型已停用，请选择其他模型');
+    latest.current.onUpdateNode(initial.nodeId, {
       modelId: nextModelId,
-      parameters: { ...parameters, ...defaults },
+      parameters: compatibleParams(latest.current.parameters ?? {}, detail.params ?? {}),
     });
-  }, [nodeId, parameters, onUpdateNode]);
-
+  }, []);
   const updateParam = useCallback((key: string, value: unknown) => {
-    onUpdateNode(nodeId, {
-      parameters: { ...parameters, [key]: value },
-    });
-  }, [nodeId, parameters, onUpdateNode]);
-
-  return { updateModel, updateParam, models, loading };
+    const current = latest.current;
+    const parameters = { ...current.parameters };
+    if (value === undefined) delete parameters[key];
+    else parameters[key] = value;
+    current.onUpdateNode(current.nodeId, { parameters });
+  }, []);
+  return { updateModel, updateParam, ...list };
 }

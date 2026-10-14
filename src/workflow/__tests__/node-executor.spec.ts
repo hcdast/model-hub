@@ -6,6 +6,7 @@ import { NodeExecutor, NodeExecutionJob } from '../node.executor';
 import { WorkflowExecutionService } from '../workflow-execution.service';
 import { SafeExpressionService } from '../safe-expression.service';
 import { TaskService } from '../../task/task.service';
+import { assignPortInput, readOutputPort } from '../workflow-ports';
 
 describe('NodeExecutor', () => {
   let executor: NodeExecutor;
@@ -59,6 +60,9 @@ describe('NodeExecutor', () => {
         'node-1',
         expect.objectContaining({
           result: ['https://example.com/output.png'],
+          image: 'https://example.com/output.png',
+          output: ['https://example.com/output.png'],
+          json: ['https://example.com/output.png'],
         }),
       );
     });
@@ -85,6 +89,18 @@ describe('NodeExecutor', () => {
           code: 'NODE_EXECUTION_FAILED',
         }),
       );
+    });
+
+    it('rejects object prompts before creating billable tasks', async () => {
+      // execute reads only job.data; Bull lifecycle methods are not needed for this unit boundary.
+      const job = { data: {
+        runId: 'run', nodeId: 'n', nodeType: 'model', apiKey: 'billing-key',
+        nodeData: { modelId: 'm', parameters: { prompt: { text: 'not a string' } } },
+        input: {}, context: { input: {}, nodeOutputs: {} },
+      } } as unknown as Parameters<NodeExecutor['execute']>[0];
+      await executor.execute(job);
+      expect(taskService.createTask).not.toHaveBeenCalled();
+      expect(executionService.onNodeFailed).toHaveBeenCalledWith('run', 'n', expect.objectContaining({ message: '模型 prompt 参数必须是纯文本' }));
     });
   });
 
@@ -148,6 +164,126 @@ describe('NodeExecutor', () => {
   });
 
   describe('executeLoopNode', () => {
+    it.each([
+      { value: 7, other: 1 },
+      { result: 'x', other: 1 },
+      { output: 'x', other: 1 },
+      { value: 7 },
+      { results: [1, 2] },
+    ])('roundtrips last-loop business object %j through its output aliases', async (lastItem) => {
+      const nodeData: NodeExecutionJob['nodeData'] = { loopConfig: {
+        inputArray: '$input.items', outputMode: 'last', parallelism: 'sequential',
+      } };
+      const data: NodeExecutionJob = {
+        runId: 'last-run', nodeId: 'loop', nodeType: 'loop', nodeData,
+        input: { items: [lastItem] }, context: { input: {}, nodeOutputs: {} },
+      };
+      // The execute method consumes only data at this Bull unit boundary.
+      const job = { data } as unknown as Parameters<NodeExecutor['execute']>[0];
+      await executor.execute(job);
+      expect(executionService.onNodeFailed).not.toHaveBeenCalled();
+      const output = executionService.onNodeComplete.mock.calls[0][2];
+      const node = { type: 'loop' as const, data: nodeData };
+      expect(readOutputPort(node, output, 'result')).toEqual(lastItem);
+      expect(readOutputPort(node, output, 'output')).toEqual(lastItem);
+      expect(() => readOutputPort(node, output, 'missing')).toThrow('缺少输出端口');
+    });
+
+    it.each([
+      { lastItem: 0, expected: 0 },
+      { lastItem: false, expected: false },
+      { lastItem: 'last', expected: 'last' },
+      { lastItem: '', expected: '' },
+      { lastItem: null, expected: null },
+      { lastItem: [1, 2], expected: [1, 2] },
+      { lastItem: [], expected: [] },
+      { lastItem: { value: 7, other: 1 }, expected: 7 },
+      { lastItem: { value: null }, expected: null },
+      { lastItem: { value: false }, expected: false },
+      { lastItem: { value: 0 }, expected: 0 },
+      { lastItem: { value: '', result: 'business result', output: 'business output' }, expected: '' },
+    ])('delivers last-loop value $lastItem to a downstream node', async ({ lastItem, expected }) => {
+      const nodeData: NodeExecutionJob['nodeData'] = { loopConfig: {
+        inputArray: '$input.items', outputMode: 'last', parallelism: 'sequential',
+      } };
+      const data: NodeExecutionJob = {
+        runId: 'last-run', nodeId: 'loop', nodeType: 'loop', nodeData,
+        input: { items: [lastItem] }, context: { input: {}, nodeOutputs: {} },
+      };
+      await executor.execute({ data } as Parameters<NodeExecutor['execute']>[0]);
+      expect(executionService.onNodeFailed).not.toHaveBeenCalled();
+      const output = executionService.onNodeComplete.mock.calls[0][2];
+      const node = { type: 'loop' as const, data: nodeData };
+      const input: Record<string, unknown> = {};
+      assignPortInput(input, { type: 'output' }, 'value', readOutputPort(node, output, 'value'));
+      await executor.execute({ data: {
+        runId: 'last-run', nodeId: 'downstream', nodeType: 'output', nodeData: {},
+        input, context: { input: {}, nodeOutputs: {} },
+      } } as Parameters<NodeExecutor['execute']>[0]);
+      expect(executionService.onNodeComplete).toHaveBeenLastCalledWith('last-run', 'downstream', { value: expected });
+      expect(executionService.onNodeFailed).not.toHaveBeenCalled();
+      expect(taskService.createTask).not.toHaveBeenCalled();
+      expect(readOutputPort(node, output, 'result')).toEqual(lastItem);
+      expect(readOutputPort(node, output, 'output')).toEqual(lastItem);
+      for (const port of ['missing', '__proto__', 'constructor', 'prototype']) {
+        expect(() => readOutputPort(node, output, port)).toThrow();
+      }
+    });
+
+    it.each([
+      { items: [] },
+      { items: [undefined] },
+      { items: [{ value: undefined }] },
+      { items: [{}] },
+      { items: [{ result: 'business result', output: 'business output' }] },
+      { items: [Object.create({ value: 'inherited' })] },
+    ])('rejects absent last-loop value from $items', async ({ items }) => {
+      const nodeData: NodeExecutionJob['nodeData'] = { loopConfig: {
+        inputArray: '$input.items', outputMode: 'last', parallelism: 'sequential',
+      } };
+      const data: NodeExecutionJob = {
+        runId: 'last-run', nodeId: 'loop', nodeType: 'loop', nodeData,
+        input: { items }, context: { input: {}, nodeOutputs: {} },
+      };
+      await executor.execute({ data } as Parameters<NodeExecutor['execute']>[0]);
+      expect(executionService.onNodeFailed).not.toHaveBeenCalled();
+      const output = executionService.onNodeComplete.mock.calls[0][2];
+      const node = { type: 'loop' as const, data: nodeData };
+      expect(readOutputPort(node, output, 'result')).toBe(items.at(-1));
+      expect(readOutputPort(node, output, 'output')).toBe(items.at(-1));
+      expect(() => readOutputPort(node, output, 'value')).toThrow('缺少输出端口');
+      if (items.length === 0 || items[0] === undefined) {
+        for (const port of ['result', 'output']) {
+          expect(() => assignPortInput({}, { type: 'output' }, 'value', readOutputPort(node, output, port))).toThrow('缺少值');
+        }
+      }
+    });
+
+    it.each([
+      { value: 0 },
+      { value: false },
+      { value: '' },
+      { value: null },
+      { value: [] },
+      { value: { nested: 'business value' } },
+    ])(
+      'preserves unversioned last-loop value wrappers for %j',
+      ({ value }) => {
+        const node = { type: 'loop' as const, data: { loopConfig: {
+          inputArray: '$input.items', outputMode: 'last' as const, parallelism: 'sequential' as const,
+        } } };
+        const legacyOutput = { value };
+        for (const port of ['value', 'result', 'output']) {
+          const input: Record<string, unknown> = {};
+          assignPortInput(input, { type: 'output' }, 'value', readOutputPort(node, legacyOutput, port));
+          expect(input.value).toBe(value);
+        }
+        for (const port of ['missing', '__proto__', 'constructor', 'prototype']) {
+          expect(() => readOutputPort(node, legacyOutput, port)).toThrow();
+        }
+      },
+    );
+
     it('应正确执行循环节点', async () => {
       const job: NodeExecutionJob = {
         runId: 'test-run-5',

@@ -25,5 +25,5 @@ export function getModelTypeForNode(nodeType: NodeType): string | undefined {
 }
 
 export function nodeTypeSupportsModel(nodeType: NodeType): boolean {
-  return nodeType in NODE_TYPE_TO_MODEL_TYPE;
+  return !['condition', 'loop', 'input', 'output', 'transform'].includes(nodeType);
 }

@@ -42,6 +42,13 @@ export interface WorkflowNode {
     /** type=model 时必填 */
     modelId?: string;
     parameters?: Record<string, any>;
+    textDocument?: {
+      blocks: Array<{
+        type: 'paragraph' | 'h1' | 'h2' | 'h3' | 'bullet' | 'ordered';
+        children: Array<{ text: string; bold?: boolean; italic?: boolean; color?: string }>;
+      }>;
+    };
+    messages?: Array<{ role: 'user' | 'assistant'; content: string }>;
     /** type=condition 时的条件规则 */
     conditions?: ConditionRule[];
     /** type=loop 时的循环配置 */

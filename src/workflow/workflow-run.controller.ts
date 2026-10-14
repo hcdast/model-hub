@@ -29,6 +29,7 @@ import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
 import { Client, ClientId, ClientInfo } from '../auth/decorators/client-info.decorator';
 import { Observable, fromEvent, map, from, switchMap } from 'rxjs';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ListWorkflowRunsQueryDto } from './dto/create-workflow.dto';
 
 interface WorkflowRunEvent {
   runId: string;
@@ -48,6 +49,17 @@ export class WorkflowRunController {
     private readonly executionService: WorkflowExecutionService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
+
+  @Get(':workflowId/runs')
+  @ApiOperation({ summary: '分页查询当前用户的工作流运行历史' })
+  async listRuns(
+    @Param('workflowId') workflowId: string,
+    @Query() query: ListWorkflowRunsQueryDto,
+    @ClientId() clientId: string,
+  ) {
+    const data = await this.executionService.listWorkflowRuns(workflowId, clientId, query);
+    return { code: 0, message: 'Success', data };
+  }
 
   /**
    * 单节点执行

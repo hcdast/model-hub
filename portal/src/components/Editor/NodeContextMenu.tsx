@@ -8,6 +8,7 @@ import {
   HistoryOutlined,
   ExportOutlined,
   QuestionCircleOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import tokens from '../../theme/dark';
 
@@ -32,6 +33,11 @@ interface Props {
   onDuplicate: () => void;
   onDelete: () => void;
   onRun: () => void;
+  onConfigure: () => void;
+  onSaveAsset: () => void;
+  onHistory: () => void;
+  onFeedback: () => void;
+  onSystemCopy: () => void;
   canPaste: boolean;
   canRun: boolean;
 }
@@ -39,13 +45,14 @@ interface Props {
 export default function NodeContextMenu({
   open,
   position,
-  nodeType,
   onClose,
   onCopy,
   onPaste,
   onDuplicate,
   onDelete,
   onRun,
+  onConfigure,
+  onSaveAsset, onHistory, onFeedback, onSystemCopy,
   canPaste,
   canRun,
 }: Props) {
@@ -71,25 +78,26 @@ export default function NodeContextMenu({
 
   if (!open) return null;
 
-  const isMediaNode = nodeType && [
-    'text-to-image', 'image-to-image', 'image-editor', 'image-upscale',
-    'text-to-video', 'image-to-video', 'video-to-video', 'video-upscale',
-    'character-create', 'face-swap', 'character-swap',
-  ].includes(nodeType);
 
   const items: ContextMenuItem[] = [
-    ...(isMediaNode ? [{
+    {
+      key: 'configure',
+      label: '完整配置',
+      icon: <SettingOutlined />,
+      onClick: () => { onConfigure(); onClose(); },
+    },
+    {
       key: 'save-asset',
       label: '保存到素材库',
       icon: <SaveOutlined />,
-      onClick: () => { onClose(); },
-    }] : []),
-    ...(isMediaNode ? [{
+      onClick: () => { onSaveAsset(); onClose(); },
+    },
+    {
       key: 'apply-history',
-      label: '应用所有历史',
+      label: '选择历史输出',
       icon: <HistoryOutlined />,
-      onClick: () => { onClose(); },
-    }] : []),
+      onClick: () => { onHistory(); onClose(); },
+    },
     {
       key: 'run',
       label: '运行此节点',
@@ -131,14 +139,14 @@ export default function NodeContextMenu({
       key: 'clipboard',
       label: '复制到剪贴板',
       icon: <ExportOutlined />,
-      onClick: () => { onCopy(); onClose(); },
+      onClick: () => { onSystemCopy(); onClose(); },
     },
     {
       key: 'feedback',
       label: '反馈问题',
       icon: <QuestionCircleOutlined />,
       dividerBefore: true,
-      onClick: () => { onClose(); },
+      onClick: () => { onFeedback(); onClose(); },
     },
   ];
 

@@ -18,6 +18,8 @@ import {
   ArrayUnique,
   IsNotEmpty,
   MaxLength,
+  IsBoolean,
+  Matches,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 
@@ -90,6 +92,52 @@ export class TransformConfigDto {
   expression!: string;
 }
 
+export class TextSpanDto {
+  @IsString()
+  @MaxLength(100000)
+  text!: string;
+
+  @IsOptional()
+  @IsBoolean()
+  bold?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  italic?: boolean;
+
+  @IsOptional()
+  @Matches(/^#[0-9a-fA-F]{6}$/)
+  color?: string;
+}
+
+export class TextBlockDto {
+  @IsIn(['paragraph', 'h1', 'h2', 'h3', 'bullet', 'ordered'])
+  type!: 'paragraph' | 'h1' | 'h2' | 'h3' | 'bullet' | 'ordered';
+
+  @IsArray()
+  @ArrayMaxSize(1000)
+  @ValidateNested({ each: true })
+  @Type(() => TextSpanDto)
+  children!: TextSpanDto[];
+}
+
+export class TextDocumentDto {
+  @IsArray()
+  @ArrayMaxSize(1000)
+  @ValidateNested({ each: true })
+  @Type(() => TextBlockDto)
+  blocks!: TextBlockDto[];
+}
+
+export class ChatMessageDto {
+  @IsIn(['user', 'assistant'])
+  role!: 'user' | 'assistant';
+
+  @IsString()
+  @MaxLength(100000)
+  content!: string;
+}
+
 /**
  * 节点数据 DTO
  */
@@ -116,6 +164,19 @@ export class NodeDataDto {
   @IsOptional()
   @IsObject()
   parameters?: Record<string, any>;
+
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => TextDocumentDto)
+  textDocument?: TextDocumentDto;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => ChatMessageDto)
+  messages?: ChatMessageDto[];
 
   @ApiPropertyOptional({ description: '条件规则（type=condition 时）', type: [ConditionRuleDto] })
   @IsOptional()
@@ -253,6 +314,25 @@ export class ListWorkflowQueryDto {
   page?: number;
 
   @ApiPropertyOptional({ minimum: 1, maximum: 100, default: 20 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  pageSize?: number;
+}
+
+export class ListWorkflowRunsQueryDto {
+  @IsOptional()
+  @IsIn(['pending', 'running', 'succeeded', 'failed', 'cancelled'])
+  status?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()

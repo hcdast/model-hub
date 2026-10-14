@@ -11,13 +11,15 @@ import AnchoredDropdown from './AnchoredDropdown';
 interface Props {
   nodeType: NodeType;
   value?: string;
-  onChange: (modelId: string, model?: ModelConfigItem) => void;
+  onChange: (modelId: string, model?: ModelConfigItem) => void | Promise<void>;
 }
 
 /** 底部 ✦ 模型选择器（数据来自 model_configs） */
 export default function InlineModelPicker({ nodeType, value, onChange }: Props) {
-  const { models, loading } = useModels(nodeTypeSupportsModel(nodeType) ? nodeType : undefined);
+  const { models, loading, error, retry } = useModels(nodeTypeSupportsModel(nodeType) ? nodeType : undefined);
   const [open, setOpen] = useState(false);
+  const [selectionError, setSelectionError] = useState<string>();
+  const [selecting, setSelecting] = useState(false);
 
   if (!nodeTypeSupportsModel(nodeType)) return null;
 
@@ -42,6 +44,7 @@ export default function InlineModelPicker({ nodeType, value, onChange }: Props) 
         </button>
       )}
     >
+      {(error || selectionError) && <div role="alert" style={{ padding: 12, color: '#ff7875' }}>{error || selectionError}{error && <button type="button" onClick={retry}>重试</button>}</div>}
       {loading ? (
         <div style={{ padding: 16, textAlign: 'center' }}><Spin size="small" /></div>
       ) : models.length === 0 ? (
@@ -51,7 +54,14 @@ export default function InlineModelPicker({ nodeType, value, onChange }: Props) 
           <button
             key={m.model_id}
             type="button"
-            onClick={(e) => { e.stopPropagation(); onChange(m.model_id, m); setOpen(false); }}
+            disabled={m.disabled || selecting}
+            title={m.disabled ? '该模型已停用' : undefined}
+            onClick={async (e) => {
+              e.stopPropagation(); setSelectionError(undefined); setSelecting(true);
+              try { await onChange(m.model_id, m); setOpen(false); }
+              catch (failure) { setSelectionError(failure instanceof Error ? failure.message : '模型加载失败，请重新选择重试'); }
+              finally { setSelecting(false); }
+            }}
             className={`tapnow-model-option${value === m.model_id ? ' tapnow-model-option--active' : ''}`}
           >
             <div style={{ fontWeight: 500 }}>{formatModelDisplayName(m)}</div>

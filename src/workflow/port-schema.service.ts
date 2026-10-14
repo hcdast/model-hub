@@ -55,12 +55,14 @@ export class PortSchemaService {
         },
       ],
       outputPorts: [
-        {
-          name: 'result',
-          displayName: '结果',
-          dataType: 'array',
-          description: '模型任务结果（URL 数组）',
-        },
+        { name: 'result', displayName: '原始结果', dataType: 'any' },
+        { name: 'output', displayName: '输出', dataType: 'any' },
+        { name: 'json', displayName: '结构化结果', dataType: 'any' },
+        { name: 'text', displayName: '文本', dataType: 'string' },
+        { name: 'image', displayName: '图片 URL', dataType: 'string' },
+        { name: 'video', displayName: '视频 URL', dataType: 'string' },
+        { name: 'audio', displayName: '音频 URL', dataType: 'string' },
+        { name: 'taskId', displayName: '任务 ID', dataType: 'string' },
       ],
     };
 

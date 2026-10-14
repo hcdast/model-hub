@@ -1,4 +1,4 @@
-import { Select, Spin } from 'antd';
+import { Button, Select, Spin } from 'antd';
 import { useModels } from '../../hooks/useModels';
 import { NodeType } from '../../types/node-types';
 import { nodeTypeSupportsModel } from '../../utils/model-type-map';
@@ -11,9 +11,10 @@ interface Props {
 }
 
 export default function ModelSelect({ nodeType, value, onChange, placeholder = '选择模型' }: Props) {
-  const { models, loading } = useModels(nodeTypeSupportsModel(nodeType) ? nodeType : undefined);
+  const { models, loading, error, retry } = useModels(nodeTypeSupportsModel(nodeType) ? nodeType : undefined);
 
   if (!nodeTypeSupportsModel(nodeType)) return null;
+  if (error) return <div role="alert">{error}<Button onClick={retry}>重试</Button></div>;
 
   return (
     <Select
@@ -28,6 +29,7 @@ export default function ModelSelect({ nodeType, value, onChange, placeholder = '
       options={models.map((m) => ({
         label: m.model_id,
         value: m.model_id,
+        disabled: m.disabled,
       }))}
     />
   );

@@ -101,6 +101,59 @@ describe('Workflow Integration Tests', () => {
     await runModel.deleteMany({});
   });
 
+  it('persists editor fields and isolates paginated run history by workflow and owner', async () => {
+    const definition = {
+      name: 'editor roundtrip',
+      nodes: [{ id: 'n', type: 'input' as const, position: { x: 1, y: 2 }, data: {
+        textDocument: { blocks: [{ type: 'h2' as const, children: [{ text: 'saved', bold: true, color: '#112233' }] }] },
+        messages: [{ role: 'user' as const, content: 'saved' }],
+      } }],
+      viewport: { x: 20, y: 30, zoom: 1.5 },
+      edges: [{ id: 'e', source: { nodeId: 'n', port: 'output' }, target: { nodeId: 'later', port: 'input' }, label: 'saved label', branchId: 'branch' }],
+    };
+    const workflow = await workflowService.create(definition, 'owner-a');
+    const reloaded = await workflowService.findById(workflow._id.toString(), 'owner-a');
+    expect(reloaded?.nodes).toEqual(definition.nodes);
+    expect(reloaded?.edges).toEqual(definition.edges);
+    expect(reloaded?.viewport).toEqual(definition.viewport);
+    await workflowService.update(workflow._id.toString(), { viewport: { x: 1, y: 2, zoom: 2 } }, 'owner-a');
+    expect((await workflowService.findById(workflow._id.toString(), 'owner-a'))?.viewport?.zoom).toBe(2);
+    for (const [runId, triggerId, status] of [['a1', 'owner-a', 'succeeded'], ['a2', 'owner-a', 'succeeded'], ['a3', 'owner-a', 'failed'], ['b1', 'owner-b', 'succeeded']]) {
+      await runModel.create({ runId, triggerId, status, workflowId: workflow._id.toString(), workflowVersion: 0, parentTaskId: runId });
+    }
+    const first = await executionService.listWorkflowRuns(workflow._id.toString(), 'owner-a', { status: 'succeeded', pageSize: 1 });
+    const second = await executionService.listWorkflowRuns(workflow._id.toString(), 'owner-a', { status: 'succeeded', pageSize: 1, page: 2 });
+    expect(first.total).toBe(2);
+    expect(first.items).toHaveLength(1);
+    expect(first.items[0].triggerId).toBe('owner-a');
+    expect(second.items[0].runId).not.toBe(first.items[0].runId);
+    await expect(executionService.listWorkflowRuns(workflow._id.toString(), 'owner-b', {})).rejects.toThrow('Workflow not found');
+  });
+
+  it('fails a missing upstream port instead of silently passing the whole object', async () => {
+    const workflow = await workflowService.create({
+      name: 'missing upstream port',
+      nodes: [
+        { id: 'a', type: 'input', position: { x: 0, y: 0 }, data: {} },
+        { id: 'b', type: 'transform', position: { x: 1, y: 0 }, data: { transform: { expression: '$input.value' } } },
+      ],
+      edges: [{ id: 'e', source: { nodeId: 'a', port: 'missing' }, target: { nodeId: 'b', port: 'value' } }],
+    }, 'owner-a');
+    const started = await executionService.run(workflow._id.toString(), {}, 'owner-a');
+    await executionService.onNodeComplete(started.runId, 'a', { different: 'not the requested port' });
+    const run = await executionService.getStatus(started.runId, 'owner-a');
+    expect(run?.status).toBe('failed');
+    expect(run?.nodeStates.find((state) => state.nodeId === 'b')?.error?.code).toBe('NODE_INPUT_INVALID');
+  });
+
+  it('keeps cancellation terminal after late successful callbacks', async () => {
+    const workflow = await workflowService.create({ name: 'terminal cancellation', nodes: [{ id: 'n', type: 'input', position: { x: 0, y: 0 }, data: {} }] }, 'owner-a');
+    const started = await executionService.run(workflow._id.toString(), {}, 'owner-a');
+    await executionService.cancel(started.runId, 'owner-a');
+    await executionService.onNodeComplete(started.runId, 'n', { text: 'late result' });
+    expect((await executionService.getStatus(started.runId, 'owner-a'))?.status).toBe('cancelled');
+  });
+
   describe('完整工作流执行流程', () => {
     it('应成功创建、执行、查询和取消工作流', async () => {
       // 1. 创建工作流

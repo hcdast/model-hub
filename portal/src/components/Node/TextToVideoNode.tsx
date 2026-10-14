@@ -1,22 +1,26 @@
 import { memo, useCallback } from 'react';
 import { NodeProps } from 'reactflow';
 import { Progress } from 'antd';
-import { PlayCircleOutlined, VideoCameraOutlined } from '@ant-design/icons';
+import { VideoCameraOutlined } from '@ant-design/icons';
 import { WorkflowNodeData } from '../../store/workflow-store';
 import { getNodeDefinition } from '../../types/node-types';
 import { useWorkflowEditor } from '../../contexts/WorkflowEditorContext';
 import { useNodeModelConfig } from '../../hooks/useNodeModelConfig';
+import { useNodePorts } from '../../hooks/useNodePorts';
 import ExpandedNodeShell from './ExpandedNodeShell';
 import InlineModelPicker from './InlineModelPicker';
 import ModelParamChips from './ModelParamChips';
+import NodeOutputPreview from './NodeOutputPreview';
+import ModelExecutionControls from './ModelExecutionControls';
 
 function TextToVideoNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
   const { onRunNode, onUpdateNode } = useWorkflowEditor();
   const status = data.executionStatus || 'idle';
   const nodeDef = getNodeDefinition(data.type);
   const accentColor = nodeDef?.color || '#3b82f6';
-  const prompt = data.parameters?.prompt || '';
+  const prompt = typeof data.parameters?.prompt === 'string' ? data.parameters.prompt : '';
   const isRunning = status === 'running';
+  const ports = useNodePorts(data.modelId);
 
   const { updateModel, updateParam } = useNodeModelConfig({
     nodeId: id,
@@ -36,19 +40,18 @@ function TextToVideoNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
       subLabel="Video"
       accentColor={accentColor}
       status={status}
-      inputPorts={[
-        { id: 'prompt', position: 'top' },
-        { id: 'reference', position: 'bottom' },
-      ]}
-      outputPorts={[{ id: 'video', position: 'middle' }]}
+      inputPorts={ports.inputPorts}
+      outputPorts={ports.outputPorts}
+      portState={ports}
       isRunning={isRunning}
       onRun={() => onRunNode(id)}
       nodeId={id}
+      prompt={prompt}
+      onPromptChange={updatePrompt}
+      footerExtra={<ModelExecutionControls modelId={data.modelId} parameters={data.parameters} onParamChange={updateParam} />}
       collapsedContent={
-        status === 'success' && data.output?.video ? (
-          <div style={{ borderRadius: 10, overflow: 'hidden', background: '#0a0a0a', height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <PlayCircleOutlined style={{ fontSize: 32, color: accentColor, opacity: 0.7 }} />
-          </div>
+        data.output ? (
+          <NodeOutputPreview output={data.output} />
         ) : prompt ? (
           <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)', lineHeight: 1.75 }}>{prompt}</div>
         ) : (
@@ -60,7 +63,8 @@ function TextToVideoNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
       expandedContent={
         <>
           <textarea
-            className="tapnow-prompt-input"
+            className="tapnow-prompt-input nodrag nopan nowheel"
+            aria-label="视频提示词"
             value={prompt}
             onChange={(e) => updatePrompt(e.target.value)}
             placeholder="描述视频画面与运动..."

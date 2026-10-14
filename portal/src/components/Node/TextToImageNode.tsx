@@ -6,16 +6,20 @@ import { WorkflowNodeData } from '../../store/workflow-store';
 import { getNodeDefinition } from '../../types/node-types';
 import { useWorkflowEditor } from '../../contexts/WorkflowEditorContext';
 import { useNodeModelConfig } from '../../hooks/useNodeModelConfig';
+import { useNodePorts } from '../../hooks/useNodePorts';
 import ExpandedNodeShell from './ExpandedNodeShell';
 import InlineModelPicker from './InlineModelPicker';
 import ModelParamChips from './ModelParamChips';
+import NodeOutputPreview from './NodeOutputPreview';
+import ModelExecutionControls from './ModelExecutionControls';
 
 function TextToImageNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
   const { onRunNode, onUpdateNode } = useWorkflowEditor();
   const status = data.executionStatus || 'idle';
   const nodeDef = getNodeDefinition(data.type);
   const accentColor = nodeDef?.color || '#f59e0b';
-  const prompt = data.parameters?.prompt || '';
+  const prompt = typeof data.parameters?.prompt === 'string' ? data.parameters.prompt : '';
+  const ports = useNodePorts(data.modelId);
 
   const { updateModel, updateParam } = useNodeModelConfig({
     nodeId: id,
@@ -35,20 +39,18 @@ function TextToImageNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
       subLabel="Image"
       accentColor={accentColor}
       status={status}
-      inputPorts={[
-        { id: 'prompt', position: 'top' },
-        { id: 'negative_prompt', position: 'middle' },
-        { id: 'reference', position: 'bottom' },
-      ]}
-      outputPorts={[{ id: 'image', position: 'middle' }]}
+      inputPorts={ports.inputPorts}
+      outputPorts={ports.outputPorts}
+      portState={ports}
       isRunning={status === 'running'}
       onRun={() => onRunNode(id)}
       nodeId={id}
+      prompt={prompt}
+      onPromptChange={updatePrompt}
+      footerExtra={<ModelExecutionControls modelId={data.modelId} parameters={data.parameters} onParamChange={updateParam} />}
       collapsedContent={
-        status === 'success' && data.output?.image ? (
-          <div style={{ borderRadius: 10, overflow: 'hidden', background: '#0a0a0a' }}>
-            <img src={data.output.image} alt="Preview" style={{ width: '100%', display: 'block', maxHeight: 200, objectFit: 'cover' }} />
-          </div>
+        data.output ? (
+          <NodeOutputPreview output={data.output} />
         ) : prompt ? (
           <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)', lineHeight: 1.75 }}>{prompt}</div>
         ) : (
@@ -60,7 +62,8 @@ function TextToImageNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
       expandedContent={
         <>
           <textarea
-            className="tapnow-prompt-input"
+            className="tapnow-prompt-input nodrag nopan nowheel"
+            aria-label="图片提示词"
             value={prompt}
             onChange={(e) => updatePrompt(e.target.value)}
             placeholder="描述你想生成的图片..."

@@ -1,6 +1,6 @@
-import { memo } from 'react';
-import { Handle, Position, NodeProps } from 'reactflow';
-import { Tag } from 'antd';
+import { memo, useEffect } from 'react';
+import { Handle, Position, NodeProps, useUpdateNodeInternals } from 'reactflow';
+import { Button } from 'antd';
 import {
   AppstoreOutlined,
   LoadingOutlined,
@@ -9,6 +9,12 @@ import {
 } from '@ant-design/icons';
 import tokens from '../../theme/dark';
 import { WorkflowNodeData } from '../../store/workflow-store';
+import { useWorkflowEditor } from '../../contexts/WorkflowEditorContext';
+import { useNodeModelConfig } from '../../hooks/useNodeModelConfig';
+import InlineModelPicker from './InlineModelPicker';
+import ModelParamChips from './ModelParamChips';
+import NodeOutputPreview from './NodeOutputPreview';
+import { useNodePorts } from '../../hooks/useNodePorts';
 
 const statusIcons: Record<string, React.ReactNode> = {
   idle: null,
@@ -17,7 +23,13 @@ const statusIcons: Record<string, React.ReactNode> = {
   error: <CloseCircleOutlined style={{ color: tokens.status.error }} />,
 };
 
-function ModelNode({ data, selected }: NodeProps<WorkflowNodeData>) {
+function ModelNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
+  const { onUpdateNode, onOpenParameters, onRunNode, onConnectPort } = useWorkflowEditor();
+  const { updateModel, updateParam } = useNodeModelConfig({ nodeId: id, nodeType: data.type, modelId: data.modelId, parameters: data.parameters, onUpdateNode });
+  const ports = useNodePorts(data.modelId);
+  const updateInternals = useUpdateNodeInternals();
+  const portIds = JSON.stringify([ports.inputPorts.map((port) => port.id), ports.outputPorts.map((port) => port.id)]);
+  useEffect(() => { updateInternals(id); }, [id, portIds, updateInternals]);
   const status = data.executionStatus || 'idle';
   const hasError = status === 'error';
 
@@ -25,13 +37,14 @@ function ModelNode({ data, selected }: NodeProps<WorkflowNodeData>) {
     <div
       style={{
         background: tokens.bg.tertiary,
+        minHeight: Math.max(ports.inputPorts.length, ports.outputPorts.length) * 24 + 24,
         border: `1px solid ${selected ? tokens.accent.primary : hasError ? tokens.status.error : tokens.border.default}`,
         borderRadius: tokens.radius.lg,
         padding: 0,
         minWidth: 200,
         boxShadow: selected ? tokens.shadow.glow : tokens.shadow.sm,
         transition: 'all 0.2s ease',
-        overflow: 'hidden',
+        overflow: 'visible',
       }}
     >
       {/* 头部 */}
@@ -77,55 +90,19 @@ function ModelNode({ data, selected }: NodeProps<WorkflowNodeData>) {
         padding: `${tokens.spacing.sm} ${tokens.spacing.md}`,
         minHeight: 40,
       }}>
-        {data.modelId ? (
-          <Tag
-            style={{
-              background: `${tokens.accent.secondary}20`,
-              color: tokens.accent.secondary,
-              border: 'none',
-              fontSize: tokens.font.size.xs,
-              margin: 0,
-            }}
-          >
-            {data.modelId}
-          </Tag>
-        ) : (
-          <span style={{
-            fontSize: tokens.font.size.xs,
-            color: tokens.text.tertiary,
-          }}>
-            Click to configure
-          </span>
-        )}
+        <div className="nodrag nowheel" style={{ maxWidth: 360 }}>
+          <InlineModelPicker nodeType={data.type} value={data.modelId} onChange={updateModel} />
+          <ModelParamChips modelId={data.modelId} parameters={data.parameters} onParamChange={updateParam} />
+          <Button onClick={() => onOpenParameters(id)}>完整配置</Button>
+          <Button disabled={status === 'running'} onClick={() => onRunNode(id)}>运行节点</Button>
+          {ports.loading && <div>端口加载中…</div>}
+          {ports.error && <div role="alert">{ports.error}<Button onClick={ports.retry}>重试端口</Button></div>}
+          {data.output !== undefined && <NodeOutputPreview output={data.output} />}
+        </div>
       </div>
 
-      {/* 输入端口 */}
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="input"
-        style={{
-          width: 10,
-          height: 10,
-          background: tokens.accent.primary,
-          border: `2px solid ${tokens.bg.tertiary}`,
-          left: -5,
-        }}
-      />
-
-      {/* 输出端口 */}
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="output"
-        style={{
-          width: 10,
-          height: 10,
-          background: tokens.accent.primary,
-          border: `2px solid ${tokens.bg.tertiary}`,
-          right: -5,
-        }}
-      />
+      {ports.inputPorts.map((port, index) => <Handle key={`target:${port.id}`} type="target" position={Position.Left} id={port.id} title={`输入：${port.displayName || port.name}（${port.dataType}）`} onClick={(event) => { event.stopPropagation(); onConnectPort(id, port.id, 'target'); }} style={{ width: 10, height: 10, background: tokens.accent.primary, border: `2px solid ${tokens.bg.tertiary}`, left: -5, top: `${(index + 1) * 100 / (ports.inputPorts.length + 1)}%` }} />)}
+      {ports.outputPorts.map((port, index) => <Handle key={`source:${port.id}`} type="source" position={Position.Right} id={port.id} title={`输出：${port.displayName || port.name}（${port.dataType}）`} onClick={(event) => { event.stopPropagation(); onConnectPort(id, port.id, 'source'); }} style={{ width: 10, height: 10, background: tokens.accent.primary, border: `2px solid ${tokens.bg.tertiary}`, right: -5, top: `${(index + 1) * 100 / (ports.outputPorts.length + 1)}%` }} />)}
     </div>
   );
 }

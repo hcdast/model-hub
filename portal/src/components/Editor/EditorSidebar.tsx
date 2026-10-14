@@ -8,7 +8,7 @@ import {
 } from '@ant-design/icons';
 import tokens from '../../theme/dark';
 
-export type SidebarAction = 'add' | 'assets' | 'templates' | 'chat' | 'history';
+export type SidebarAction = 'add' | 'assets' | 'templates' | 'chat' | 'history' | 'profile';
 
 interface Props {
   activeAction?: SidebarAction | null;
@@ -70,7 +70,7 @@ export default function EditorSidebar({ activeAction, onAction, userInitial = 'C
       <div style={{ width: 24, height: 1, background: tokens.border.default, margin: '4px 0' }} />
 
       {/* 用户头像 */}
-      <div
+      <button type="button" aria-label="个人资料" onClick={() => onAction('profile')}
         style={{
           width: 36,
           height: 36,
@@ -82,11 +82,11 @@ export default function EditorSidebar({ activeAction, onAction, userInitial = 'C
           fontSize: 14,
           fontWeight: 600,
           color: '#fff',
-          cursor: 'default',
+          cursor: 'pointer', border: 'none',
         }}
       >
         {userInitial}
-      </div>
+      </button>
     </div>
   );
 }

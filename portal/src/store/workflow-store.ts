@@ -8,6 +8,11 @@ export interface WorkflowNodeData {
   type: NodeType;
   modelId?: string;
   parameters?: Record<string, any>;
+  textDocument?: { blocks: Array<{
+    type: 'paragraph' | 'h1' | 'h2' | 'h3' | 'bullet' | 'ordered';
+    children: Array<{ text: string; bold?: boolean; italic?: boolean; color?: string }>;
+  }> };
+  messages?: Array<{ role: 'user' | 'assistant'; content: string }>;
   conditions?: Array<{ expression: string; branchId: string }>;
   loopConfig?: {
     inputArray: string;

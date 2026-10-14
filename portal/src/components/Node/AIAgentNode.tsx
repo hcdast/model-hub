@@ -3,92 +3,33 @@ import { NodeProps } from 'reactflow';
 import { WorkflowNodeData } from '../../store/workflow-store';
 import { useWorkflowEditor } from '../../contexts/WorkflowEditorContext';
 import { useNodeModelConfig } from '../../hooks/useNodeModelConfig';
+import { useNodePorts } from '../../hooks/useNodePorts';
+import tokens from '../../theme/dark';
 import ExpandedNodeShell from './ExpandedNodeShell';
 import InlineModelPicker from './InlineModelPicker';
 import ModelParamChips from './ModelParamChips';
+import ModelExecutionControls from './ModelExecutionControls';
+import NodeOutputPreview from './NodeOutputPreview';
+import StructuredTextEditor, { StructuredTextPreview } from './StructuredTextEditor';
 
 function AIAgentNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
   const { onRunNode, onUpdateNode } = useWorkflowEditor();
   const status = data.executionStatus || 'idle';
-  const prompt = data.parameters?.prompt || '';
-
-  const { updateModel, updateParam } = useNodeModelConfig({
-    nodeId: id,
-    nodeType: data.type,
-    modelId: data.modelId,
-    parameters: data.parameters,
-    onUpdateNode: onUpdateNode,
-  });
-
+  const prompt = typeof data.parameters?.prompt === 'string' ? data.parameters.prompt : '';
+  const { updateModel, updateParam } = useNodeModelConfig({ nodeId: id, nodeType: data.type, modelId: data.modelId, parameters: data.parameters, onUpdateNode });
+  const ports = useNodePorts(data.modelId);
   const updatePrompt = useCallback((value: string) => {
-    updateParam('prompt', value);
-  }, [updateParam]);
-
-  return (
-    <ExpandedNodeShell
-      selected={selected}
-      subLabel="Text"
-      accentColor="#6366f1"
-      status={status}
-      showTextToolbar={selected}
-      nodeId={id}
-      inputPorts={[{ id: 'context', position: 'middle' }]}
-      outputPorts={[
-        { id: 'text', position: 'top' },
-        { id: 'json', position: 'bottom' },
-      ]}
-      isRunning={status === 'running'}
-      onRun={() => onRunNode(id)}
-      collapsedContent={
-        prompt ? (
-          <div style={{
-            fontSize: 13,
-            color: 'rgba(255,255,255,0.85)',
-            lineHeight: 1.75,
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-          }}>
-            {prompt}
-          </div>
-        ) : (
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)', fontStyle: 'italic', lineHeight: 1.4 }}>
-            输入文本内容...
-          </div>
-        )
-      }
-      expandedContent={
-        <textarea
-          className="tapnow-prompt-input"
-          value={prompt}
-          onChange={(e) => updatePrompt(e.target.value)}
-          placeholder="输出图片的描述文本"
-          rows={1}
-          style={{
-            width: '100%',
-            background: 'transparent',
-            border: 'none',
-            outline: 'none',
-            resize: 'none',
-            color: 'rgba(255,255,255,0.85)',
-            fontSize: 13,
-            lineHeight: 1.5,
-            fontFamily: 'inherit',
-            minHeight: 22,
-          }}
-        />
-      }
-      footer={
-        <>
-          <InlineModelPicker nodeType={data.type} value={data.modelId} onChange={updateModel} />
-          <ModelParamChips
-            modelId={data.modelId}
-            parameters={data.parameters}
-            onParamChange={updateParam}
-          />
-        </>
-      }
-    />
-  );
+    onUpdateNode(id, { parameters: { ...data.parameters, prompt: value }, textDocument: { blocks: value.split('\n').map((text) => ({ type: 'paragraph', children: [{ text }] })) } });
+  }, [id, data.parameters, onUpdateNode]);
+  return <ExpandedNodeShell selected={selected} subLabel="Text" accentColor={tokens.accent.primary} status={status} nodeId={id}
+    prompt={prompt} onPromptChange={updatePrompt}
+    inputPorts={ports.inputPorts} outputPorts={ports.outputPorts} portState={ports}
+    isRunning={status === 'running'} onRun={() => onRunNode(id)}
+    collapsedContent={data.output ? <NodeOutputPreview output={data.output} /> : prompt ? <StructuredTextPreview value={data.textDocument} prompt={prompt} /> : <div style={{ color: tokens.text.secondary, fontSize: tokens.font.size.base }}>选中节点并输入文本内容…</div>}
+    expandedContent={<StructuredTextEditor value={data.textDocument} prompt={prompt} onChange={(textDocument, text) => onUpdateNode(id, { textDocument, parameters: { ...data.parameters, prompt: text } })} />}
+    footer={<><InlineModelPicker nodeType={data.type} value={data.modelId} onChange={updateModel} /><ModelParamChips modelId={data.modelId} parameters={data.parameters} onParamChange={updateParam} /></>}
+    footerExtra={<ModelExecutionControls modelId={data.modelId} parameters={data.parameters} onParamChange={updateParam} />}
+  />;
 }
 
 export default memo(AIAgentNode);

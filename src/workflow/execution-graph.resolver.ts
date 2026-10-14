@@ -12,6 +12,7 @@ import {
   ValidationResult,
   PortDefinition,
 } from './interfaces/execution-graph.interface';
+import { assignPortInput, isModelNode, isSafePort, readOutputPort } from './workflow-ports';
 
 /**
  * 执行图解析器
@@ -279,10 +280,9 @@ export class ExecutionGraphResolver {
     for (const edge of incomingEdges) {
       const sourceOutput = context.nodeOutputs.get(edge.sourceNodeId);
 
-      if (sourceOutput) {
-        // 从源节点输出中获取对应端口的值
-        result[edge.targetPort] = sourceOutput[edge.sourcePort];
-      }
+      const source = graph.nodes.get(edge.sourceNodeId);
+      if (!source) throw new Error(`源节点不存在: ${edge.sourceNodeId}`);
+      assignPortInput(result, node, edge.targetPort, readOutputPort(source, sourceOutput, edge.sourcePort));
     }
 
     return result;
@@ -306,13 +306,7 @@ export class ExecutionGraphResolver {
         errors.push({ nodeId: node.id, message: `节点 ID 重复: ${node.id}` });
       }
       nodeIds.add(node.id);
-      const modelBacked = ![
-        'condition',
-        'loop',
-        'input',
-        'output',
-        'transform',
-      ].includes(node.type);
+      const modelBacked = isModelNode(node);
       if (modelBacked && !node.data?.modelId) {
         errors.push({ nodeId: node.id, message: '模型节点缺少 modelId' });
       } else if (node.type === 'condition' && !node.data?.conditions?.length) {
@@ -322,8 +316,25 @@ export class ExecutionGraphResolver {
       } else if (node.type === 'transform' && !node.data?.transform?.expression) {
         errors.push({ nodeId: node.id, message: '转换节点缺少 expression' });
       }
+      if (modelBacked && node.data?.parameters?.prompt !== undefined && typeof node.data.parameters.prompt !== 'string') {
+        errors.push({ nodeId: node.id, message: '模型 prompt 参数必须是纯文本' });
+      }
+      if (node.type === 'loop' && !node.data?.loopConfig?.inputArray) {
+        errors.push({ nodeId: node.id, message: '循环节点缺少数组输入表达式' });
+      }
+      if (node.type === 'condition') {
+        const branches = new Set<string>();
+        for (const condition of node.data?.conditions ?? []) {
+          if (!isSafePort(condition.branchId) || branches.has(condition.branchId) || !condition.expression) {
+            errors.push({ nodeId: node.id, message: '条件分支必须具有唯一端口和有效表达式' });
+          }
+          branches.add(condition.branchId);
+        }
+      }
     }
     const edgeIds = new Set<string>();
+    const nodesById = new Map(workflow.nodes.map((node) => [node.id, node]));
+    const targetPorts = new Map<string, WorkflowEdge>();
     for (const edge of workflow.edges ?? []) {
       if (edgeIds.has(edge.id)) {
         errors.push({ edgeId: edge.id, message: `连线 ID 重复: ${edge.id}` });
@@ -340,6 +351,34 @@ export class ExecutionGraphResolver {
           edgeId: edge.id,
           message: `目标节点不存在: ${edge.target.nodeId}`,
         });
+      }
+      const source = nodesById.get(edge.source.nodeId);
+      const target = nodesById.get(edge.target.nodeId);
+      if (!isSafePort(edge.source.port) || !isSafePort(edge.target.port)) {
+        errors.push({ edgeId: edge.id, message: '连线端口名称无效' });
+      }
+      if (target?.type === 'input') errors.push({ edgeId: edge.id, message: '输入节点不能连接上游端口' });
+      if (source?.type === 'output') errors.push({ edgeId: edge.id, message: '输出节点没有输出端口' });
+      if (source && isModelNode(source) && !['result', 'output', 'json', 'taskId', 'text', 'image', 'video', 'audio'].includes(edge.source.port)) {
+        errors.push({ edgeId: edge.id, message: `模型输出端口不存在: ${edge.source.port}` });
+      }
+      if (source?.type === 'loop' && !['results', 'result', 'output', 'value'].includes(edge.source.port)) {
+        errors.push({ edgeId: edge.id, message: `循环输出端口不存在: ${edge.source.port}` });
+      }
+      if (source?.type === 'condition' && !['default', 'branchId', ...(source.data.conditions ?? []).map((item) => item.branchId)].includes(edge.source.port)) {
+        errors.push({ edgeId: edge.id, message: `条件输出端口不存在: ${edge.source.port}` });
+      }
+      if (source?.type === 'condition' && edge.branchId && !['default', ...(source.data.conditions ?? []).map((item) => item.branchId)].includes(edge.branchId)) {
+        errors.push({ edgeId: edge.id, message: `条件分支不存在: ${edge.branchId}` });
+      }
+      const targetKey = JSON.stringify([edge.target.nodeId, edge.target.port]);
+      const previous = targetPorts.get(targetKey);
+      const exclusiveBranches = previous && source?.type === 'condition' && previous.source.nodeId === source.id
+        && (previous.branchId ?? previous.source.port) !== (edge.branchId ?? edge.source.port);
+      if (previous && !exclusiveBranches) errors.push({ edgeId: edge.id, message: '同一输入端口不能连接多个来源' });
+      targetPorts.set(targetKey, edge);
+      if (target && isModelNode(target) && edge.target.port === 'prompt' && source?.type === 'loop' && source.data.loopConfig?.outputMode !== 'last') {
+        errors.push({ edgeId: edge.id, message: '数组输出不能连接文本 prompt 端口' });
       }
     }
 

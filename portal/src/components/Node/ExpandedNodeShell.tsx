@@ -1,20 +1,10 @@
-import { ReactNode, useEffect } from 'react';
+import { ReactNode, useEffect, useRef } from 'react';
 import { Handle, Position, useUpdateNodeInternals } from 'reactflow';
-import {
-  LoadingOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  PlusOutlined,
-  ExpandOutlined,
-  ArrowUpOutlined,
-  AudioOutlined,
-  CopyOutlined,
-  DeleteOutlined,
-  OrderedListOutlined,
-  AlignLeftOutlined,
-} from '@ant-design/icons';
+import { LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined, PlusOutlined, ExpandOutlined, ArrowUpOutlined, CopyOutlined, DeleteOutlined, SettingOutlined, HistoryOutlined } from '@ant-design/icons';
 import tokens from '../../theme/dark';
 import { PortConfig } from './BaseCreativeNode';
+import { useWorkflowEditor } from '../../contexts/WorkflowEditorContext';
+import SpeechInputButton from './SpeechInputButton';
 
 export interface ExpandedNodeShellProps {
   selected?: boolean;
@@ -28,255 +18,76 @@ export interface ExpandedNodeShellProps {
   footer?: ReactNode;
   onRun?: () => void;
   isRunning?: boolean;
-  showTextToolbar?: boolean;
-  /** 底部右侧额外操作（如 1x、层数） */
   footerExtra?: ReactNode;
-  /** 节点 ID，用于展开后更新 React Flow 尺寸测量 */
-  nodeId?: string;
+  nodeId: string;
+  prompt: string;
+  onPromptChange: (prompt: string) => void;
+  portState?: { loading: boolean; error: string; retry: () => void };
 }
 
 const statusIcons: Record<string, ReactNode> = {
-  running: <LoadingOutlined style={{ color: tokens.accent.secondary }} />,
-  success: <CheckCircleOutlined style={{ color: tokens.status.success }} />,
-  error: <CloseCircleOutlined style={{ color: tokens.status.error }} />,
+  running: <LoadingOutlined aria-label="正在运行" style={{ color: tokens.accent.secondary }} />,
+  success: <CheckCircleOutlined aria-label="运行成功" style={{ color: tokens.status.success }} />,
+  error: <CloseCircleOutlined aria-label="运行失败" style={{ color: tokens.status.error }} />,
 };
-
-const positionMap: Record<string, string> = {
-  top: '25%',
-  middle: '50%',
-  bottom: '75%',
-};
-
 const NODE_WIDTH = 360;
 
-/** TapNow 双层结构：紧凑预览卡片 + 下方控制面板 */
-export default function ExpandedNodeShell({
-  selected,
-  subLabel,
-  status = 'idle',
-  inputPorts = [],
-  outputPorts = [],
-  collapsedContent,
-  expandedContent,
-  footer,
-  onRun,
-  isRunning,
-  showTextToolbar,
-  footerExtra,
-  nodeId,
-}: ExpandedNodeShellProps) {
-  const hasError = status === 'error';
+export default function ExpandedNodeShell({ selected, subLabel, status = 'idle', inputPorts = [], outputPorts = [], collapsedContent, expandedContent, footer, onRun, isRunning, footerExtra, nodeId, prompt, onPromptChange, portState }: ExpandedNodeShellProps) {
+  const editor = useWorkflowEditor();
   const updateNodeInternals = useUpdateNodeInternals();
-
-  useEffect(() => {
-    if (nodeId) {
-      updateNodeInternals(nodeId);
-    }
-  }, [selected, nodeId, updateNodeInternals]);
-
-  return (
-    <div className="tapnow-node-stack" style={{ position: 'relative' }}>
-      {/* 浮动格式工具栏 — 在紧凑卡片上方 */}
-      {selected && showTextToolbar && <TextFormatToolbar />}
-
-      {/* 紧凑预览卡片 — 始终可见 */}
-      <div
-        className={`tapnow-compact-card${selected ? ' tapnow-compact-card--active' : ''}`}
-        style={{
-          background: '#141414',
-          border: `1px solid ${selected ? 'rgba(255,255,255,0.18)' : hasError ? tokens.status.error : 'rgba(255,255,255,0.1)'}`,
-          borderRadius: 12,
-          width: NODE_WIDTH,
-          boxShadow: selected ? '0 4px 16px rgba(0,0,0,0.35)' : '0 2px 8px rgba(0,0,0,0.2)',
-          transition: 'border-color 0.2s, box-shadow 0.2s',
-        }}
-      >
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 5,
-          padding: '6px 12px 4px',
-        }}>
-          <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10 }}>≡</span>
-          <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11, fontWeight: 500 }}>{subLabel}</span>
-          <div style={{ flex: 1 }} />
-          {!selected && statusIcons[status]}
-        </div>
-        <div style={{ padding: '2px 12px 10px' }}>{collapsedContent}</div>
-        {renderHandles(inputPorts, outputPorts, 'compact')}
+  const portSignature = [...inputPorts.map((port) => `in:${port.id}`), ...outputPorts.map((port) => `out:${port.id}`)].join('|');
+  useEffect(() => { updateNodeInternals(nodeId); }, [selected, nodeId, updateNodeInternals, portSignature]);
+  const actions = [
+    { label: '添加附件', icon: <PlusOutlined />, run: () => editor.onOpenAssets(nodeId) },
+    { label: '复制节点', icon: <CopyOutlined />, run: () => editor.onCopyNode(nodeId) },
+    { label: '删除节点', icon: <DeleteOutlined />, run: () => editor.onDeleteNode(nodeId) },
+    { label: '完整参数', icon: <SettingOutlined />, run: () => editor.onOpenParameters(nodeId) },
+    { label: '节点运行历史', icon: <HistoryOutlined />, run: () => editor.onOpenHistory(nodeId) },
+    { label: '展开节点', icon: <ExpandOutlined />, run: () => editor.onExpandNode(nodeId) },
+  ];
+  return <div className="tapnow-node-stack" style={{ position: 'relative' }}>
+    <div className={`tapnow-compact-card${selected ? ' tapnow-compact-card--active' : ''}`} style={{ background: tokens.bg.secondary, border: `1px solid ${status === 'error' ? tokens.status.error : selected ? tokens.border.focus : tokens.border.default}`, borderRadius: tokens.radius.md, width: NODE_WIDTH, minHeight: `calc(${Math.max(inputPorts.length, outputPorts.length) + 1} * ${tokens.spacing.lg})`, boxShadow: selected ? tokens.shadow.md : tokens.shadow.sm }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spacing.xs, padding: tokens.spacing.sm, color: tokens.text.secondary, fontSize: tokens.font.size.xs }}>
+        <span aria-hidden="true">≡</span><span>{subLabel}</span><span style={{ marginLeft: 'auto' }}>{statusIcons[status]}</span>
       </div>
-
-      {/* 控制面板 — 选中时在下方展开 */}
-      {selected && (
-        <div
-          className="tapnow-control-panel nodrag nopan nowheel"
-          style={{
-            marginTop: 8,
-            background: '#1c1c1c',
-            border: '1px solid rgba(255,255,255,0.1)',
-            borderRadius: 14,
-            width: NODE_WIDTH,
-            boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
-            overflow: 'visible',
-          }}
-        >
-          {/* 面板顶栏：仅 + 和展开 */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '8px 10px 0',
-          }}>
-            <button type="button" className="tapnow-icon-btn tapnow-icon-btn--sm">
-              <PlusOutlined style={{ fontSize: 11 }} />
-            </button>
-            <button type="button" className="tapnow-icon-btn tapnow-icon-btn--sm">
-              <ExpandOutlined style={{ fontSize: 10 }} />
-            </button>
-          </div>
-
-          {/* 输入区 */}
-          <div style={{ padding: '4px 14px 6px' }}>
-            {expandedContent}
-          </div>
-
-          {/* 底栏：模型/参数 与 操作按钮分两行 */}
-          <div style={{ padding: '0 10px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {footer && (
-              <div className="tapnow-footer-chips">
-                {footer}
-              </div>
-            )}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
-              {footerExtra}
-              <button type="button" className="tapnow-icon-btn tapnow-icon-btn--sm tapnow-icon-btn--plain">
-                <AudioOutlined style={{ fontSize: 12 }} />
-              </button>
-              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>1x</span>
-              <button type="button" className="tapnow-layer-badge">
-                <AlignLeftOutlined style={{ fontSize: 9 }} />
-                <span>4</span>
-              </button>
-              {onRun && (
-                <button
-                  type="button"
-                  className="tapnow-send-btn"
-                  onClick={(e) => { e.stopPropagation(); onRun(); }}
-                  disabled={isRunning}
-                >
-                  {isRunning ? <LoadingOutlined style={{ fontSize: 12 }} /> : <ArrowUpOutlined style={{ fontSize: 12 }} />}
-                </button>
-              )}
-            </div>
-          </div>
+      <div style={{ padding: tokens.spacing.sm }}>{collapsedContent}</div>
+      {portState?.loading && <div role="status" style={{ padding: tokens.spacing.sm }}>正在加载连接端口…</div>}
+      {portState?.error && <div role="alert" style={{ padding: tokens.spacing.sm, color: tokens.status.error }}>{portState.error}<button type="button" className="tapnow-footer-chip nodrag nopan" onClick={portState.retry}>重试加载端口</button></div>}
+      {inputPorts.map((port, index) => <NodePort key={`target-${port.id}`} port={port} top={`${(index + 1) * 100 / (inputPorts.length + 1)}%`} nodeId={nodeId} direction="target" />)}
+      {outputPorts.map((port, index) => <NodePort key={`source-${port.id}`} port={port} top={`${(index + 1) * 100 / (outputPorts.length + 1)}%`} nodeId={nodeId} direction="source" />)}
+    </div>
+    {selected && <div className="tapnow-control-panel nodrag nopan nowheel" style={{ marginTop: tokens.spacing.sm, background: tokens.bg.elevated, border: `1px solid ${tokens.border.default}`, borderRadius: tokens.radius.lg, width: NODE_WIDTH, boxShadow: tokens.shadow.md }}>
+      <div role="toolbar" aria-label="节点操作" style={{ display: 'flex', justifyContent: 'space-between', padding: tokens.spacing.sm }}>
+        {actions.map((action) => <button key={action.label} type="button" className="tapnow-icon-btn tapnow-icon-btn--sm" aria-label={action.label} title={action.label} onClick={(event) => { event.stopPropagation(); action.run(); }}>{action.icon}</button>)}
+      </div>
+      <div style={{ padding: tokens.spacing.sm }}>{expandedContent}</div>
+      <div style={{ padding: tokens.spacing.sm, display: 'flex', flexDirection: 'column', gap: tokens.spacing.sm }}>
+        {footer && <div className="tapnow-footer-chips">{footer}</div>}
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end', gap: tokens.spacing.sm }}>
+          {footerExtra}
+          <SpeechInputButton prompt={prompt} onChange={onPromptChange} />
+          {onRun && <button type="button" className="tapnow-send-btn" aria-label={isRunning ? '节点正在运行' : '运行节点'} title={isRunning ? '节点正在运行' : '运行节点'} onClick={(event) => { event.stopPropagation(); onRun(); }} disabled={isRunning}>{isRunning ? <LoadingOutlined /> : <ArrowUpOutlined />}</button>}
         </div>
-      )}
-    </div>
-  );
+      </div>
+    </div>}
+  </div>;
 }
 
-/** 文本浮动格式工具栏 */
-function TextFormatToolbar() {
-  const items = ['H1', 'H2', 'H3'];
-  return (
-    <div
-      className="tapnow-float-toolbar nodrag nopan"
-      style={{
-        position: 'absolute',
-        bottom: 'calc(100% + 10px)',
-        left: '50%',
-        transform: 'translateX(-50%)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 1,
-        padding: '4px 8px',
-        background: '#222',
-        border: '1px solid rgba(255,255,255,0.1)',
-        borderRadius: 10,
-        boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
-        whiteSpace: 'nowrap',
-        zIndex: 10,
-      }}
-    >
-      <span className="tapnow-color-dot" />
-      {items.map((h) => (
-        <button key={h} type="button" className="tapnow-fmt-btn">{h}</button>
-      ))}
-      <button type="button" className="tapnow-fmt-btn">¶</button>
-      <span className="tapnow-toolbar-divider" />
-      <button type="button" className="tapnow-fmt-btn"><strong>B</strong></button>
-      <button type="button" className="tapnow-fmt-btn"><em>I</em></button>
-      <button type="button" className="tapnow-fmt-btn"><OrderedListOutlined /></button>
-      <button type="button" className="tapnow-fmt-btn"><UnorderedListIcon /></button>
-      <span className="tapnow-toolbar-divider" />
-      <button type="button" className="tapnow-fmt-btn"><CopyOutlined /></button>
-      <button type="button" className="tapnow-fmt-btn"><DeleteOutlined /></button>
-      <button type="button" className="tapnow-fmt-btn"><ExpandOutlined style={{ fontSize: 11 }} /></button>
-    </div>
-  );
+function NodePort({ port, nodeId, direction, top }: { port: PortConfig; nodeId: string; direction: 'source' | 'target'; top: string }) {
+  const { onConnectPort } = useWorkflowEditor();
+  const start = useRef<{ x: number; y: number } | null>(null);
+  const dragged = useRef(false);
+  const label = `${direction === 'source' ? '输出' : '输入'}端口 ${port.id}：拖拽连线或点击选择连接目标`;
+  return <Handle type={direction} position={direction === 'source' ? Position.Right : Position.Left} id={port.id}
+    role="button" tabIndex={0} aria-label={label} title={label}
+    className={`tapnow-handle tapnow-handle-${direction === 'source' ? 'output' : 'input'}`}
+    onPointerDown={(event) => { start.current = { x: event.clientX, y: event.clientY }; dragged.current = false; }}
+    onPointerMove={(event) => { if (start.current && Math.hypot(event.clientX - start.current.x, event.clientY - start.current.y) > 4) dragged.current = true; }}
+    onClick={(event) => { event.stopPropagation(); if (!dragged.current) onConnectPort(nodeId, port.id, direction); start.current = null; }}
+    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); onConnectPort(nodeId, port.id, direction); } }}
+    style={{ [direction === 'source' ? 'right' : 'left']: -8, top, background: 'transparent', border: 'none', width: 16, height: 16 }} />;
 }
 
-function UnorderedListIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-      <circle cx="2" cy="3" r="1" /><rect x="4" y="2.5" width="7" height="1" rx="0.5" />
-      <circle cx="2" cy="6" r="1" /><rect x="4" y="5.5" width="7" height="1" rx="0.5" />
-      <circle cx="2" cy="9" r="1" /><rect x="4" y="8.5" width="7" height="1" rx="0.5" />
-    </svg>
-  );
-}
-
-function renderHandles(inputPorts: PortConfig[], outputPorts: PortConfig[], _variant: string) {
-  return (
-    <>
-      {inputPorts.map((port) => (
-        <Handle
-          key={`in-${port.id}`}
-          type="target"
-          position={Position.Left}
-          id={port.id}
-          className="tapnow-handle tapnow-handle-input"
-          style={{
-            left: -8,
-            top: positionMap[port.position || 'middle'],
-            background: 'transparent',
-            border: 'none',
-            width: 16,
-            height: 16,
-          }}
-        />
-      ))}
-      {outputPorts.map((port) => (
-        <Handle
-          key={`out-${port.id}`}
-          type="source"
-          position={Position.Right}
-          id={port.id}
-          className="tapnow-handle tapnow-handle-output"
-          style={{
-            right: -8,
-            top: positionMap[port.position || 'middle'],
-            background: 'transparent',
-            border: 'none',
-            width: 16,
-            height: 16,
-          }}
-        />
-      ))}
-    </>
-  );
-}
-
-/** 底部参数标签 */
-export function FooterChip({ icon, label, onClick }: { icon?: ReactNode; label: string; onClick?: (e: React.MouseEvent) => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="tapnow-footer-chip"
-    >
-      {icon}
-      {label}
-    </button>
-  );
+export function FooterChip({ icon, label, onClick }: { icon?: ReactNode; label: string; onClick?: (event: React.MouseEvent) => void }) {
+  return <button type="button" onClick={onClick} disabled={!onClick} title={label} className="tapnow-footer-chip">{icon}{label}</button>;
 }

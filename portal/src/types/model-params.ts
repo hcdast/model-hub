@@ -1,7 +1,7 @@
 /** 与后端 ParamDefinition 对齐的精简类型 */
 export interface ParamDefinition {
   required: boolean;
-  type: 'string' | 'number' | 'boolean' | 'array';
+  type: 'string' | 'number' | 'integer' | 'boolean' | 'array' | 'object';
   label?: string;
   ui_type?: string;
   default?: unknown;
@@ -28,6 +28,7 @@ export interface ParamDocItem {
   min?: number;
   max?: number;
   enumDependsOn?: ParamDefinition['enumDependsOn'];
+  hide?: boolean;
 }
 
 export interface ModelParamDoc {
