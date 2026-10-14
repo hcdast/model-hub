@@ -12,5 +12,6 @@ image/
 /config/
 logs/
 .kiro/
-scripts/
+scripts/*
+!scripts/validate-dashboard-menu.cjs
 docs/todo.md

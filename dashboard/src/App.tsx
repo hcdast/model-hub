@@ -12,7 +12,7 @@ import {
   SettingOutlined, SunOutlined, MoonOutlined, HeartOutlined,
   FileSearchOutlined, SyncOutlined, DatabaseOutlined, DollarOutlined, MailOutlined,
   LinkOutlined, MenuOutlined, ThunderboltOutlined, ExperimentOutlined, RobotOutlined,
-  LayoutOutlined, ControlOutlined,
+  LayoutOutlined, ControlOutlined, ApartmentOutlined,
 } from '@ant-design/icons';
 import { BrandMark } from './components/BrandMark';
 import { buildAntdTheme } from './theme/antd-theme';
@@ -93,6 +93,7 @@ const iconMap: Record<string, ReactNode> = {
   ExperimentOutlined: <ExperimentOutlined />,
   RobotOutlined: <RobotOutlined />,
   LayoutOutlined: <LayoutOutlined />,
+  ApartmentOutlined: <ApartmentOutlined />,
 };
 
 /** 解析图标名称为 React 组件，未匹配时使用中性默认图标 */
