@@ -1,5 +1,7 @@
 # Model-Hub
 
+完整文档见 [项目文档索引](docs/README.md)。配置模板、测试输入和生成产物分别管理；运行前核对 [部署前提](docs/technical.md#deployment)。
+
 Akool 统一 AI 模型接入中台 —— 集成多家第三方 AI 模型厂商，为上层业务提供标准化的异步任务调度、状态轮询、结果回调能力。
 
 ## 技术栈
@@ -118,13 +120,14 @@ npm install
 
 # 2. 安装前端依赖
 cd dashboard && npm install && cd ..
+npm run install:portal
 
 # 3. 本地开发（不连 Nacos）
 cp .env.example .env
 # 编辑 .env：设置 NACOS_ENABLE=false
 # 编辑 config/development.json：填入本地 MongoDB/Redis 地址
 
-# 4. 构建后端 + 前端
+# 4. 构建后端 + Dashboard + Portal
 npm run build:all
 
 # 5. PM2 启动全部服务
@@ -151,7 +154,7 @@ npm run seed:models:apply -- --force
 # apply 脚本启动时会尝试 dropIndex('modelId_1')；亦可手动：db.model_configs.dropIndex("modelId_1")
 ```
 
-创建任务联调参数示例见 **[docs/create-task-demos.md](docs/create-task-demos.md)**（全量模型表可由 `npm run seed:models:collect -- --appendix` 生成 `docs/_task-demo-appendix.generated.md`）。
+任务协议与示例见 [模型契约](docs/design.md#model-contract)；`npm run seed:models:collect -- --appendix` 可生成本地联调附录，生成文件不作为长期文档。
 
 启动成功后访问（端口以根目录 `ecosystem.config.js` 为准，可用环境变量 `PORT` 覆盖）：
 
@@ -276,7 +279,12 @@ $env:PROCESS_TYPE="admin-server"; $env:PORT="7003"; npm run start:dev
 ## 生产部署（PM2）
 
 ```bash
-# 构建后端 + 前端
+# 分别安装后端、Dashboard 和 Portal 的依赖（构建阶段包含开发依赖）
+npm ci --include=dev
+npm --prefix dashboard ci --include=dev
+npm run install:portal
+
+# 构建后端 + Dashboard + Portal
 npm run build:all
 
 # PM2 启动全部进程
@@ -298,6 +306,8 @@ pm2 restart model-hub-admin-server
 # 停止
 pm2 stop ecosystem.config.js
 ```
+
+Portal 的静态服务依赖 `portal/node_modules/serve/build/main.js`，仅在仓库根目录安装依赖不会安装这个入口。若 PM2 提示该脚本不存在，在仓库根目录执行 `npm run install:portal`、`npm run build:portal`，再执行 `pm2 start ecosystem.config.js --only model-hub-portal`。确认进程正常后执行 `pm2 save`。
 
 ## 核心 API
 
@@ -425,179 +435,18 @@ curl http://localhost:7000/metrics             # Prometheus 指标
 
 ## 项目结构
 
-```
-model-hub/
-├── src/                                # 后端（NestJS）
-│   ├── main.ts                         # 入口（Swagger 初始化、全局管道/过滤器/拦截器）
-│   ├── app.module.ts                   # 根模块（按 PROCESS_TYPE 加载不同模块）
-│   ├── config/                         # 配置模块
-│   │   ├── config.module.ts            # APP_CONFIG 全局注入（Nacos / 本地 JSON）
-│   │   ├── nacos-config.loader.ts      # Nacos 拉取 / 本地文件加载
-│   │   └── interfaces/config.interface.ts  # AppConfig 强类型接口
-│   ├── database/                       # 数据库模块
-│   │   ├── database.module.ts          # MongooseModule 注册
-│   │   └── schemas/                    # 全部 Mongoose Schema
-│   │       ├── task.schema.ts          # tasks 集合（含 timing + timeline）
-│   │       ├── idempotency-record.schema.ts
-│   │       ├── callback-log.schema.ts
-│   │       ├── task-daily-stats.schema.ts
-│   │       ├── queue-snapshot.schema.ts
-│   │       ├── admin-user.schema.ts
-│   │       ├── audit-log.schema.ts
-│   │       ├── account-pool-entry.schema.ts    # ★ 账号池条目（密钥唯一来源）
-│   │       ├── account-cost-daily.schema.ts    # ★ 账号每日成本聚合
-│   │       ├── provider-runtime-config.schema.ts  # 厂商全局配置（不含密钥）
-│   │       ├── model-config.schema.ts          # 模型配置
-│   │       ├── model-routing-rule.schema.ts    # 模型路由策略（model_routing_rules）
-│   │       ├── api-client.schema.ts            # 业务 API 客户端
-│   │       ├── role.schema.ts / permission.schema.ts / menu-config.schema.ts  # RBAC + 菜单
-│   │       ├── billing-record.schema.ts / wallet.schema.ts / wallet-transaction.schema.ts
-│   │       ├── notification-rule.schema.ts / notification-record.schema.ts / in-app-notification.schema.ts
-│   │       └── link-conversion-settings.schema.ts
-│   ├── redis/                          # Redis 模块
-│   │   ├── redis.module.ts             # ioredis 连接
-│   │   ├── redis.constants.ts          # REDIS_CLIENT 注入 Token
-│   │   ├── redis-lock.service.ts       # 分布式锁
-│   │   └── rate-limiter.service.ts     # 滑动窗口限流 + 并发控制
-│   ├── auth/                           # 业务 API 鉴权
-│   │   ├── auth.module.ts
-│   │   ├── guards/api-key.guard.ts     # X-API-Key 校验
-│   │   └── decorators/tenant.decorator.ts  # @Tenant() 参数装饰器
-│   ├── task/                           # 任务核心模块
-│   │   ├── task.module.ts
-│   │   ├── task.controller.ts          # REST API（Swagger 装饰器）
-│   │   ├── task.service.ts             # 业务逻辑（Timeline + Timing + 厂商解析）
-│   │   ├── task.repository.ts          # Mongoose 操作封装
-│   │   ├── idempotency.service.ts      # 幂等检查
-│   │   ├── task-timeline.service.ts    # 时间线事件记录
-│   │   ├── task-timing.service.ts      # 时长指标跟踪
-│   │   └── dto/                        # DTO（含 Swagger @ApiProperty）
-│   │       ├── create-task.dto.ts
-│   │       └── task-list-query.dto.ts
-│   ├── queue/                          # 队列模块
-│   │   ├── queue.module.ts             # BullModule 注册（task-submit + callback）
-│   │   ├── task-submit.processor.ts    # Worker 消费（含 Timeline/Timing 埋点）
-│   │   ├── queue-registry.service.ts   # 队列统一注册/发现
-│   │   └── queue-router.service.ts     # 两级路由分发
-│   ├── provider/                       # 厂商适配模块
-│   │   ├── provider.module.ts          # 注册所有 Adapter
-│   │   ├── provider.registry.ts        # Adapter 注册表
-│   │   ├── provider-config.service.ts  # 厂商全局配置（不含密钥）
-│   │   ├── provider-config.types.ts    # ResolvedProviderRuntime 类型
-│   │   ├── create-runtime-axios.ts     # 统一 Axios 工厂（从账号池注入密钥）
-│   │   ├── interfaces/provider-adapter.interface.ts  # IProviderAdapter 接口
-│   │   ├── account-pool/              # ★ 账号池子模块（密钥唯一来源）
-│   │   │   ├── account-pool.module.ts
-│   │   │   ├── account-pool.service.ts          # 账号池核心服务
-│   │   │   ├── resolved-account-credentials.interface.ts  # 认证凭据类型
-│   │   │   ├── circuit-breaker.service.ts       # 熔断器
-│   │   │   ├── cost-tracker.service.ts          # 成本追踪
-│   │   │   ├── health-check.scheduler.ts        # 健康探测
-│   │   │   └── strategies/                      # 负载均衡策略
-│   │   └── adapters/
-│   │       ├── wavespeed.adapter.ts
-│   │       ├── cloudwise.adapter.ts
-│   │       ├── akool.adapter.ts
-│   │       ├── tencent.adapter.ts      # ★ 使用 extra_credentials 签名
-│   │       ├── minimax.adapter.ts
-│   │       ├── seedance.adapter.ts
-│   │       └── wan.adapter.ts
-│   ├── polling/                        # 轮询模块
-│   │   ├── polling.module.ts
-│   │   ├── polling.scheduler.ts        # Cron 调度 + 分布式锁
-│   │   └── polling.service.ts          # 批量轮询 + 状态同步
-│   ├── callback/                       # 回调模块
-│   │   ├── callback.module.ts
-│   │   ├── callback.processor.ts       # 回调投递 + 重试 + 死信
-│   │   └── callback-signature.service.ts  # HMAC-SHA256 签名
-│   ├── billing/                        # 计费与钱包（预扣/结算/退款等）
-│   │   ├── billing.module.ts
-│   │   ├── billing.service.ts
-│   │   └── wallet.service.ts
-│   │   ├── stats.module.ts
-│   │   ├── stats.service.ts            # MongoDB Aggregation 每日聚合
-│   │   ├── stats-aggregation.scheduler.ts  # 每日 01:00 定时聚合
-│   │   └── queue-stats-collector.service.ts  # 每 30s 队列快照采集
-│   ├── observability/                  # 可观测性
-│   │   ├── observability.module.ts
-│   │   ├── metrics.service.ts          # Prometheus Counter/Histogram/Gauge
-│   │   └── metrics.controller.ts       # GET /metrics
-│   ├── health/                         # 健康检查
-│   │   ├── health.module.ts
-│   │   └── health.controller.ts        # liveness + readiness
-│   ├── admin/                          # 管理后台 API（JWT + 细粒度权限）
-│   │   ├── admin.module.ts / rbac.module.ts
-│   │   ├── admin-auth.controller.ts / admin-auth.service.ts
-│   │   ├── admin-task.controller.ts / admin-stats.controller.ts / admin-audit.controller.ts
-│   │   ├── admin-model-config.controller.ts / admin-model-routing.controller.ts
-│   │   ├── admin-provider-config.controller.ts / admin-account-pool.controller.ts / admin-account-cost.controller.ts
-│   │   ├── admin-api-client.controller.ts / admin-billing.controller.ts
-│   │   ├── admin-menu.controller.ts（当前用户菜单树）/ menu-management.controller.ts（菜单 CRUD）
-│   │   ├── user-management.controller.ts / role-management.controller.ts / permission-management.controller.ts
-│   │   ├── provider-health.controller.ts / admin-callback-logs.controller.ts / admin-link-conversion-config.controller.ts
-│   │   ├── admin-system-info.controller.ts
-│   │   ├── guards/（admin-jwt、permission、roles）/ decorators/（require-permissions 等）
-│   │   └── services/menu-registry.service.ts、permission-check.service.ts 等
-│   ├── dashboard/                      # 前端静态资源托管
-│   │   └── dashboard.module.ts         # ServeStaticModule → dashboard/dist
-│   └── common/                         # 公共层
-│       ├── constants/error-codes.ts    # 错误码枚举
-│       ├── constants/task-status.ts    # 任务状态枚举
-│       ├── exceptions/business.exception.ts
-│       ├── filters/global-exception.filter.ts
-│       ├── interceptors/response-transform.interceptor.ts
-│       └── interfaces/api-response.interface.ts
-│
-├── dashboard/                          # 前端（React SPA）
-│   ├── package.json                    # React 18 + Ant Design 5 + Vite 6
-│   ├── vite.config.ts                  # 开发代理 /api → 后端
-│   ├── index.html
-│   ├── tsconfig.json
-│   └── src/
-│       ├── main.tsx                    # 入口（Ant Design ConfigProvider 中文）
-│       ├── App.tsx                     # 路由 + 侧边栏布局 + AuthGuard
-│       ├── services/api.ts             # Axios 封装 + 全部 API 调用
-│       ├── store/auth.ts / store/menu.ts / store/theme.ts
-│       ├── hooks/usePermission.ts
-│       ├── components/ …
-│       └── pages/                      # 各业务页（任务、模型、计费、RBAC、菜单等）
-│           ├── Login.tsx / Dashboard.tsx / Tasks.tsx / TaskDetail.tsx / Queues.tsx
-│           ├── Models.tsx / CreateModelConfig.tsx / EditModelConfig.tsx / ModelRoutingRules.tsx
-│           ├── ProviderConfigs.tsx / ProviderHealth.tsx / AccountPool.tsx / AccountCost.tsx
-│           ├── BillingRecords.tsx / WalletManagement.tsx / ApiClients.tsx / LinkConversionConfig.tsx
-│           ├── Stats.tsx / AuditLogs.tsx / CallbackLogs.tsx / SystemInfo.tsx
-│           ├── NotificationRules.tsx / NotificationRecords.tsx / InAppNotifications.tsx
-│           ├── Users.tsx / Roles.tsx / Permissions.tsx / Menus.tsx / Forbidden.tsx
-│
-├── config/
-│   ├── development.json                # 本地开发配置（NACOS_ENABLE=false 时使用）
-│   ├── production.json                 # 生产本地降级配置
-│   └── nacos-config-template.json      # Nacos JSON 配置模板
-├── seed/                               # 种子数据
-│   ├── provider-runtime-configs.json   # 厂商全局配置（不含密钥）
-│   ├── account-pool-entries.json       # ★ 账号池默认条目模板（api_key 留空）
-│   └── model-configs.json              # 模型配置
-├── scripts/                            # 运维脚本
-│   ├── migrate-secrets-to-pool.cjs     # ★ 密钥迁移脚本（provider_runtime_configs → account_pool_entries）
-│   ├── cleanup-provider-secrets.cjs    # ★ 密钥清理脚本（移除旧 api_key 字段）
-│   ├── seed-provider-runtime-from-config.cjs  # 种子数据导入
-│   ├── collect-model-configs.cjs       # 模型配置采集
-│   └── ...                             # 其他运维脚本
-├── docs/
-│   ├── technical-design.md             # 技术方案（设计为主；运行时细节以 README + 代码为准）
-│   ├── project-architecture.md         # 架构清单（部分为规划稿，与仓库不一致时以代码为准）
-│   ├── workflow-and-portal.md          # 工作流引擎与开发者门户
-│   ├── notification-system.md          # 通知系统（规则匹配 + 多渠道投递）
-│   ├── provider-health.md              # 供应商健康度与熔断器
-│   ├── billing-system.md               # 计费系统（Pricing/Billing/Wallet）
-│   └── todo.md                         # Spec 顺序与待办备忘
-├── portal/                             # 开发者门户前端（React + React Flow）
-├── ecosystem.config.js                 # PM2 多进程配置（api/worker/scheduler/admin-server/portal）
-├── .env.example                        # 环境变量模板（仅 Nacos 连接参数）
-├── package.json
-├── tsconfig.json                       # include: ["src"]，排除前端
-└── nest-cli.json
-```
+| 目录 | 用途 |
+| --- | --- |
+| `src/` | NestJS 业务模块、数据库 Schema 与后端测试 |
+| `dashboard/` | 管理后台前端及回归测试 |
+| `portal/` | 用户门户、工作流与短剧前端 |
+| `scripts/`、`seed/` | 构建、初始化、迁移预览与验收工具 |
+| `docs/` | 技术架构、专题设计与交互规范，见 [索引](docs/README.md) |
+| `config/` | 私有运行配置，Git 忽略 |
+| `logs/` | 运行日志及需保留的数据变更备份，Git 忽略 |
+| `output/` | 可再生成的测试截图、报告、媒体与临时输出，Git 忽略 |
+
+`ecosystem.config.js` 定义 PM2 进程，`.env.example` 提供启动与 Nacos 环境模板。必要测试输入保留在 `src/common/fixtures/` 和 `src/metadata/fixtures/`。
 
 ## 任务生命周期
 
