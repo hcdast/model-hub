@@ -1,7 +1,11 @@
+import { useRequest } from '../hooks/useRequest';
 import { useCallback, useEffect, useState } from 'react';
-import { Card, Table, Tag, Typography, Button, Space, message, Spin } from 'antd';
+import { Card, Table, Tag, Typography, Button, Space, message, Spin, Drawer, Descriptions } from 'antd';
 import { ReloadOutlined, HeartOutlined } from '@ant-design/icons';
 import { providerHealthApi, type ProviderHealthOverview } from '../services/provider-health';
+import ProviderHealthChart from '../components/ProviderHealthChart';
+import CircuitBreakerOverrideModal from '../components/CircuitBreakerOverrideModal';
+import { usePermission } from '../hooks/usePermission';
 import PageHeader from '../components/PageHeader';
 
 /** 熔断状态对应的颜色和文案 */
@@ -12,41 +16,30 @@ const circuitStateMap: Record<string, { color: string; label: string }> = {
 };
 
 export default function ProviderHealthPage() {
-  const [items, setItems] = useState<ProviderHealthOverview[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res: any = await providerHealthApi.getOverview();
-      setItems(res.data?.items || res.data || []);
-    } catch {
-      message.error('加载供应商健康度数据失败');
+  const { hasPermission } = usePermission();
+  const [selected, setSelected] = useState<string>();
+  const [details, setDetails] = useState<any>();
+  const [override, setOverride] = useState(false);
+  const inspect = async (provider: string) => { setSelected(provider); setDetails(undefined); try { const res:any = await providerHealthApi.getProviderHealth(provider); setDetails(res.data); } catch { message.error('加载详情失败'); } };
+  const { data: items = [], loading, refresh: fetchData, lastSuccess, paused, setPaused } = useRequest<ProviderHealthOverview[]>(async () => { const res: any = await providerHealthApi.getOverview(); return res.data?.items || res.data || []; }, { pollingInterval: 10000 });
+  useEffect(() => {
+    if (selected && lastSuccess && !items.some(item => item.provider === selected)) {
+      setSelected(undefined);
+      setDetails(undefined);
+      setOverride(false);
     }
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    void fetchData();
-  }, [fetchData]);
-
-  // 10 秒自动刷新
-  useEffect(() => {
-    const timer = setInterval(() => {
-      void fetchData();
-    }, 10000);
-    return () => clearInterval(timer);
-  }, [fetchData]);
+  }, [items, selected, lastSuccess]);
 
   return (
     <div>
       <PageHeader
         title="供应商健康度"
+        subtitle="仅展示已配置厂商，指标来自实际调用采样"
         prefix={<HeartOutlined style={{ color: '#eb2f96', fontSize: 20 }} />}
         extra={(
-          <Button icon={<ReloadOutlined />} onClick={() => void fetchData()} loading={loading}>
+          <Space><span>上次成功：{lastSuccess?.toLocaleTimeString() || '—'}</span><Button onClick={() => setPaused(!paused)}>{paused ? '恢复自动刷新' : '暂停自动刷新'}</Button><Button icon={<ReloadOutlined />} onClick={() => void fetchData()} loading={loading}>
             刷新
-          </Button>
+          </Button></Space>
         )}
       />
       <Card>
@@ -60,7 +53,9 @@ export default function ProviderHealthPage() {
           dataSource={items}
           loading={loading && items.length > 0}
           pagination={false}
+          scroll={{x:1100}}
           columns={[
+            { title: "详情", key: "detail", fixed: "right", width: 90, render: (_, row) => <Button type="link" onClick={() => inspect(row.provider)}>查看</Button> },
             {
               title: 'Provider',
               dataIndex: 'provider',
@@ -87,22 +82,22 @@ export default function ProviderHealthPage() {
               title: '成功率',
               dataIndex: 'successRate',
               width: 100,
-              render: (val: number) =>
-                val != null ? `${(val * 100).toFixed(1)}%` : '—',
+              render: (val: number, row) =>
+                row.sampleCount > 0 && val != null ? `${(val * 100).toFixed(1)}%` : '—',
             },
             {
               title: '错误率',
               dataIndex: 'errorRate',
               width: 100,
-              render: (val: number) =>
-                val != null ? `${(val * 100).toFixed(1)}%` : '—',
+              render: (val: number, row) =>
+                row.sampleCount > 0 && val != null ? `${(val * 100).toFixed(1)}%` : '—',
             },
             {
               title: '平均延迟',
               dataIndex: 'avgLatencyMs',
               width: 110,
-              render: (val: number) =>
-                val != null ? `${val.toFixed(0)} ms` : '—',
+              render: (val: number, row) =>
+                row.sampleCount > 0 && val != null ? `${val.toFixed(0)} ms` : '—',
             },
             {
               title: '样本数',
@@ -120,6 +115,13 @@ export default function ProviderHealthPage() {
         />
       )}
     </Card>
+    <Drawer open={!!selected} title={`${selected} · 健康详情`} width={850} onClose={() => setSelected(undefined)}>
+      {selected && <><Typography.Paragraph>指标为滑动窗口采样；暂无样本不代表失败。手动覆盖请在处理完成后恢复自动模式。</Typography.Paragraph>
+      {details && <Descriptions column={1} items={[{key:'window',label:'采样窗口',children:`${details.metrics?.windowDurationMs || 0} ms`},{key:'computed',label:'采集时间',children:details.metrics?.computedAt || '—'}]} />}
+      {hasPermission('provider:update') && <Button onClick={() => setOverride(true)}>管理熔断覆盖</Button>}
+      <ProviderHealthChart provider={selected} />
+      <CircuitBreakerOverrideModal open={override} provider={selected} manualOverride={details?.circuitBreaker?.manualOverride || null} onClose={() => setOverride(false)} onSuccess={() => { void fetchData(); void inspect(selected); }} /></>}
+    </Drawer>
     </div>
   );
 }

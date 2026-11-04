@@ -9,7 +9,7 @@ import {
   DollarOutlined, StarOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import ReactEChartsCore from 'echarts-for-react';
+import ReactEChartsCore from '../components/Chart';
 import StatCard from '../components/StatCard';
 import StatusTag from '../components/StatusTag';
 import PageHeader from '../components/PageHeader';

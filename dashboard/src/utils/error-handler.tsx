@@ -111,7 +111,7 @@ export class ErrorHandler {
       message.error({
         content: (
           <div>
-            <div style={{ fontWeight: 'bold', marginBottom: 8 }}>数据验证失败：</div>
+            <div style={{ fontWeight: 'bold', marginBottom: 8 }}>{errorData.message || '数据验证失败'}：</div>
             <div style={{ whiteSpace: 'pre-line' }}>{errorMessages}</div>
           </div>
         ),

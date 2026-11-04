@@ -12,6 +12,7 @@ const EXACT_ACTION_ZH: Record<string, string> = {
   'account_pool.update': '账号池 · 更新账号',
   'account_pool.delete': '账号池 · 删除账号',
   'provider_runtime_config.upsert': '供应商配置 · 更新运行时参数',
+  'provider_runtime_config.delete': '供应商配置 · 删除配置',
   'provider_runtime_config.update_cost_config': '供应商配置 · 更新成本配置',
   'link_conversion_config.replace': '请求转换 · 全量更新配置',
 };
@@ -46,6 +47,7 @@ const METHOD_ZH: Record<string, string> = {
   update: '更新',
   delete: '删除',
   remove: '删除',
+  bulkDelete: '批量删除',
   list: '列表查询',
   listAll: '扁平列表查询',
   getTree: '树形查询',

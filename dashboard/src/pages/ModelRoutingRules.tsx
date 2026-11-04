@@ -1,3 +1,4 @@
+import { usePermission } from '../hooks/usePermission';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -97,6 +98,7 @@ function getCreateFormDefaults(modelId = '') {
 
 export default function ModelRoutingRulesPage() {
   const navigate = useNavigate();
+  const { hasPermission } = usePermission();
   const [searchParams] = useSearchParams();
   const queryConsumedRef = useRef(false);
 
@@ -310,7 +312,7 @@ export default function ModelRoutingRulesPage() {
       const v = await form.validateFields();
       const payload = buildPayload(v);
       if (editing) {
-        await modelRoutingApi.update(editing._id, payload);
+        await modelRoutingApi.update(editing._id, { ...payload, expected_revision: (editing as any).revision || 0 });
         message.success('已更新');
       } else {
         const modelId = String(payload.model_id || '').trim();
@@ -318,7 +320,7 @@ export default function ModelRoutingRulesPage() {
           const res: any = await modelRoutingApi.list({ page: 1, pageSize: 1, model_id: modelId });
           const existing = pickRuleForModel((res.data?.items || []) as RuleRow[]);
           if (existing) {
-            await modelRoutingApi.update(existing._id, payload);
+            await modelRoutingApi.update(existing._id, { ...payload, expected_revision: (existing as any).revision || 0 });
             message.success('该 model_id 已有路由策略，已更新现有规则');
             setModalOpen(false);
             fetchData(page, pageSize);
@@ -427,9 +429,9 @@ export default function ModelRoutingRulesPage() {
       fixed: 'right' as const,
       render: (_: unknown, r: RuleRow) => (
         <Space>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(r)}>编辑</Button>
+          <Button disabled={!hasPermission('model:update')} type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(r)}>编辑</Button>
           <Popconfirm title="确定删除该规则？" onConfirm={() => handleDelete(r)}>
-            <Button type="link" size="small" danger icon={<DeleteOutlined />}>删除</Button>
+            <Button disabled={!hasPermission('model:delete')} type="link" size="small" danger icon={<DeleteOutlined />}>删除</Button>
           </Popconfirm>
         </Space>
       ),
@@ -441,7 +443,7 @@ export default function ModelRoutingRulesPage() {
       <PageHeader
         title="路由策略"
         leftExtra={(
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建规则</Button>
+          <Button disabled={!hasPermission('model:create')} type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建规则</Button>
         )}
         extra={(
           <>

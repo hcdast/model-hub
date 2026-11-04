@@ -1,3 +1,7 @@
+import { PageHeaderRegion } from '../components/PageFrame';
+import { ErrorHandler } from '../utils/error-handler';
+import { Input, Checkbox } from 'antd';
+import { Alert } from 'antd';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Descriptions, Steps, Button, Space, Typography, Spin, message, Tag, Divider, Popconfirm, Row, Col, Tooltip, Image, Modal } from 'antd';
@@ -143,6 +147,11 @@ export default function TaskDetailPage() {
   const { hasPermission } = usePermission();
   const canMutateTask = hasPermission('task:update');
   const canReadModel = hasPermission('model:read');
+  const [diagnostics, setDiagnostics] = useState<any>();
+  const inspectTask = async () => { try { const res: any = await taskApi.diagnostics(taskId!); setDiagnostics(res.data); } catch (err) { ErrorHandler.handleApiError(err, '诊断失败'); } };
+  const reconcileTask = () => { let reference = '', reason = '', confirmed = false;
+    Modal.confirm({ title: '按已核验的失败结果修复任务', width: 700, content: <Space direction="vertical" style={{ width: '100%' }}><Alert type="warning" message="此操作将终结任务并解冻预扣款。请先在供应商后台核对实际结果，队列缺失或 HTTP 错误不能作为唯一依据。" /><Input placeholder="供应商查询记录、工单或核验编号（必填）" onChange={e => { reference = e.target.value; }} /><Input.TextArea placeholder="修复原因（必填）" onChange={e => { reason = e.target.value; }} /><Checkbox onChange={e => { confirmed = e.target.checked; }}>已核对供应商实际失败或取消，确认没有成功结果</Checkbox></Space>, onOk: async () => { if (!confirmed || !reference.trim() || !reason.trim()) { message.warning('请完整填写核验信息并确认'); throw new Error('未完成核验'); } await taskApi.reconcileFailure(taskId!, { expectedUpdatedAt: diagnostics.updatedAt, verificationReference: reference, reason, confirmedFailure: confirmed }); setDiagnostics(undefined); await reloadTaskData({ mode: 'manual' }); } });
+  };
   const [task, setTask] = useState<any>(null);
   const [timeline, setTimeline] = useState<any[]>([]);
   const [timing, setTiming] = useState<any>(null);
@@ -380,45 +389,49 @@ export default function TaskDetailPage() {
 
   return (
     <div>
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 8,
-          marginBottom: 16,
-        }}
-      >
-        <Space wrap>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>
-            返回
-          </Button>
-          {canMutateTask && (task.status === 'PENDING' || task.status === 'SUBMITTED') && (
-            <Popconfirm
-              title="确认取消该任务？"
-              onConfirm={handleCancel}
-              okText="确认"
-              cancelText="取消"
-            >
-              <Button danger icon={<StopOutlined />}>取消任务</Button>
-            </Popconfirm>
-          )}
-        </Space>
-        <Space wrap>
-          <Tooltip title="重新拉取任务详情、时间线与时长指标（PROCESSING 任务可多次点击查看最新状态）">
-            <Button
-              loading={refreshing}
-              onClick={() => reloadTaskData({ mode: 'manual' })}
-            >
-              刷新
+      <PageHeaderRegion>
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+            marginBottom: 16,
+          }}
+        >
+          <Modal title="任务与队列、计费诊断" open={!!diagnostics} onCancel={() => setDiagnostics(undefined)} width={900} footer={<Space><Button onClick={() => setDiagnostics(undefined)}>关闭</Button>{hasPermission('task:update') && hasPermission('billing:write') && !['SUCCESS', 'CANCELLED'].includes(diagnostics?.status) && <Button danger onClick={reconcileTask}>已核验失败后修复</Button>}</Space>}><Alert type="info" message={diagnostics?.recommendation} /><pre style={{ maxHeight: 500, overflow: 'auto', whiteSpace: 'pre-wrap' }}>{JSON.stringify(diagnostics, null, 2)}</pre></Modal>
+          <Space wrap>
+            <Button onClick={inspectTask}>运行诊断</Button>
+            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>
+              返回
             </Button>
-          </Tooltip>
-          {canMutateTask && task.callback?.url && (
-            <Button icon={<RedoOutlined />} onClick={handleReplay}>重放回调</Button>
-          )}
-        </Space>
-      </div>
+            {canMutateTask && task.canCancel && (
+              <Popconfirm
+                title="确认取消该任务？"
+                onConfirm={handleCancel}
+                okText="确认"
+                cancelText="取消"
+              >
+                <Button danger icon={<StopOutlined />}>取消任务</Button>
+              </Popconfirm>
+            )}
+          </Space>
+          <Space wrap>
+            <Tooltip title="重新拉取任务详情、时间线与时长指标（PROCESSING 任务可多次点击查看最新状态）">
+              <Button
+                loading={refreshing}
+                onClick={() => reloadTaskData({ mode: 'manual' })}
+              >
+                刷新
+              </Button>
+            </Tooltip>
+            {canMutateTask && ['SUCCESS','FAILED','TIMEOUT','CANCELLED'].includes(task.status) && task.callback?.url && (
+              <Button icon={<RedoOutlined />} onClick={handleReplay}>重放回调</Button>
+            )}
+          </Space>
+        </div>
+      </PageHeaderRegion>
 
       <Card title="基础信息" style={{ marginBottom: 16 }}>
         <Descriptions column={{ xs: 1, sm: 2, lg: 3 }} bordered size="small">
@@ -436,7 +449,7 @@ export default function TaskDetailPage() {
           <Descriptions.Item label="厂商"><Tag>{task.provider}</Tag></Descriptions.Item>
           <Descriptions.Item label="功能类型">{task.featureType}</Descriptions.Item>
           {task.apiKey && (
-            <Descriptions.Item label="apiKey">{task.apiKey}</Descriptions.Item>
+            <Descriptions.Item label="客户端密钥（掩码）">{task.apiKey}</Descriptions.Item>
           )}
           {task.apiKey && (
             <Descriptions.Item label="客户端名称">{task.clientName || '—'}</Descriptions.Item>
@@ -497,6 +510,7 @@ export default function TaskDetailPage() {
 
       {task.billing && (
         <Card title={<><DollarOutlined /> 计费信息</>} style={{ marginBottom: 16 }}>
+          <Alert type={task.billing.pricingBasis === 'current_reference' ? 'warning' : 'info'} showIcon message={task.billing.pricingNote} action={<Button type="link" size="small" onClick={() => navigate(`/billing-records?taskId=${encodeURIComponent(task.taskId)}`)}>关联账单</Button>} style={{ marginBottom: 12 }} />
           <Descriptions column={{ xs: 1, sm: 2, lg: 3 }} bordered size="small">
             <Descriptions.Item label="计费状态">
               <Tag color={BILLING_STATUS_MAP[task.billing.status]?.color || 'default'}>
@@ -532,8 +546,8 @@ export default function TaskDetailPage() {
                   <Typography.Text strong>{task.billing.actualCost} {task.billing.currency}</Typography.Text>
                 </Descriptions.Item>
               )}
-              <Descriptions.Item label="实际收益（$）">{formatUsd(task.billing.actualRevenueUsd)}</Descriptions.Item>
-              <Descriptions.Item label="实际成本（$）">{formatUsd(task.billing.providerCostUsd)}</Descriptions.Item>
+              <Descriptions.Item label="参考收益（USD）">{formatUsd(task.billing.actualRevenueUsd)}</Descriptions.Item>
+              <Descriptions.Item label="参考成本（USD）">{formatUsd(task.billing.providerCostUsd)}</Descriptions.Item>
               <Descriptions.Item
                 label={
                   <Space size={6}>

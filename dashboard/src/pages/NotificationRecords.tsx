@@ -1,3 +1,6 @@
+import { useRequest } from '../hooks/useRequest';
+import { Drawer, Space } from 'antd';
+import { NOTIFICATION_EVENTS, EVENT_LABELS, SEVERITY_LABELS } from '../constants/notification-events';
 import { useEffect, useState } from 'react';
 import { Table, Card, Tag, Select, DatePicker, Button } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
@@ -8,30 +11,20 @@ const statusColor: Record<string, string> = { success: 'green', failed: 'red', s
 const statusLabel: Record<string, string> = { success: '成功', failed: '失败', suppressed: '已抑制' };
 
 export default function NotificationRecordsPage() {
-  const [data, setData] = useState<any>({ items: [], total: 0 });
-  const [loading, setLoading] = useState(false);
   const [params, setParams] = useState<Record<string, any>>({ page: 1, pageSize: 20 });
-
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const res: any = await notificationRecordApi.list(params);
-      setData(res.data || { items: [], total: 0 });
-    } catch { /* ignore */ }
-    setLoading(false);
-  };
-
-  useEffect(() => { fetchData(); }, [params]);
+  const [detail, setDetail] = useState<any>();
+  const { data = { items: [], total: 0 }, loading, refresh: fetchData } = useRequest<any>(async () => (await notificationRecordApi.list(params) as any).data, { deps: [JSON.stringify(params)] });
 
   const columns = [
     { title: '规则名称', dataIndex: 'ruleName', width: 160 },
-    { title: '事件类型', dataIndex: 'eventType', width: 180, render: (v: string) => <Tag>{v}</Tag> },
-    { title: '严重级别', dataIndex: 'severity', width: 100, render: (v: string) => <Tag color={v === 'critical' ? 'red' : v === 'warning' ? 'orange' : 'blue'}>{v}</Tag> },
+    { title: '事件类型', dataIndex: 'eventType', width: 180, render: (v: string) => <Tag>{EVENT_LABELS[v] || v}</Tag> },
+    { title: '严重级别', dataIndex: 'severity', width: 100, render: (v: string) => <Tag color={v === 'critical' ? 'red' : v === 'warning' ? 'orange' : 'blue'}>{SEVERITY_LABELS[v] || v}</Tag> },
     { title: '渠道', dataIndex: 'channelType', width: 100, render: (v: string) => <Tag>{v}</Tag> },
     { title: '状态', dataIndex: 'status', width: 100, render: (v: string) => <Tag color={statusColor[v]}>{statusLabel[v] || v}</Tag> },
     { title: '尝试次数', dataIndex: 'attemptCount', width: 90 },
     { title: '抑制数', dataIndex: 'suppressedCount', width: 80 },
     { title: '错误', dataIndex: 'error', width: 200, ellipsis: true, render: (v: string) => v || '-' },
+    { title: '详情', render: (_: any, r: any) => <Button type="link" size="small" onClick={() => setDetail(r)}>事件与响应</Button> },
     { title: '时间', dataIndex: 'createdAt', width: 180, render: (t: string) => t ? new Date(t).toLocaleString('zh-CN') : '-' },
   ];
 
@@ -42,12 +35,7 @@ export default function NotificationRecordsPage() {
         extra={(
           <>
             <Select allowClear placeholder="事件类型" style={{ width: 200 }}
-              options={[
-                'task_success', 'task_failed', 'task_timeout',
-                'provider_error', 'provider_rate_limited', 'provider_unavailable',
-                'queue_backlog_high', 'queue_stalled',
-                'account_balance_low', 'account_disabled',
-              ].map((t) => ({ value: t, label: t }))}
+              options={NOTIFICATION_EVENTS.map((t) => ({ value: t, label: EVENT_LABELS[t] || t }))}
               value={params.eventType}
               onChange={(v) => setParams({ ...params, eventType: v, page: 1 })}
             />
@@ -61,7 +49,7 @@ export default function NotificationRecordsPage() {
               value={params.status}
               onChange={(v) => setParams({ ...params, status: v, page: 1 })}
             />
-            <DatePicker.RangePicker
+            <DatePicker.RangePicker showTime
               onChange={(dates) => {
                 setParams({
                   ...params,
@@ -75,6 +63,7 @@ export default function NotificationRecordsPage() {
           </>
         )}
       />
+      <Drawer title="通知投递详情" open={!!detail} onClose={() => setDetail(undefined)} width={760}><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(detail, null, 2)}</pre></Drawer>
       <Card>
         <Table
           columns={columns} dataSource={data.items} rowKey="_id" loading={loading} size="small" scroll={{ x: 1200 }}

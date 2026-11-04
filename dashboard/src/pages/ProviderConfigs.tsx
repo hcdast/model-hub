@@ -1,22 +1,35 @@
+import { Link } from 'react-router-dom';
 import { useCallback, useEffect, useState } from 'react';
-import { Card, Table, Button, Space, Typography, message, Modal, Form, Input, InputNumber, Switch, Avatar, Alert } from 'antd';
-import { ReloadOutlined, EditOutlined, PlusOutlined, TeamOutlined } from '@ant-design/icons';
+import { Card, Table, Button, Space, Typography, message, Modal, Form, Input, InputNumber, Switch, Avatar, Alert, Select, Tooltip, Drawer, Descriptions, Tag } from 'antd';
+import { ReloadOutlined, EditOutlined, PlusOutlined, TeamOutlined, DeleteOutlined } from '@ant-design/icons';
 import PageHeader from '../components/PageHeader';
 import ProviderAccountPoolModal from '../components/ProviderAccountPoolModal';
 import { providerConfigApi, accountPoolApi } from '../services/api';
 import type { ProviderConfigItem } from '../services/api';
 import { invalidateProviderOptionsCache } from '../hooks/useProviderOptions';
+import { usePermission } from '../hooks/usePermission';
+import { providerConfigErrorMessage as actionError, validateLlmBaseUrl, providerConfigForm, mergeProviderConfigForm } from '../utils/provider-config';
 
 type PoolStat = { total: number; enabled: number };
 
 export default function ProviderConfigsPage() {
+  const [readiness, setReadiness] = useState<any>();
+  const [checking, setChecking] = useState(false);
+  const inspect = async (name: string) => { setChecking(true); try { const r: any = await providerConfigApi.readiness(name); setReadiness(r.data); } catch (e: any) { message.error(e.message); } finally { setChecking(false); } };
   const [items, setItems] = useState<ProviderConfigItem[]>([]);
+  const [availableProviders, setAvailableProviders] = useState<string[]>([]);
+  const [busyProviders, setBusyProviders] = useState<Record<string, boolean>>({});
+  const { hasPermission } = usePermission();
+  const canUpdate = hasPermission('provider:update');
+  const canDelete = hasPermission('provider:delete');
   const [loading, setLoading] = useState(false);
   const [poolStats, setPoolStats] = useState<Record<string, PoolStat>>({});
   const [poolModalOpen, setPoolModalOpen] = useState(false);
   const [poolModalProvider, setPoolModalProvider] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<ProviderConfigItem | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveNotice, setSaveNotice] = useState<{ message: string; needsReload?: boolean } | null>(null);
   const [form] = Form.useForm();
 
   const fetchPoolStats = useCallback(async () => {
@@ -52,6 +65,7 @@ export default function ProviderConfigsPage() {
         fetchPoolStats(),
       ]);
       setItems(res.data?.items || []);
+      setAvailableProviders(res.data?.available_providers || []);
     } catch {
       message.error('加载供应商配置失败');
     }
@@ -63,47 +77,34 @@ export default function ProviderConfigsPage() {
   }, [fetchData]);
 
   const openEdit = async (r: ProviderConfigItem) => {
-    setEditing(r);
     try {
       const detail: any = await providerConfigApi.get(r.provider_name);
-      const detailData = detail.data || {};
-      form.setFieldsValue({
-        provider_name: r.provider_name,
-        enabled: detailData.enabled ?? r.enabled,
-        icon_url: detailData.icon_url ?? r.icon_url ?? '',
-        base_url: detailData.base_url ?? r.base_url,
-        max_concurrent: r.limits?.maxConcurrent,
-        max_per_second: r.limits?.maxPerSecond,
-        max_per_minute: r.limits?.maxPerMinute,
-        poll_max_per_second: r.poll_limits?.max_per_second,
-        poll_max_concurrent: r.poll_limits?.max_concurrent,
-      });
-    } catch {
-      form.setFieldsValue({
-        provider_name: r.provider_name,
-        enabled: r.enabled,
-        icon_url: r.icon_url || '',
-        base_url: r.base_url,
-        max_concurrent: r.limits?.maxConcurrent,
-        max_per_second: r.limits?.maxPerSecond,
-        max_per_minute: r.limits?.maxPerMinute,
-        poll_max_per_second: r.poll_limits?.max_per_second,
-        poll_max_concurrent: r.poll_limits?.max_concurrent,
-      });
+      const current = { ...r, ...detail.data } as ProviderConfigItem;
+      setEditing(current);
+      form.resetFields();
+      form.setFieldsValue(providerConfigForm(current));
+      setSaveNotice(null);
+      setModalOpen(true);
+    } catch (error) {
+      message.error(actionError(error, '读取最新配置失败，请重试'));
     }
-    setModalOpen(true);
   };
 
   const openAdd = () => {
     setEditing(null);
+    setSaveNotice(null);
     form.resetFields();
     form.setFieldsValue({ enabled: true });
     setModalOpen(true);
   };
 
   const submit = async () => {
+    if (saving || saveNotice?.needsReload) return;
+    let submitted: Record<string, any> | undefined;
+    setSaving(true);
     try {
       const v = await form.validateFields();
+      submitted = v;
       const providerName = v.provider_name?.trim();
       if (!providerName) {
         message.warning('请输入厂商名称');
@@ -118,9 +119,11 @@ export default function ProviderConfigsPage() {
       if (v.poll_max_concurrent != null) poll_limits.max_concurrent = v.poll_max_concurrent;
 
       await providerConfigApi.upsert(providerName, {
+        expected_revision: editing?.revision || 0,
         enabled: v.enabled,
         icon_url: v.icon_url?.trim() || '',
         base_url: v.base_url,
+        ...(providerName === 'akool-maas' && v.llm_base_url !== undefined ? { llm_base_url: v.llm_base_url.trim() } : {}),
         limits: Object.keys(limits).length ? limits : undefined,
         poll_limits: Object.keys(poll_limits).length ? poll_limits : undefined,
       });
@@ -130,16 +133,83 @@ export default function ProviderConfigsPage() {
       void fetchData();
     } catch (e: any) {
       if (e?.errorFields) return;
-      message.error(e?.message || '保存失败');
+      if (e?.response?.status === 409 && editing && submitted) {
+        try {
+          const response: any = await providerConfigApi.get(editing.provider_name);
+          const latest = response.data as ProviderConfigItem;
+          const result = mergeProviderConfigForm(providerConfigForm(editing), submitted, providerConfigForm(latest));
+          if (result.conflicts.length) {
+            setSaveNotice({ message: '配置已被其他操作更新，且与你修改的字段冲突。当前输入已保留，未覆盖服务器配置。可先记录修改，再点击“放弃当前修改并加载最新配置”。', needsReload: true });
+          } else {
+            setEditing(latest);
+            form.setFieldsValue(result.values);
+            setSaveNotice({ message: '配置版本已更新。已同步服务器的其他修改并保留你的输入，请核对后再次点击确定保存。' });
+          }
+        } catch {
+          setSaveNotice({ message: '配置已更新，但读取最新版本失败。当前输入已保留，请稍后重新加载最新配置。', needsReload: true });
+        }
+        return;
+      }
+      message.error(actionError(e, '保存失败'));
+    } finally {
+      setSaving(false);
     }
+  };
+
+  const setEnabled = async (record: ProviderConfigItem, enabled: boolean) => {
+    const name = record.provider_name;
+    setBusyProviders(prev => ({ ...prev, [name]: true }));
+    try {
+      const result: any = await providerConfigApi.setEnabled(name, enabled, record.revision || 0);
+      if (result.code !== 0) throw new Error(result.message || '更新供应商状态失败');
+      invalidateProviderOptionsCache();
+      message.success(`已${enabled ? '启用' : '停用'} ${name}`);
+      await fetchData();
+    } catch (error: any) {
+      message.error(actionError(error, '更新供应商状态失败'));
+    } finally {
+      setBusyProviders(prev => ({ ...prev, [name]: false }));
+    }
+  };
+
+  const confirmDelete = (record: ProviderConfigItem) => {
+    const name = record.provider_name;
+    Modal.confirm({
+      title: `删除供应商配置 ${name}？`,
+      content: '若仍有关联模型、账号、路由或未结束任务，将无法删除。删除后可通过“添加厂商”重新配置。',
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        setBusyProviders(prev => ({ ...prev, [name]: true }));
+        try {
+          const result: any = await providerConfigApi.remove(name);
+          if (result.code !== 0) throw new Error(result.message || '删除供应商配置失败');
+          invalidateProviderOptionsCache();
+          message.success(`已删除 ${name}`);
+          await fetchData();
+        } catch (error: any) {
+          message.error(actionError(error, '删除供应商配置失败'));
+          throw error;
+        } finally {
+          setBusyProviders(prev => ({ ...prev, [name]: false }));
+        }
+      },
+    });
   };
 
   return (
     <div>
+      <Drawer open={!!readiness} onClose={() => setReadiness(undefined)} width={640} title={`${readiness?.provider || ''} 配置就绪与依赖`}>
+        {readiness && <><Alert type={readiness.warnings.length ? 'warning' : 'success'} message={readiness.warnings.join('；') || '本地配置检查通过'} description={readiness.scope} />
+          <Descriptions column={1} bordered size="small" style={{ marginTop: 16 }} items={[
+            { key: 'adapter', label: '适配器', children: '已注册' }, { key: 'accounts', label: '账号池', children: `${readiness.activeAccounts} 启用 / ${readiness.accounts} 总计` }, { key: 'models', label: '模型', children: readiness.models }, { key: 'routes', label: '路由', children: readiness.routes }, { key: 'tasks', label: '未结束任务', children: readiness.activeTasks }, { key: 'delete', label: '删除条件', children: readiness.canDelete ? '满足' : '需停用并清理关联数据' }, { key: 'time', label: '检查时间', children: readiness.checkedAt },
+          ]} /><Space wrap style={{ marginTop: 16 }}><Link to={`/models?provider=${encodeURIComponent(readiness.provider)}`}>关联模型</Link><Link to={`/tasks?provider=${encodeURIComponent(readiness.provider)}`}>关联任务</Link><Button onClick={() => { setPoolModalProvider(readiness.provider); setPoolModalOpen(true); }}>管理账号池</Button></Space></>}
+      </Drawer>
       <PageHeader
         title="供应商配置"
         leftExtra={(
-          <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openAdd} disabled={!canUpdate}>
             添加厂商
           </Button>
         )}
@@ -157,7 +227,7 @@ export default function ProviderConfigsPage() {
         pagination={false}
         size="small"
         tableLayout="fixed"
-        scroll={{ x: 1140 }}
+        scroll={{ x: 1320 }}
         columns={[
           {
             title: '厂商',
@@ -176,6 +246,22 @@ export default function ProviderConfigsPage() {
                   {name}
                 </Typography.Text>
               </Space>
+            ),
+          },
+          {
+            title: '状态',
+            key: 'enabled',
+            width: 100,
+            render: (_, r) => (
+              <Switch
+                checked={r.enabled}
+                checkedChildren="启用"
+                unCheckedChildren="停用"
+                loading={busyProviders[r.provider_name]}
+                disabled={!canUpdate}
+                aria-label={`${r.provider_name} 启用状态`}
+                onChange={enabled => void setEnabled(r, enabled)}
+              />
             ),
           },
           {
@@ -251,11 +337,20 @@ export default function ProviderConfigsPage() {
           {
             title: '操作',
             key: 'actions',
-            width: 80,
+            width: 160,
+            fixed: 'right' as const,
             render: (_, r) => (
-              <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(r)}>
-                编辑
-              </Button>
+              <Space size={0}>
+          <Button type="link" size="small" loading={checking} onClick={() => inspect(r.provider_name)}>配置检查</Button>
+                <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(r)} disabled={!canUpdate || busyProviders[r.provider_name]}>
+                  编辑
+                </Button>
+                <Tooltip title={r.enabled ? '请先停用供应商，再删除配置' : undefined}>
+                  <Button type="link" danger size="small" icon={<DeleteOutlined />} onClick={() => confirmDelete(r)} disabled={!canDelete || r.enabled || busyProviders[r.provider_name]}>
+                    删除
+                  </Button>
+                </Tooltip>
+              </Space>
             ),
           },
         ]}
@@ -274,21 +369,32 @@ export default function ProviderConfigsPage() {
       <Modal
         title={editing ? `编辑 — ${editing.provider_name}` : '添加供应商配置'}
         open={modalOpen}
+        confirmLoading={saving}
+        okButtonProps={{ disabled: !!saveNotice?.needsReload }}
+        cancelButtonProps={{ disabled: saving }}
+        closable={!saving}
+        maskClosable={!saving}
+        keyboard={!saving}
         onOk={() => void submit()}
         onCancel={() => setModalOpen(false)}
         destroyOnClose
         width={560}
       >
-        <Form form={form} layout="vertical">
+        {saveNotice && <Alert type="warning" showIcon role="alert" message={saveNotice.message} style={{ marginBottom: 16 }}
+          action={saveNotice.needsReload && editing ? <Button onClick={() => void openEdit(editing)}>放弃当前修改并加载最新配置</Button> : undefined} />}
+        <Form form={form} layout="vertical" disabled={saving}>
           <Form.Item
             name="provider_name"
             label="厂商名称"
             rules={[{ required: true, message: '请输入厂商名称' }]}
           >
-            <Input
-              placeholder="例如：wavespeed-ai、openai"
-              disabled={!!editing}
-            />
+            {editing ? <Input disabled /> : (
+              <Select
+                showSearch
+                placeholder="请选择已接入的厂商"
+                options={availableProviders.filter(name => !items.some(item => item.provider_name === name)).map(name => ({ label: name, value: name }))}
+              />
+            )}
           </Form.Item>
           <Alert
             message="密钥请在「账号池」页面管理"
@@ -318,6 +424,14 @@ export default function ProviderConfigsPage() {
           </Form.Item>
           <Form.Item name="base_url" label="Base URL">
             <Input placeholder="https://..." />
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider_name !== cur.provider_name}>
+            {({ getFieldValue }) => getFieldValue('provider_name') === 'akool-openapi' ? <Alert type="info" showIcon style={{ marginBottom: 16 }} message="VoiceLab TTS 使用独立 OpenAPI 凭证" description="Base URL 通常为 https://openapi.akool.com。API Key 请在此供应商的账号池中配置；不会复用 MaaS 密钥。模型价格在模型配置中维护，补全后再启用。" /> : null}
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider_name !== cur.provider_name}>
+            {({ getFieldValue }) => getFieldValue('provider_name') === 'akool-maas' ? <Form.Item name="llm_base_url" label="LLM Base URL（可选）" rules={[{ validator: async (_, value) => validateLlmBaseUrl(value) }]} extra="LLM 使用独立地址，以 /v1 结尾。FAT 文档地址：https://llm-fat.akool.io/v1。模型与价格另行配置；使用本厂商账号池凭证。">
+              <Input placeholder="https://llm-fat.akool.io/v1" />
+            </Form.Item> : null}
           </Form.Item>
 
           <Typography.Text type="secondary">Submit 限流</Typography.Text>

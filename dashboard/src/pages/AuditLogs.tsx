@@ -76,6 +76,7 @@ export default function AuditLogsPage() {
 
   const columns = useMemo(
     () => [
+    { title: '请求关联 ID', dataIndex: ['detail', 'correlationId'], width: 190, ellipsis: true, render: (v: string) => v ? <Typography.Text copyable={{ text: v }}>{v.slice(0, 12)}…</Typography.Text> : '—' },
       {
         title: '时间',
         dataIndex: 'createdAt',
@@ -121,7 +122,7 @@ export default function AuditLogsPage() {
         dataIndex: 'result',
         width: 80,
         render: (v: string) =>
-          (v === 'success' ? <Tag color="success">成功</Tag> : <Tag color="error">失败</Tag>),
+          (v === 'success' ? <Tag color="success">成功</Tag> : v === 'failed' || v === 'failure' || v === 'error' ? <Tag color="error">失败</Tag> : <Tag>未知</Tag>),
       },
       { title: '操作人', dataIndex: 'operator', width: 120, ellipsis: true },
       {

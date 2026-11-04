@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Modal, Radio, Button, Space, Typography, Descriptions, message, Alert } from 'antd';
+import { Modal, Radio, Button, Space, Typography, Descriptions, message, Alert, Input, InputNumber } from 'antd';
 import { ExclamationCircleOutlined, DeleteOutlined } from '@ant-design/icons';
 import { providerHealthApi } from '../services/provider-health';
 
@@ -10,6 +10,8 @@ export interface ManualOverrideInfo {
   operator: string;
   /** 操作时间戳（ISO 8601） */
   timestamp: string;
+  reason?: string;
+  expiresAt?: string;
 }
 
 export interface CircuitBreakerOverrideModalProps {
@@ -39,6 +41,7 @@ export default function CircuitBreakerOverrideModal({
   onSuccess,
 }: CircuitBreakerOverrideModalProps) {
   // 目标状态选择
+  const [reason, setReason] = useState(''); const [ttlSeconds, setTtlSeconds] = useState(300);
   const [targetState, setTargetState] = useState<'OPEN' | 'CLOSED'>('OPEN');
   // 提交中状态
   const [submitting, setSubmitting] = useState(false);
@@ -56,9 +59,10 @@ export default function CircuitBreakerOverrideModal({
 
   /** 执行手动覆盖 */
   const handleOverride = async () => {
+    if (!reason.trim()) { message.warning('请填写覆盖原因'); return; }
     setSubmitting(true);
     try {
-      await providerHealthApi.overrideCircuitBreaker(provider, targetState);
+      await providerHealthApi.overrideCircuitBreaker(provider, targetState, reason, ttlSeconds);
       message.success(`已将 ${provider} 熔断状态强制设为 ${targetState}`);
       onSuccess();
       onClose();
@@ -98,6 +102,7 @@ export default function CircuitBreakerOverrideModal({
       destroyOnClose
       width={520}
     >
+      <Space direction="vertical" style={{ width: '100%', marginBottom: 16 }}><Input.TextArea placeholder="覆盖原因（必填）" value={reason} onChange={e => setReason(e.target.value)} maxLength={500} /><Space>有效期（秒）<InputNumber min={60} max={86400} value={ttlSeconds} onChange={v => setTtlSeconds(v || 300)} /></Space></Space>
       {/* 当前覆盖信息展示 */}
       {manualOverride && (
         <Alert
@@ -107,6 +112,8 @@ export default function CircuitBreakerOverrideModal({
           message="当前存在手动覆盖"
           description={
             <Descriptions column={1} size="small" style={{ marginTop: 8 }}>
+              <Descriptions.Item label="原因">{manualOverride.reason || '—'}</Descriptions.Item>
+              <Descriptions.Item label="到期时间">{manualOverride.expiresAt || '旧配置未记录'}</Descriptions.Item>
               <Descriptions.Item label="覆盖状态">
                 <Typography.Text strong>
                   {manualOverride.state}

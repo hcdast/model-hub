@@ -1,3 +1,4 @@
+import { usePermission } from '../hooks/usePermission';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Card, Table, Button, Space, Typography, message, Modal, Form,
@@ -82,6 +83,8 @@ function formListToCredentials(list?: { key: string; value: string }[]): Record<
 }
 
 export default function AccountPoolPage() {
+  const { hasPermission } = usePermission();
+  const canCreate = hasPermission('provider:create'), canUpdate = hasPermission('provider:update'), canDelete = hasPermission('provider:delete');
   const [items, setItems] = useState<AccountEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -175,7 +178,7 @@ export default function AccountPoolPage() {
       if (editing) {
         const body: Record<string, any> = {
           account_alias: values.account_alias,
-          base_url: values.base_url || undefined,
+          base_url: values.base_url || '',
           description: values.description || '',
           extra_credentials,
           weight: values.weight,
@@ -185,7 +188,7 @@ export default function AccountPoolPage() {
           tags,
         };
         if (values.api_key?.trim()) body.api_key = values.api_key.trim();
-        const res: any = await accountPoolApi.update(editing._id, body);
+        const res: any = await accountPoolApi.update(editing._id, { ...body, expected_revision: editing.revision || 0 });
         if (res.code !== 0) { message.error(res.message || '更新失败'); return; }
         message.success('更新成功');
       } else {
@@ -193,7 +196,7 @@ export default function AccountPoolPage() {
           provider_name: values.provider_name,
           account_alias: values.account_alias,
           api_key: values.api_key,
-          base_url: values.base_url || undefined,
+          base_url: values.base_url || '',
           description: values.description || '',
           extra_credentials,
           weight: values.weight,
@@ -229,7 +232,7 @@ export default function AccountPoolPage() {
 
   const handleToggle = async (record: AccountEntry, enabled: boolean) => {
     try {
-      const res: any = await accountPoolApi.update(record._id, { enabled });
+      const res: any = await accountPoolApi.update(record._id, { enabled, expected_revision: record.revision || 0 });
       if (res.code !== 0) { message.error(res.message || '操作失败'); return; }
       message.success(enabled ? '已启用' : '已禁用');
       void fetchData();
@@ -396,11 +399,11 @@ export default function AccountPoolPage() {
                 onChange={(checked) => void handleToggle(record, checked)}
               />
             </Tooltip>
-            <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
+            <Button disabled={!canUpdate} type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
               编辑
             </Button>
             <Popconfirm title="确认删除此账号？" onConfirm={() => void handleDelete(record)} okText="删除" cancelText="取消">
-              <Button type="link" size="small" danger icon={<DeleteOutlined />}>删除</Button>
+              <Button disabled={!canDelete} type="link" size="small" danger icon={<DeleteOutlined />}>删除</Button>
             </Popconfirm>
           </Space>
         ),
@@ -422,7 +425,7 @@ export default function AccountPoolPage() {
       <PageHeader
         title="账号池管理"
         leftExtra={(
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>添加账号</Button>
+          <Button disabled={!canCreate} type="primary" icon={<PlusOutlined />} onClick={openCreate}>添加账号</Button>
         )}
         extra={(
           <>

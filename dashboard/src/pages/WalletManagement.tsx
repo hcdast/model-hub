@@ -123,10 +123,10 @@ export default function WalletManagementPage() {
 
   const openDetailModal = useCallback(
     (record: WalletListItem) => {
-      setDetailApiKey(record.apiKey);
+      setDetailApiKey((record as any).clientRef || record.apiKey);
       setDetailSnapshot(record);
       setDetailOpen(true);
-      loadDetailData(record.apiKey, 1, 10);
+      loadDetailData((record as any).clientRef || record.apiKey, 1, 10);
     },
     [loadDetailData],
   );
@@ -190,7 +190,7 @@ export default function WalletManagementPage() {
   const columns = [
     {
       title: (
-        <Tooltip title="与 api_clients.apiKey、请求头 X-API-Key 一致">
+        <Tooltip title="仅展示掩码；详情与充值使用非敏感客户端引用">
           API Key
         </Tooltip>
       ),
@@ -428,7 +428,7 @@ export default function WalletManagementPage() {
         <Table
           columns={columns}
           dataSource={wallets}
-          rowKey="apiKey"
+          rowKey={(r: any) => r.clientRef || r._id}
           loading={loading}
           size="small"
           scroll={{ x: 1680 }}

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Card, Typography, message, Space, Alert } from 'antd';
+import { Form, Input, Button, Card, Typography, message, Space } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { authApi } from '../services/api';
 import { useAuthStore } from '../store/auth';
@@ -11,7 +11,6 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const login = useAuthStore((s) => s.login);
-  const isDevelopment = import.meta.env.VITE_NODE_ENV === 'development';
 
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
@@ -60,23 +59,6 @@ export default function LoginPage() {
             </Typography.Title>
             <Typography.Text style={{ color: '#475569' }}>统一 AI 模型接入中台</Typography.Text>
           </div>
-          {isDevelopment && (
-            <Alert
-              message="开发环境默认账号"
-              description={
-                <div>
-                  <div>
-                    用户名: <strong>admin</strong>
-                  </div>
-                  <div>
-                    密码: <strong>changeme123</strong>
-                  </div>
-                </div>
-              }
-              type="info"
-              showIcon
-            />
-          )}
           <Form onFinish={onFinish} size="large" style={{ textAlign: 'left' }}>
             <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
               <Input prefix={<UserOutlined style={{ color: COLOR_PRIMARY }} />} placeholder="用户名" />

@@ -1,6 +1,7 @@
 import { Breadcrumb, Space, Typography, theme } from 'antd';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { PageHeaderRegion } from './PageFrame';
 
 export interface BreadcrumbItem {
   title: string;
@@ -19,6 +20,8 @@ interface PageHeaderProps {
   leftExtra?: ReactNode;
   /** 右侧：筛选控件、查询（建议 `type="primary"`）、重置/刷新（建议 `default` + icon） */
   extra?: ReactNode;
+  /** Secondary actions (such as draft/publish controls), fixed below the title. */
+  toolbar?: ReactNode;
 }
 
 /**
@@ -30,58 +33,62 @@ interface PageHeaderProps {
  * - 主路径：`type="primary"` — 创建、查询、确定
  * - 次要：`default` + `icon` — 刷新、重置、返回
  */
-export default function PageHeader({ title, subtitle, breadcrumbs, prefix, leftExtra, extra }: PageHeaderProps) {
+export default function PageHeader({ title, subtitle, breadcrumbs, prefix, leftExtra, extra, toolbar }: PageHeaderProps) {
   const { token } = theme.useToken();
 
   return (
-    <div
-      style={{
-        marginBottom: token.marginLG,
-        paddingBottom: token.padding,
-        borderBottom: `1px solid ${token.colorBorderSecondary}`,
-      }}
-    >
-      {breadcrumbs && breadcrumbs.length > 0 && (
-        <Breadcrumb
-          style={{ marginBottom: token.marginXS }}
-          items={breadcrumbs.map((b) => ({
-            title: b.path ? <Link to={b.path}>{b.title}</Link> : b.title,
-          }))}
-        />
-      )}
+    <PageHeaderRegion>
       <div
+        className="admin-page-heading"
         style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: token.marginSM,
+          marginBottom: token.marginLG,
+          paddingBottom: token.padding,
+          borderBottom: `1px solid ${token.colorBorderSecondary}`,
         }}
       >
+        {breadcrumbs && breadcrumbs.length > 0 && (
+          <Breadcrumb
+            style={{ marginBottom: token.marginXS }}
+            items={breadcrumbs.map((b) => ({
+              title: b.path ? <Link to={b.path}>{b.title}</Link> : b.title,
+            }))}
+          />
+        )}
         <div
           style={{
             display: 'flex',
+            justifyContent: 'space-between',
             alignItems: 'center',
             flexWrap: 'wrap',
             gap: token.marginSM,
-            minWidth: 0,
           }}
         >
-          {prefix ? <Space wrap>{prefix}</Space> : null}
-          <div style={{ minWidth: 0 }}>
-            <Typography.Title level={4} style={{ margin: 0, color: token.colorTextHeading }}>
-              {title}
-            </Typography.Title>
-            {subtitle && (
-              <Typography.Text type="secondary" style={{ display: 'block', marginTop: token.marginXXS }}>
-                {subtitle}
-              </Typography.Text>
-            )}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: token.marginSM,
+              minWidth: 0,
+            }}
+          >
+            {prefix ? <Space wrap>{prefix}</Space> : null}
+            <div style={{ minWidth: 0 }}>
+              <Typography.Title level={4} style={{ margin: 0, color: token.colorTextHeading }}>
+                {title}
+              </Typography.Title>
+              {subtitle && (
+                <Typography.Text type="secondary" style={{ display: 'block', marginTop: token.marginXXS }}>
+                  {subtitle}
+                </Typography.Text>
+              )}
+            </div>
+            {leftExtra ? <Space wrap>{leftExtra}</Space> : null}
           </div>
-          {leftExtra ? <Space wrap>{leftExtra}</Space> : null}
+          {extra ? <Space wrap>{extra}</Space> : null}
         </div>
-        {extra ? <Space wrap>{extra}</Space> : null}
+        {toolbar && <div style={{ marginTop: token.marginSM }}>{toolbar}</div>}
       </div>
-    </div>
+    </PageHeaderRegion>
   );
 }

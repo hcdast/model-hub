@@ -201,6 +201,10 @@ export const ParamField: React.FC<ParamFieldProps> = ({
 
   const renderControl = (type: ParamUIType) => {
     switch (type) {
+      case 'upload':
+        return <Input.TextArea disabled={disabled} placeholder={`${definition.media?.kind || '媒体'} URL${definition.type === 'array' ? ' 数组（JSON）' : ''}；在线测试中支持上传`} />;
+      case 'json':
+        return <Input.TextArea disabled={disabled} rows={5} placeholder="JSON" />;
       case 'select':
         return renderSelect();
       case 'radio':

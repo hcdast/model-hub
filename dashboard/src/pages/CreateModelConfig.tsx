@@ -18,6 +18,7 @@ import {
   EyeOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../components/PageHeader';
+import { PageActions } from '../components/PageFrame';
 import { ModelConfigEditor } from '../components/ModelConfigEditor';
 import {
   ModelConfigStructuredEditor,
@@ -245,7 +246,7 @@ export default function CreateModelConfigPage() {
           </div>
         )}
 
-        <Space style={{ marginTop: 24 }}>
+        <PageActions>
           <Button
             type="primary"
             icon={<SaveOutlined />}
@@ -258,7 +259,7 @@ export default function CreateModelConfigPage() {
           <Button onClick={handleCancel}>
             取消
           </Button>
-        </Space>
+        </PageActions>
       </Card>
     </div>
   );

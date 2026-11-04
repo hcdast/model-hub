@@ -8,7 +8,7 @@ export interface PricingEntry {
   unit_duration?: number;
 }
 
-const VIDEO_CAMEL_TYPES = new Set(['textToVideo', 'imageToVideo', 'videoToVideo']);
+const VIDEO_CAMEL_TYPES = new Set(['textToVideo', 'imageToVideo', 'referenceToVideo', 'videoToVideo', 'talkingPhoto']);
 
 export function getModelCategory(modelType: string | number): ModelCategory {
   if (typeof modelType === 'string' && VIDEO_CAMEL_TYPES.has(modelType)) return 'video';

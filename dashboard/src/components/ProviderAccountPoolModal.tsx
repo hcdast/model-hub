@@ -1,3 +1,4 @@
+import { usePermission } from '../hooks/usePermission';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Modal,
@@ -83,6 +84,8 @@ export default function ProviderAccountPoolModal({
   onClose,
   onPoolChanged,
 }: ProviderAccountPoolModalProps) {
+  const { hasPermission } = usePermission();
+  const canCreate = hasPermission('provider:create'), canUpdate = hasPermission('provider:update'), canDelete = hasPermission('provider:delete');
   const [items, setItems] = useState<AccountEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -199,7 +202,7 @@ export default function ProviderAccountPoolModal({
       if (editing) {
         const body: Record<string, unknown> = {
           account_alias: values.account_alias,
-          base_url: values.base_url || undefined,
+          base_url: values.base_url || '',
           description: values.description || '',
           extra_credentials,
           weight: values.weight,
@@ -209,7 +212,7 @@ export default function ProviderAccountPoolModal({
           tags,
         };
         if (values.api_key?.trim()) body.api_key = values.api_key.trim();
-        const res: any = await accountPoolApi.update(editing._id, body);
+        const res: any = await accountPoolApi.update(editing._id, { ...body, expected_revision: editing.revision || 0 });
         if (res.code !== 0) {
           message.error(res.message || '更新失败');
           return;
@@ -220,7 +223,7 @@ export default function ProviderAccountPoolModal({
           provider_name: values.provider_name,
           account_alias: values.account_alias,
           api_key: values.api_key,
-          base_url: values.base_url || undefined,
+          base_url: values.base_url || '',
           description: values.description || '',
           extra_credentials,
           weight: values.weight,
@@ -263,7 +266,7 @@ export default function ProviderAccountPoolModal({
 
   const handleToggle = async (record: AccountEntry, enabled: boolean) => {
     try {
-      const res: any = await accountPoolApi.update(record._id, { enabled });
+      const res: any = await accountPoolApi.update(record._id, { enabled, expected_revision: record.revision || 0 });
       if (res.code !== 0) {
         message.error(res.message || '操作失败');
         return;
@@ -372,7 +375,7 @@ export default function ProviderAccountPoolModal({
                 onChange={(checked) => void handleToggle(record, checked)}
               />
             </Tooltip>
-            <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
+            <Button disabled={!canUpdate} type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
               编辑
             </Button>
             <Popconfirm
@@ -381,7 +384,7 @@ export default function ProviderAccountPoolModal({
               okText="删除"
               cancelText="取消"
             >
-              <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+              <Button disabled={!canDelete} type="link" size="small" danger icon={<DeleteOutlined />}>
                 删除
               </Button>
             </Popconfirm>
@@ -411,7 +414,7 @@ export default function ProviderAccountPoolModal({
           </Typography.Paragraph>
         )}
         <Space style={{ marginBottom: 12 }} wrap>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+          <Button disabled={!canCreate} type="primary" icon={<PlusOutlined />} onClick={openCreate}>
             添加账号
           </Button>
           <Button icon={<ReloadOutlined />} onClick={() => void fetchList()} loading={loading}>

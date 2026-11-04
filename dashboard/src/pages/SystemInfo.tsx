@@ -44,11 +44,21 @@ export default function SystemInfoPage() {
         {data && (
           <Descriptions bordered size="small" column={{ xs: 1, sm: 2, lg: 2 }}>
             <Descriptions.Item label="应用版本">{data.appVersion}</Descriptions.Item>
+            <Descriptions.Item label="后端构建">{data.backendBuild?.id || '未注入 BUILD_ID'} · {data.backendBuild?.commit || '提交号未注入'}</Descriptions.Item>
+            <Descriptions.Item label="当前页面构建">{(import.meta.env.VITE_BUILD_INFO as any)?.id || '开发模式'}</Descriptions.Item>
+            <Descriptions.Item label="服务端前端构建">{data.frontendBuild?.id || '无构建清单'}</Descriptions.Item>
+            <Descriptions.Item label="统计日期口径">UTC</Descriptions.Item>
             <Descriptions.Item label="进程类型">{data.processType}</Descriptions.Item>
             <Descriptions.Item label="Node">{data.nodeVersion}</Descriptions.Item>
             <Descriptions.Item label="运行时长">{`${Math.floor((data.uptimeSec || 0) / 3600)}h ${Math.floor(((data.uptimeSec || 0) % 3600) / 60)}m`}</Descriptions.Item>
             <Descriptions.Item label="MongoDB">
               {data.mongodb?.connected ? '已连接' : '未连接'}
+            </Descriptions.Item>
+            <Descriptions.Item label="资金事务">
+              {data.mongodb?.transactionsSupported === true ? '支持' : data.mongodb?.transactionsSupported === false ? '不可用：请配置 MongoDB 副本集或分片集群' : '未确认'}
+            </Descriptions.Item>
+            <Descriptions.Item label="媒体校验依赖">
+              {data.mediaValidation?.ready === true ? '已就绪' : data.mediaValidation?.ready === false ? '不可用：请检查 FFprobe 配置' : '未确认'}
             </Descriptions.Item>
             <Descriptions.Item label="生成时间">{data.generatedAt}</Descriptions.Item>
           </Descriptions>

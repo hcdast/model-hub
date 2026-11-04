@@ -4,6 +4,7 @@ import type {
 } from '@model-hub/common/interfaces/param-definition.interface';
 
 const STRING_UIS: ParamUIType[] = [
+  'upload',
   'input',
   'textarea',
   'password',
@@ -17,7 +18,7 @@ const NUMBER_UIS: ParamUIType[] = [
   'select',
 ];
 const BOOL_UIS: ParamUIType[] = ['switch', 'radio'];
-const ARRAY_UIS: ParamUIType[] = ['tags'];
+const ARRAY_UIS: ParamUIType[] = ['tags', 'upload', 'json'];
 
 /** 展示控件中文说明（管理端下拉用） */
 export const PARAM_UI_TYPE_LABELS: Record<ParamUIType, string> = {
@@ -30,14 +31,18 @@ export const PARAM_UI_TYPE_LABELS: Record<ParamUIType, string> = {
   tags: '标签列表（多值）',
   radio: '单选按钮组',
   password: '密码框',
+  upload: '媒体上传 / URL',
+  json: 'JSON 编辑器',
 };
 
 export function defaultUiTypeForParamType(t: ParamType): ParamUIType {
   switch (t) {
     case 'boolean':
       return 'switch';
+    case 'integer':
     case 'number':
       return 'input-number';
+    case 'object': return 'json';
     case 'array':
       return 'tags';
     default:
@@ -49,10 +54,12 @@ export function uiOptionsForParamType(t: ParamType): ParamUIType[] {
   switch (t) {
     case 'string':
       return [...STRING_UIS];
+    case 'integer':
     case 'number':
       return [...NUMBER_UIS];
     case 'boolean':
       return [...BOOL_UIS];
+    case 'object': return ['json'];
     case 'array':
       return [...ARRAY_UIS];
     default:
@@ -74,6 +81,8 @@ export function labeledUiOptionsForParamType(
 export const PARAM_TYPE_LABELS: Record<ParamType, string> = {
   string: '文本（string）',
   number: '数字（number）',
+  integer: '整数（integer）',
+  object: '对象（object）',
   boolean: '布尔（boolean）',
   array: '数组（array）',
 };

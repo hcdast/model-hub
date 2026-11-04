@@ -4,6 +4,7 @@ import api from './api';
 
 /** 计费记录查询参数 */
 export interface BillingRecordQuery {
+  taskId?: string;
   apiKey?: string;
   model?: string;
   billingPolicy?: 'internal' | 'external';
@@ -16,6 +17,8 @@ export interface BillingRecordQuery {
 
 /** 计费记录条目 */
 export interface BillingRecordItem {
+  clientName?: string;
+  clientRef?: string;
   _id: string;
   taskId: string;
   apiKey: string;
@@ -116,13 +119,14 @@ export interface WalletListItem {
 // ---- 计费管理 API ----
 
 export const billingApi = {
+  exportRecords: (params: BillingRecordQuery) => api.post('/billing/records/export', params, { timeout: 120000 }),
   /** 查询钱包列表 */
   listWallets: (params: WalletListQuery) =>
     api.get('/billing/wallets', { params }),
 
   /** 查询计费记录列表 */
   getRecords: (params: BillingRecordQuery) =>
-    api.get('/billing/records', { params }),
+    api.get('/billing/records', { params: { ...params, start_date: params.startDate, end_date: params.endDate } }),
 
   /** 查询计费汇总（查询参数与后端 snake_case 对齐） */
   getSummary: (params: BillingSummaryQuery) =>

@@ -7,7 +7,7 @@ import {
 import {
   PlusOutlined, ReloadOutlined, KeyOutlined, EditOutlined, BarChartOutlined,
 } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
+import ReactECharts from '../components/Chart';
 import dayjs from 'dayjs';
 import { apiClientApi, modelApi } from '../services/api';
 import { ErrorHandler } from '../utils/error-handler';

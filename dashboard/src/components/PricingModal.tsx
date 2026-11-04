@@ -17,6 +17,7 @@ export interface PricingModalProps {
   open: boolean;
   modelConfig: {
     _id: string;
+    revision?: number;
     model_id: string;
     model_type: string;
     model_name: string;
@@ -66,8 +67,12 @@ export default function PricingModal({ open, modelConfig, onClose, onSaved }: Pr
 
   // Reset edit state when modal opens with new model
   useEffect(() => {
-    if (open && modelConfig?.unit_price_map) {
-      setEditMap(JSON.parse(JSON.stringify(modelConfig.unit_price_map)));
+    if (open && modelConfig) {
+      const priceMap = JSON.parse(JSON.stringify(modelConfig.unit_price_map || {}));
+      if (!priceMap.default) {
+        priceMap.default = { cost_unit_price: 0, sale_unit_price: 0, unit_credit: 0, original_unit_credit: 0 };
+      }
+      setEditMap(priceMap);
     }
   }, [open, modelConfig]);
 
@@ -96,18 +101,18 @@ export default function PricingModal({ open, modelConfig, onClose, onSaved }: Pr
 
   const handleSave = async () => {
     if (!modelConfig) return;
-    if (!hasChanges(modelConfig.unit_price_map, editMap)) {
+    if (!hasChanges(modelConfig.unit_price_map || {}, editMap)) {
       onClose();
       return;
     }
     setSaving(true);
     try {
-      await modelApi.updatePricing(modelConfig._id, editMap);
+      await modelApi.updatePricing(modelConfig._id, editMap, modelConfig.revision || 0);
       message.success('定价更新成功');
       onSaved();
       onClose();
-    } catch {
-      message.error('保存失败，请重试');
+    } catch (err: any) {
+      message.error(err.response?.data?.message || err.message || '保存失败');
     } finally {
       setSaving(false);
     }
@@ -242,6 +247,12 @@ export default function PricingModal({ open, modelConfig, onClose, onSaved }: Pr
       width={isVideo ? 1200 : 1080}
       destroyOnClose
     >
+      {!modelConfig?.unit_price_map?.default && <Alert
+        type="warning"
+        showIcon
+        message="该模型尚未完成定价。请填写 default 档位：sale_unit_price、unit_credit 必须大于 0，cost_unit_price 必须大于或等于 0；保存后再启用模型。"
+        style={{ marginBottom: 12 }}
+      />}
       <Alert
         type="info"
         showIcon

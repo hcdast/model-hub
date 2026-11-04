@@ -27,9 +27,10 @@ import {
   PARAM_TYPE_LABELS,
 } from './paramUi';
 
-const PARAM_TYPES: ParamType[] = ['string', 'number', 'boolean', 'array'];
+const PARAM_TYPES: ParamType[] = ['string', 'number', 'integer', 'boolean', 'array', 'object'];
 
 export interface ParamRow {
+  extra?: Partial<ParamDefinition>;
   key: string;
   label: string;
   type: ParamType;
@@ -93,6 +94,7 @@ function defToRow(paramKey: string, def: ParamDefinition): ParamRow {
   const ui = coerceUiType(t, def.ui_type);
   const ed = def.enumDependsOn;
   return {
+    extra: Object.fromEntries(Object.entries(def).filter(([k]) => !['type','required','ui_type','label','description','default','enum','min','max','minLength','maxLength','minItems','maxItems','hide','skipValidation','third_party_field','enumDependsOn'].includes(k))),
     key: paramKey,
     label: def.label ?? '',
     type: t,
@@ -161,8 +163,8 @@ function parseDefaultStr(type: ParamType, s: string): unknown {
   const t = s.trim();
   if (t === '') return undefined;
   try {
-    if (type === 'array') return JSON.parse(t);
-    if (type === 'number') {
+    if (type === 'array' || type === 'object') return JSON.parse(t);
+    if ((type === 'number' || type === 'integer')) {
       const n = Number(t);
       return Number.isFinite(n) ? n : undefined;
     }
@@ -187,7 +189,7 @@ function parseEnumStrings(
     const t = raw.trim();
     if (t === '') continue;
     let v: string | number | boolean;
-    if (type === 'number') {
+    if ((type === 'number' || type === 'integer')) {
       const n = Number(t);
       if (!Number.isFinite(n)) continue;
       v = n;
@@ -211,6 +213,7 @@ function rowToDefinition(row: ParamRow, allKeys: string[]): ParamDefinition | nu
   if (!key) return null;
 
   const def: ParamDefinition = {
+    ...row.extra,
     required: row.required,
     type: row.type,
     ui_type: coerceUiType(row.type, row.ui_type),
@@ -227,7 +230,7 @@ function rowToDefinition(row: ParamRow, allKeys: string[]): ParamDefinition | nu
   const d = parseDefaultStr(row.type, row.defaultStr);
   if (d !== undefined) def.default = d;
 
-  if (row.type === 'number') {
+  if ((row.type === 'number' || row.type === 'integer')) {
     const min = parseNum(row.minStr);
     const max = parseNum(row.maxStr);
     if (min !== undefined) def.min = min;
@@ -364,7 +367,7 @@ function DefaultValueEditor({
     );
   }
 
-  if ((row.type === 'string' || row.type === 'number' || row.type === 'boolean') && hasEnum) {
+  if ((row.type === 'string' || (row.type === 'number' || row.type === 'integer') || row.type === 'boolean') && hasEnum) {
     const val = defaultValueForSelect(row.type, row.defaultStr, enumParsed);
     const optionValues = enumParsed.map((v) => ({
       label: String(v),
@@ -391,7 +394,7 @@ function DefaultValueEditor({
             updateRow(index, {
               defaultStr: String(next) === 'true' ? 'true' : 'false',
             });
-          } else if (row.type === 'number') {
+          } else if ((row.type === 'number' || row.type === 'integer')) {
             updateRow(index, { defaultStr: String(next) });
           } else {
             updateRow(index, { defaultStr: String(next) });
@@ -402,7 +405,7 @@ function DefaultValueEditor({
     );
   }
 
-  if (row.type === 'number' && !hasEnum) {
+  if ((row.type === 'number' || row.type === 'integer') && !hasEnum) {
     const n = parseNum(row.defaultStr);
     return (
       <InputNumber
@@ -481,6 +484,8 @@ export function ParamDefinitionsEditor({
   params,
   onChange,
 }: ParamDefinitionsEditorProps) {
+  const [search, setSearch] = useState('');
+  const [collapsed, setCollapsed] = useState(false);
   const incoming = useMemo(() => JSON.stringify(params), [params]);
   const lastEmittedRef = useRef(incoming);
   const [rows, setRows] = useState<ParamRow[]>(() => rowsFromDefinitions(params));
@@ -516,6 +521,7 @@ export function ParamDefinitionsEditor({
       next[index] = {
         ...r,
         ui_type: coerceUiType(patch.type ?? r.type, r.ui_type),
+        extra: typeChanged ? {} : r.extra,
         enumStrings: typeChanged ? [] : r.enumStrings,
         defaultStr: typeChanged ? '' : r.defaultStr,
       };
@@ -671,7 +677,7 @@ export function ParamDefinitionsEditor({
             />
           </div>
 
-          {(row.type === 'string' || row.type === 'number') && (
+          {(row.type === 'string' || (row.type === 'number' || row.type === 'integer')) && (
             <div>
               <Typography.Text type="secondary">枚举联动（可选）</Typography.Text>
               <Typography.Paragraph type="secondary" style={{ margin: '4px 0 0', fontSize: 12 }}>
@@ -726,10 +732,10 @@ export function ParamDefinitionsEditor({
     const enumParsed = parseEnumStrings(row.type, row.enumStrings);
 
     const enumBlock = (row.type === 'string' ||
-      row.type === 'number' ||
+      (row.type === 'number' || row.type === 'integer') ||
       row.type === 'boolean') && (
       <div style={{ marginTop: 12 }}>
-        <Typography.Text type="secondary">固定选项（枚举）</Typography.Text>
+        <Space><Typography.Text type="secondary">固定选项（枚举）</Typography.Text><Button size="small" onClick={() => { let text = row.enumStrings.join('\n'); Modal.confirm({ title: '批量编辑枚举（每行一个值）', content: <Input.TextArea rows={12} defaultValue={text} onChange={e => { text = e.target.value; }} />, onOk: () => { updateRow(index, { enumStrings: text.split(/\r?\n/).filter(v => v.trim() !== '') }); } }); }}>批量编辑</Button></Space>
         <Typography.Paragraph type="secondary" style={{ margin: '4px 0 8px', fontSize: 12 }}>
           有枚举时展示为下拉或单选；展示控件选「下拉列表」或「单选按钮组」即可。标签与取值一致，直接编辑取值列表。
         </Typography.Paragraph>
@@ -745,7 +751,7 @@ export function ParamDefinitionsEditor({
                   style={{ flex: 1, maxWidth: 360 }}
                   value={line}
                   placeholder={
-                    row.type === 'number'
+                    (row.type === 'number' || row.type === 'integer')
                       ? '数字，如 720'
                       : row.type === 'boolean'
                         ? 'true 或 false'
@@ -769,7 +775,7 @@ export function ParamDefinitionsEditor({
       </div>
     );
 
-    if (row.type === 'number') {
+    if ((row.type === 'number' || row.type === 'integer')) {
       return (
         <>
           {enumBlock}
@@ -873,6 +879,8 @@ export function ParamDefinitionsEditor({
         styles={{ header: { fontWeight: 600 } }}
       >
         <Space style={{ marginBottom: 12 }} wrap align="start">
+          <Input.Search placeholder="搜索参数名或标签" value={search} onChange={e => setSearch(e.target.value)} allowClear style={{ width: 220 }} />
+          <Button onClick={() => setCollapsed(!collapsed)}>{collapsed ? '展开参数' : '收起参数'}</Button>
           <Button type="primary" ghost onClick={addRow}>
             添加参数
           </Button>
@@ -883,6 +891,7 @@ export function ParamDefinitionsEditor({
 
         <Space direction="vertical" style={{ width: '100%' }} size={16}>
           {rows.map((row, index) => {
+            if (collapsed || search && !`${row.key} ${row.label}`.toLowerCase().includes(search.toLowerCase())) return null;
             const enumParsed = parseEnumStrings(row.type, row.enumStrings);
             const showAdvanced =
               rowHasAdvancedContent(row) || advancedDraftKeys.has(row.key);

@@ -4,6 +4,7 @@ import {
 } from 'antd';
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
+import { useSearchParams, Link } from 'react-router-dom';
 import PageHeader from '../components/PageHeader';
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
 import { billingApi, type BillingRecordQuery, type BillingRecordItem } from '../services/billing';
@@ -66,26 +67,27 @@ function exportToCsv(records: BillingRecordItem[]) {
   }
 
   const headers = [
-    'taskId', 'apiKey', 'model', 'provider', 'usageType',
-    'estimatedCost', 'actualCost', 'billingPolicy', 'status', 'createdAt',
+    'taskId', 'clientName', 'model', 'provider', 'usageType',
+    'estimatedCost', 'actualCost', 'currency', 'billingPolicy', 'status', 'createdAt_UTC',
   ];
 
   const rows = records.map((r) => [
     r.taskId,
-    r.apiKey,
+    (r as any).clientName || r.apiKey,
     r.model,
     r.provider,
     r.usageType,
     String(r.estimatedCost ?? ''),
     String(r.actualCost ?? ''),
+    r.currency,
     r.billingPolicy,
     r.status,
-    r.createdAt ? new Date(r.createdAt).toLocaleString('zh-CN') : '',
+    r.createdAt ? new Date(r.createdAt).toISOString() : '',
   ]);
 
   const csvContent = [
     headers.join(','),
-    ...rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')),
+    ...rows.map((row) => row.map((cell) => `"${String(cell).replace(/^[\s]*[=+@-]/, m => `'${m}`).replace(/"/g, '""')}"`).join(',')),
   ].join('\n');
 
   const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -99,11 +101,21 @@ function exportToCsv(records: BillingRecordItem[]) {
 }
 
 export default function BillingRecordsPage() {
-  const [params, setParams] = useState<BillingRecordQuery>({
-    page: 1,
-    pageSize: 20,
-  });
+  const [exporting, setExporting] = useState(false);
+  const [search, setSearch] = useSearchParams();
+  const params: BillingRecordQuery = { ...Object.fromEntries(search), page: Number(search.get('page')) || 1, pageSize: Number(search.get('pageSize')) || 20 } as BillingRecordQuery;
+  const setParams = (update: BillingRecordQuery | ((prev: BillingRecordQuery) => BillingRecordQuery)) => { const next = typeof update === 'function' ? update(params) : update; setSearch(Object.fromEntries(Object.entries(next).filter(([,v]) => v !== undefined && v !== '').map(([k,v]) => [k, String(v)])), { replace: true }); };
 
+  const exportAll = async () => {
+    setExporting(true);
+    try {
+      const res: any = await billingApi.exportRecords(params);
+      const url = URL.createObjectURL(new Blob([res.data.csv], { type: 'text/csv;charset=utf-8;' }));
+      const a = document.createElement('a'); a.href = url; a.download = `billing-records-all-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+      message.success(`已导出全部筛选结果 ${res.data.total} 条（UTC）`);
+    } catch (e: any) { message.error(e.response?.data?.message || e.message || '导出失败'); }
+    finally { setExporting(false); }
+  };
   const [reconRange, setReconRange] = useState<[Dayjs, Dayjs]>([
     dayjs().subtract(6, 'day').startOf('day'),
     dayjs().endOf('day'),
@@ -113,7 +125,7 @@ export default function BillingRecordsPage() {
 
   const { data, loading, refresh } = useRequest(
     () => billingApi.getRecords(params).then((res: any) => res.data || { items: [], total: 0 }),
-    { deps: [params.page, params.pageSize, params.apiKey, params.model, params.billingPolicy, params.status, params.startDate, params.endDate] },
+    { deps: [params.taskId, params.page, params.pageSize, params.apiKey, params.model, params.billingPolicy, params.status, params.startDate, params.endDate] },
   );
 
   const loadReconciliation = useCallback(async () => {
@@ -140,24 +152,24 @@ export default function BillingRecordsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const updateFilter = useCallback((patch: Partial<BillingRecordQuery>) => {
+  const updateFilter = (patch: Partial<BillingRecordQuery>) => {
     setParams((prev) => ({ ...prev, ...patch, page: 1 }));
-  }, []);
+  };
 
   const columns = [
     {
       title: 'Task ID',
       dataIndex: 'taskId',
       key: 'taskId',
+      render: (id: string) => <Link to={`/tasks/${encodeURIComponent(id)}`}>{id}</Link>,
       width: 200,
       ellipsis: true,
     },
     {
-      title: 'API Key',
-      dataIndex: 'apiKey',
-      key: 'apiKey',
-      width: 160,
-      ellipsis: true,
+      title: '客户端',
+      key: 'clientName',
+      width: 220,
+      render: (_: unknown, row: BillingRecordItem) => <Space direction="vertical" size={0}><span>{row.clientName || '历史客户端'}</span><Typography.Text type="secondary">{row.apiKey}</Typography.Text>{row.clientRef && <Typography.Text copyable style={{ fontSize: 11 }}>{row.clientRef}</Typography.Text>}</Space>,
     },
     {
       title: '模型',
@@ -196,6 +208,9 @@ export default function BillingRecordsPage() {
       render: (v: number) => (v != null ? v.toFixed(2) : '-'),
     },
     {
+      title: '币种', dataIndex: 'currency', key: 'currency', width: 85,
+    },
+    {
       title: '计费策略',
       dataIndex: 'billingPolicy',
       key: 'billingPolicy',
@@ -228,6 +243,7 @@ export default function BillingRecordsPage() {
         title="用量账单"
         extra={(
           <>
+            <Input.Search placeholder="任务 ID 精确查询" defaultValue={params.taskId} allowClear style={{ width: 220 }} onSearch={taskId => setParams({ ...params, taskId, page: 1 })} />
             <Button
               icon={<ReloadOutlined />}
               onClick={() => {
@@ -237,12 +253,13 @@ export default function BillingRecordsPage() {
             >
               刷新全部
             </Button>
+            <Button loading={exporting} onClick={exportAll}>导出全部筛选结果 CSV</Button>
             <Button
               type="primary"
               icon={<DownloadOutlined />}
               onClick={() => exportToCsv(data?.items || [])}
             >
-              导出 CSV
+              导出当前页 CSV
             </Button>
           </>
         )}

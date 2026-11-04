@@ -10,6 +10,9 @@ interface UseRequestOptions {
 }
 
 interface UseRequestResult<T> {
+  paused: boolean;
+  setPaused: (value: boolean) => void;
+  lastSuccess?: Date;
   /** 请求返回的数据 */
   data: T | undefined;
   /** 是否正在加载 */
@@ -36,6 +39,9 @@ export function useRequest<T>(
 ): UseRequestResult<T> {
   const { manual = false, deps = [], pollingInterval = 0 } = options || {};
 
+  const [paused, setPaused] = useState(false);
+  const [lastSuccess, setLastSuccess] = useState<Date>();
+  const inFlight = useRef(0);
   const [data, setData] = useState<T | undefined>(undefined);
   const [loading, setLoading] = useState<boolean>(!manual);
   const [error, setError] = useState<Error | undefined>(undefined);
@@ -46,11 +52,15 @@ export function useRequest<T>(
 
   // 标记组件是否已卸载，防止卸载后 setState
   const unmountedRef = useRef(false);
+  const sequence = useRef(0);
+  const failures = useRef(0);
+  const nextPollAt = useRef(0);
 
   useEffect(() => {
     unmountedRef.current = false;
     return () => {
       unmountedRef.current = true;
+      sequence.current++;
     };
   }, []);
 
@@ -58,20 +68,27 @@ export function useRequest<T>(
   const run = useCallback(async () => {
     if (unmountedRef.current) return;
 
+    const requestId = ++sequence.current;
+    inFlight.current++;
     setLoading(true);
     setError(undefined);
 
     try {
       const result = await fetcherRef.current();
-      if (!unmountedRef.current) {
+      if (!unmountedRef.current && requestId === sequence.current) {
+        failures.current = 0;
+        setLastSuccess(new Date());
         setData(result);
       }
     } catch (err) {
-      if (!unmountedRef.current) {
+      if (!unmountedRef.current && requestId === sequence.current) {
+        failures.current++;
+        nextPollAt.current = Date.now() + Math.min(60000, 1000 * 2 ** failures.current);
         setError(err instanceof Error ? err : new Error(String(err)));
       }
     } finally {
-      if (!unmountedRef.current) {
+      inFlight.current--;
+      if (!unmountedRef.current && requestId === sequence.current) {
         setLoading(false);
       }
     }
@@ -89,11 +106,11 @@ export function useRequest<T>(
   useEffect(() => {
     if (pollingInterval > 0) {
       const timer = setInterval(() => {
-        run();
+        if (!paused && !inFlight.current && !document.hidden && Date.now() >= nextPollAt.current) run();
       }, pollingInterval);
       return () => clearInterval(timer);
     }
-  }, [pollingInterval, run]);
+  }, [pollingInterval, paused, run]);
 
   // 手动触发/刷新
   const refresh = useCallback(async () => {
@@ -105,5 +122,5 @@ export function useRequest<T>(
     setData(newData);
   }, []);
 
-  return { data, loading, error, refresh, mutate };
+  return { data, loading, error, refresh, mutate, paused, setPaused, lastSuccess };
 }

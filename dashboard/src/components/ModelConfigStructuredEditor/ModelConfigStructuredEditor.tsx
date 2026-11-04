@@ -15,6 +15,7 @@ import { ParamDefinitionsEditor } from './ParamDefinitionsEditor';
 import { UnitPriceMapSection } from './UnitPriceMapSection';
 import { MODEL_CONFIG_MODEL_TYPES } from '../../constants/model-config-model-type';
 import ProviderSelect from '../ProviderSelect';
+import { ModelContractEditor } from './ModelContractEditor';
 
 const MODEL_TYPE_SELECT_OPTIONS = MODEL_CONFIG_MODEL_TYPES.map((v) => ({
   label: v,
@@ -46,7 +47,8 @@ export function ModelConfigStructuredEditor({
 
   const basicSlice = JSON.stringify(pickBasic(value));
   useEffect(() => {
-    basicForm.setFieldsValue(pickBasic(valueRef.current));
+    const basic = pickBasic(valueRef.current);
+    basicForm.setFieldsValue({ ...basic, tags: ((basic.tags || []) as any[]).map((tag: any) => typeof tag === 'string' ? tag : tag.text) });
   }, [basicSlice, basicForm]);
 
   const flushBasic = () => {
@@ -55,6 +57,7 @@ export function ModelConfigStructuredEditor({
     for (const k of BASIC_FIELD_NAMES) {
       if (raw[k] !== undefined) nextBasic[k] = raw[k];
     }
+    if (Array.isArray(nextBasic.tags)) nextBasic.tags = nextBasic.tags.map((text: any) => (valueRef.current.tags || []).find((tag: any) => typeof tag === 'object' && tag.text === text) || text);
     emit({ ...valueRef.current, ...nextBasic });
   };
 
@@ -64,7 +67,7 @@ export function ModelConfigStructuredEditor({
         <Form
           form={basicForm}
           layout="vertical"
-          initialValues={pickBasic(value)}
+          initialValues={{ ...pickBasic(value), tags: (value.tags || []).map((tag: any) => typeof tag === 'string' ? tag : tag.text) }}
           onValuesChange={flushBasic}
         >
           <Form.Item
@@ -132,6 +135,7 @@ export function ModelConfigStructuredEditor({
         }
         onChange={(params) => emit({ params })}
       />
+      <ModelContractEditor value={value} onChange={emit} />
     </Space>
   );
 }

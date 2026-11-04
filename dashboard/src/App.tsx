@@ -1,3 +1,5 @@
+import DataStatusBanner from './components/DataStatusBanner';
+import PageFrame from './components/PageFrame';
 import { lazy, Suspense, useState, useEffect, type CSSProperties, type ReactNode } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { Layout, Menu, Typography, Avatar, Dropdown, theme, Modal, Form, Input, message, Spin, Badge, Space, ConfigProvider, Button } from 'antd';
@@ -14,6 +16,7 @@ import {
   LinkOutlined, MenuOutlined, ThunderboltOutlined, ExperimentOutlined, RobotOutlined,
   LayoutOutlined, ControlOutlined, ApartmentOutlined,
 } from '@ant-design/icons';
+import RouteErrorBoundary from './components/RouteErrorBoundary';
 import { BrandMark } from './components/BrandMark';
 import { buildAntdTheme } from './theme/antd-theme';
 import { useAuthStore } from './store/auth';
@@ -328,6 +331,7 @@ function AppLayout() {
     },
   } = theme.useToken();
   const toggleTheme = useThemeStore((s) => s.toggle);
+  const routeLocation = useLocation();
   const themeMode = useThemeStore((s) => s.mode);
   const [changePwdOpen, setChangePwdOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -490,22 +494,16 @@ function AppLayout() {
           style={{
             flex: 1,
             minHeight: 0,
-            overflow: 'auto',
+            overflow: 'hidden',
             margin: 20,
             padding: 0,
             background: 'transparent',
+            display: 'flex',
+            flexDirection: 'column',
           }}
         >
-          <div
-            style={{
-              padding: 24,
-              minHeight: 'calc(100vh - 56px - 40px)',
-              background: colorBgContainer,
-              borderRadius: borderRadiusLG,
-              border: `1px solid ${colorBorderSecondary}`,
-              boxShadow: themeMode === 'dark' ? '0 0 0 1px rgba(255,255,255,0.04) inset' : '0 4px 24px rgba(15, 23, 42, 0.06)',
-            }}
-          >
+          <DataStatusBanner />
+          <PageFrame key={location.pathname}>
             <Routes>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/tasks" element={<PermissionRoute permission="task:read"><TasksPage /></PermissionRoute>} />
@@ -541,7 +539,7 @@ function AppLayout() {
             <Route path="/forbidden" element={<ForbiddenPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
-          </div>
+          </PageFrame>
         </Content>
       </Layout>
       <ChangePasswordModal open={changePwdOpen} onClose={() => setChangePwdOpen(false)} />
@@ -560,15 +558,16 @@ function GuestGuard({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const routeLocation = useLocation();
   const themeMode = useThemeStore((s) => s.mode);
   return (
     <ConfigProvider locale={zhCN} theme={buildAntdTheme(themeMode)}>
-      <Suspense fallback={<Spin fullscreen />}>
+      <RouteErrorBoundary resetKey={routeLocation.pathname}><Suspense fallback={<Spin fullscreen />}>
         <Routes>
           <Route path="/login" element={<GuestGuard><LoginPage /></GuestGuard>} />
           <Route path="/*" element={<AuthGuard><AppLayout /></AuthGuard>} />
         </Routes>
-      </Suspense>
+      </Suspense></RouteErrorBoundary>
     </ConfigProvider>
   );
 }

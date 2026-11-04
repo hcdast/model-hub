@@ -1,7 +1,8 @@
+import { useRequest } from '../hooks/useRequest';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Card, Row, Col, Statistic, Typography, Spin, Tag, Space, Button,
-  Table, Segmented, Tooltip, Badge,
+  Table, Segmented, Tooltip, Badge, message,
 } from 'antd';
 import {
   ReloadOutlined, DownOutlined, RightOutlined,
@@ -45,14 +46,14 @@ type HealthLevel = 'error' | 'warning' | 'active' | 'idle';
 
 /** 根据队列指标判断健康等级 */
 function getHealthLevel(q: QueueStat): HealthLevel {
-  if (q.failed > 0) return 'error';
+  if (q.depth === 0 && q.failed > 0) return 'error';
   if (q.depth > 100) return 'warning';
   if (q.active > 0 || q.waiting > 0) return 'active';
   return 'idle';
 }
 
 const healthMeta: Record<HealthLevel, { color: string; label: string; border: string }> = {
-  error:   { color: 'error',      label: '异常', border: '#ff4d4f' },
+  error:   { color: 'error',      label: '有历史失败', border: '#ff4d4f' },
   warning: { color: 'warning',    label: '积压', border: '#faad14' },
   active:  { color: 'processing', label: '运行中', border: '#1677ff' },
   idle:    { color: 'default',    label: '空闲', border: '#d9d9d9' },
@@ -73,7 +74,9 @@ function cardBorderStyle(q: QueueStat): React.CSSProperties {
 /* ---------- 任务列表子组件 ---------- */
 
 const jobColumns = [
-  { title: 'Task ID', dataIndex: 'taskId', key: 'taskId', ellipsis: true, width: 200 },
+  { title: 'Task ID', dataIndex: 'taskId', key: 'taskId', ellipsis: true, width: 200, render: (id: string) => id ? <a href={`/tasks/${encodeURIComponent(id)}`}>{id}</a> : '—' },
+  { title: '最后错误', dataIndex: 'failedReason', width: 220, ellipsis: true },
+  { title: '尝试次数', dataIndex: 'attemptsMade', width: 90 },
   { title: '模型', dataIndex: 'model', key: 'model', ellipsis: true, width: 160 },
   {
     title: '优先级', dataIndex: 'priority', key: 'priority', width: 80,
@@ -87,30 +90,18 @@ const jobColumns = [
 ];
 
 function QueueJobList({ queueName }: { queueName: string }) {
-  const [jobs, setJobs] = useState<QueueJob[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'waiting' | 'active'>('waiting');
-
-  const fetchJobs = useCallback(async () => {
-    try {
-      const res: any = await queueApi.getJobs(queueName, { status: tab, page: 1, pageSize: 50 });
-      setJobs(res.data?.items || []);
-    } catch { /* ignore */ }
-    setLoading(false);
-  }, [queueName, tab]);
-
-  useEffect(() => {
-    setLoading(true);
-    fetchJobs();
-    const timer = setInterval(fetchJobs, 10000);
-    return () => clearInterval(timer);
-  }, [fetchJobs]);
+  const [tab, setTab] = useState<'waiting' | 'active' | 'failed' | 'delayed'>('waiting');
+  const [page, setPage] = useState(1);
+  const { data = { items: [], total: 0 }, loading } = useRequest<any>(async () => (await queueApi.getJobs(queueName, { status: tab, page, pageSize: 20 }) as any).data, { deps: [queueName, tab, page], pollingInterval: 10000 });
+  const jobs = data.items, total = data.total;
 
   return (
     <div style={{ marginTop: 8 }}>
       <Space style={{ marginBottom: 8 }}>
-        <Button size="small" type={tab === 'waiting' ? 'primary' : 'default'} onClick={() => setTab('waiting')}>等待中</Button>
-        <Button size="small" type={tab === 'active' ? 'primary' : 'default'} onClick={() => setTab('active')}>处理中</Button>
+        <Button size="small" type={tab === 'waiting' ? 'primary' : 'default'} onClick={() => { setTab('waiting'); setPage(1); }}>等待中</Button>
+        <Button size="small" type={tab === 'active' ? 'primary' : 'default'} onClick={() => { setTab('active'); setPage(1); }}>处理中</Button>
+        <Button size="small" type={tab === 'failed' ? 'primary' : 'default'} onClick={() => { setTab('failed'); setPage(1); }}>失败作业</Button>
+        <Button size="small" type={tab === 'delayed' ? 'primary' : 'default'} onClick={() => { setTab('delayed'); setPage(1); }}>延迟作业</Button>
       </Space>
       <Table
         dataSource={jobs}
@@ -118,7 +109,8 @@ function QueueJobList({ queueName }: { queueName: string }) {
         rowKey="jobId"
         size="small"
         loading={loading}
-        pagination={false}
+        pagination={{current:page,pageSize:20,total,onChange:setPage,showSizeChanger:false}}
+        scroll={{x:1000}}
         locale={{ emptyText: '暂无任务' }}
       />
     </div>
@@ -170,7 +162,7 @@ function QueueCardView({
                   <Statistic title="已完成" value={q.completed} valueStyle={{ fontSize: 13, color: '#52c41a' }} />
                 </Col>
                 <Col span={isExpanded ? 4 : 12}>
-                  <Statistic title="失败" value={q.failed} valueStyle={{ fontSize: 13, color: q.failed > 0 ? '#ff4d4f' : undefined }} />
+                  <Statistic title="保留的失败作业" value={q.failed} valueStyle={{ fontSize: 13, color: q.failed > 0 ? '#ff4d4f' : undefined }} />
                 </Col>
               </Row>
               {isExpanded && <QueueJobList queueName={q.queueName} />}
@@ -234,7 +226,7 @@ function QueueTableView({
       sorter: (a: QueueStat, b: QueueStat) => a.completed - b.completed,
     },
     {
-      title: '失败', dataIndex: 'failed', key: 'failed', width: 80, align: 'right' as const,
+      title: '保留失败', dataIndex: 'failed', key: 'failed', width: 80, align: 'right' as const,
       render: (v: number) => <span style={{ color: v > 0 ? '#ff4d4f' : undefined }}>{v}</span>,
       sorter: (a: QueueStat, b: QueueStat) => a.failed - b.failed,
     },
@@ -272,38 +264,12 @@ function QueueTableView({
 /* ---------- 主页面 ---------- */
 
 export default function QueuesPage() {
-  const [stats, setStats] = useState<QueueStat[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: stats = [], loading, refresh: handleRefresh, lastSuccess: lastUpdated, paused, setPaused } = useRequest<QueueStat[]>(async () => (await queueApi.getStats() as any).data?.queues || [], { pollingInterval: 10000 });
+  const refreshing = loading;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  /** 视图模式：card 卡片 / table 表格 */
   const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
-  /** 按分组折叠空闲队列 */
   const [collapsedIdle, setCollapsedIdle] = useState<Set<string>>(new Set());
-  /** 折叠的分组 */
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-
-  const fetchData = async () => {
-    try {
-      const res: any = await queueApi.getStats();
-      setStats(res.data?.queues || []);
-    } catch { /* ignore */ }
-    setLoading(false);
-    setLastUpdated(new Date());
-  };
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await fetchData();
-    setRefreshing(false);
-  };
-
-  useEffect(() => {
-    fetchData();
-    const timer = setInterval(fetchData, 10000);
-    return () => clearInterval(timer);
-  }, []);
 
   const toggleExpand = (queueName: string) => {
     setExpanded((prev) => {
@@ -382,7 +348,7 @@ export default function QueuesPage() {
             <Button icon={<ReloadOutlined />} loading={refreshing} onClick={handleRefresh} size="small">
               刷新
             </Button>
-            <Tag color="green">每 10 秒自动刷新</Tag>
+            <Button size="small" onClick={() => setPaused(!paused)}>{paused ? '恢复自动刷新' : '暂停自动刷新'}</Button><Tag>{paused ? '已暂停' : '每 10 秒刷新 · 隐藏时暂停'}</Tag>
             <Segmented
               size="small"
               value={viewMode}
@@ -440,7 +406,7 @@ export default function QueuesPage() {
         </Col>
         <Col xs={12} sm={8} lg={4}>
           <StatCard
-            title="总失败"
+            title="保留的失败作业"
             value={summary.failed}
             prefix={<CloseCircleOutlined />}
             valueStyle={{ color: summary.failed > 0 ? '#ff4d4f' : undefined }}

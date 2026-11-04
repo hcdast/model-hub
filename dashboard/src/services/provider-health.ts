@@ -8,7 +8,7 @@ export interface ProviderHealthOverview {
   avgLatencyMs: number;
   errorRate: number;
   sampleCount: number;
-  lastTransitionAt: string;
+  lastTransitionAt: string | null;
   hasManualOverride: boolean;
 }
 
@@ -66,9 +66,9 @@ export const providerHealthApi = {
     }),
 
   /** 手动覆盖熔断器状态 */
-  overrideCircuitBreaker: (provider: string, state: 'OPEN' | 'CLOSED') =>
+  overrideCircuitBreaker: (provider: string, state: 'OPEN' | 'CLOSED', reason?: string, ttlSeconds?: number) =>
     api.post(`/provider-health/${encodeURIComponent(provider)}/circuit-breaker/override`, {
-      state,
+      state, reason, ttlSeconds,
     }),
 
   /** 清除手动覆盖 */

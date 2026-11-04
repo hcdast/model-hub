@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Card, Radio, Space, Typography, Spin } from 'antd';
 import { LineChartOutlined } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
+import ReactECharts from './Chart';
 import { providerHealthApi, type HealthHistoryPoint } from '../services/provider-health';
 import { useRequest } from '../hooks/useRequest';
 

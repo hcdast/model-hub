@@ -1,4 +1,6 @@
+import { reportRequest } from './request-status';
 import axios from 'axios';
+import { pickModelConfig } from '@model-hub/common/utils/model-contract';
 
 const api = axios.create({ baseURL: '/api/v1/admin', timeout: 15000 });
 
@@ -9,8 +11,19 @@ api.interceptors.request.use((config) => {
 });
 
 api.interceptors.response.use(
-  (res) => res.data,
+  (res) => {
+    const body = res.data;
+    if (body && typeof body === 'object' && typeof body.code === 'number' && body.code !== 0) {
+      const error = new Error(body.message || `操作失败（${body.code}）`);
+      Object.assign(error, { response: { ...res, data: body }, code: body.code });
+      reportRequest(res.config, error);
+      return Promise.reject(error);
+    }
+    reportRequest(res.config);
+    return body;
+  },
   (err) => {
+    reportRequest(err.config, err);
     if (err.response?.status === 401) {
       // 清除所有认证相关的 localStorage 数据，保持与 auth store 一致
       localStorage.removeItem('token');
@@ -39,6 +52,8 @@ export const overviewApi = {
 };
 
 export const taskApi = {
+  diagnostics: (id: string) => api.get(`/tasks/${id}/diagnostics`),
+  reconcileFailure: (id: string, body: any) => api.post(`/tasks/${id}/reconcile-failure`, body),
   list: (params: Record<string, any>) => api.get('/tasks', { params }),
   get: (taskId: string, params?: { refreshResourceMetadata?: string }) =>
     api.get(`/tasks/${taskId}`, { params }),
@@ -54,7 +69,7 @@ export const queueApi = {
   getStats: () => api.get('/queues/stats'),
   getHistory: (queueName: string, from: string, to: string) =>
     api.get('/queues/stats/history', { params: { queueName, from, to } }),
-  getJobs: (queueName: string, params?: { status?: 'waiting' | 'active'; page?: number; pageSize?: number }) =>
+  getJobs: (queueName: string, params?: { status?: 'waiting' | 'active' | 'failed' | 'delayed'; page?: number; pageSize?: number }) =>
     api.get(`/queues/${encodeURIComponent(queueName)}/jobs`, { params }),
 };
 
@@ -69,6 +84,14 @@ export const auditApi = {
 };
 
 export const modelApi = {
+  previewImport: (body: any) => api.post('/models/import/preview', body),
+  commitImport: (planId: string) => api.post('/models/import/commit', { planId }),
+  bulk: (items: any[], patch: Record<string, any>) => api.put('/models/bulk', { items, patch }),
+  bulkDelete: (items: Array<{ id: string; expected_revision: number }>) => api.delete('/models/bulk', { data: { items } }),
+  remove: (id: string, expected_revision: number) => api.delete(`/models/${encodeURIComponent(id)}`, { data: { expected_revision } }),
+  saveDraft: (id: string, config: Record<string, any>, expected_revision: number, expected_draft_revision = 0) => api.put(`/models/${encodeURIComponent(id)}/draft`, { config, expected_revision, expected_draft_revision }),
+  publish: (id: string, expected_revision: number, expected_draft_revision = 0) => api.post(`/models/${encodeURIComponent(id)}/publish`, { expected_revision, expected_draft_revision }),
+  rollback: (id: string, expected_revision: number, expected_draft_revision = 0, target_revision?: number) => api.post(`/models/${encodeURIComponent(id)}/rollback`, { expected_revision, expected_draft_revision, target_revision }),
   list: (params: Record<string, any>) => api.get('/models', { params }),
   getDetail: (idOrModelId: string, opts?: { provider?: string; byMongoId?: boolean }) =>
     opts?.byMongoId
@@ -82,13 +105,16 @@ export const modelApi = {
   /** 获取模型在各厂商的定价信息（用于成本优先路由规则） */
   getProviderPricing: (modelId: string) =>
     api.get('/models/provider-pricing', { params: { model_id: modelId } }),
-  toggle: (payload: { id: string; disabled: boolean }) =>
+  toggle: (payload: { id: string; disabled: boolean; expected_revision?: number }) =>
     api.put('/models/toggle', payload),
   getTemplates: () => api.get('/models/templates'),
   create: (data: Record<string, any>) => api.post('/models', data),
-  update: (id: string, data: Record<string, any>) => api.put(`/models/${encodeURIComponent(id)}`, data),
-  updatePricing: (id: string, unitPriceMap: Record<string, any>) =>
-    api.put(`/models/${encodeURIComponent(id)}/pricing`, { unit_price_map: unitPriceMap }),
+  update: (id: string, data: Record<string, any>) => api.put(`/models/${encodeURIComponent(id)}`, {
+    ...pickModelConfig(data),
+    ...(data.expected_revision !== undefined ? { expected_revision: data.expected_revision } : {}),
+  }),
+  updatePricing: (id: string, unitPriceMap: Record<string, any>, expected_revision?: number) =>
+    api.put(`/models/${encodeURIComponent(id)}/pricing`, { unit_price_map: unitPriceMap, expected_revision }),
 };
 
 /** 模型路由规则（fixed / weighted / primary_fallback），对接 AdminModelRoutingController */
@@ -117,11 +143,16 @@ export interface ProviderConfigItem {
 
 /** 厂商运行时配置（Mongo provider_runtime_configs），密钥已移至账号池 */
 export const providerConfigApi = {
+  readiness: (name: string) => api.get(`/provider-configs/${encodeURIComponent(name)}/readiness`),
   list: () => api.get('/provider-configs'),
   get: (providerName: string) =>
     api.get(`/provider-configs/${encodeURIComponent(providerName)}`),
   upsert: (providerName: string, body: Record<string, unknown>) =>
     api.put(`/provider-configs/${encodeURIComponent(providerName)}`, body),
+  setEnabled: (providerName: string, enabled: boolean, expected_revision?: number) =>
+    api.put(`/provider-configs/${encodeURIComponent(providerName)}`, { enabled, expected_revision }),
+  remove: (providerName: string) =>
+    api.delete(`/provider-configs/${encodeURIComponent(providerName)}`),
 };
 
 export const apiClientApi = {
@@ -180,6 +211,7 @@ export const accountPoolApi = {
 
 // ---- 账号成本 API ----
 export const accountCostApi = {
+  summary: (params: Record<string, any>) => api.get('/account-costs/summary', { params }),
   listDaily: (params: Record<string, any>) => api.get('/account-costs', { params }),
   monthly: (params: Record<string, any>) => api.get('/account-costs/monthly', { params }),
 };
@@ -232,6 +264,7 @@ export const permissionApi = {
 
 // ---- 通知规则 API ----
 export const notificationRuleApi = {
+  test: (id: string) => api.post(`/notification-rules/${id}/test`),
   list: (params?: Record<string, any>) => api.get('/notification-rules', { params }),
   get: (id: string) => api.get(`/notification-rules/${id}`),
   create: (data: Record<string, any>) => api.post('/notification-rules', data),
