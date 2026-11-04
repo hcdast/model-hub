@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" fill="none">
+  <defs>
+    <radialGradient id="bg"><stop stop-color="#47336a"/><stop offset="1" stop-color="#131b31"/></radialGradient>
+    <radialGradient id="planet" cx=".3" cy=".25"><stop stop-color="#f9ccac"/><stop offset=".35" stop-color="#bf7977"/><stop offset=".7" stop-color="#775280"/><stop offset="1" stop-color="#292d54"/></radialGradient>
+    <linearGradient id="ring"><stop stop-color="#e6b195"/><stop offset=".55" stop-color="#9b79c3"/><stop offset="1" stop-color="#39345d"/></linearGradient>
+    <filter id="blur"><feGaussianBlur stdDeviation="22"/></filter>
+  </defs>
+  <path fill="url(#bg)" d="M0 0h800v600H0z"/>
+  <ellipse cx="400" cy="300" rx="270" ry="150" fill="#b575cb" opacity=".09" filter="url(#blur)"/>
+  <g fill="#c7bada"><circle cx="67" cy="96" r="1.2"/><circle cx="696" cy="100" r="1.5"/><circle cx="207" cy="112" r="1"/><circle cx="117" cy="397" r="1.5"/><circle cx="638" cy="416" r="1"/><circle cx="507" cy="75" r="1.3"/><circle cx="713" cy="311" r="1"/><circle cx="281" cy="504" r="1.5"/><circle cx="551" cy="492" r="1.3"/></g>
+  <ellipse cx="404" cy="300" rx="291" ry="66" transform="rotate(-24 404 300)" stroke="url(#ring)" stroke-width="24" opacity=".65"/>
+  <circle cx="404" cy="300" r="143" fill="url(#planet)"/>
+  <path d="M267 262q132 22 238-63M270 332q153 43 268-59M313 408q147 11 220-64" stroke="#f5c8bb" stroke-opacity=".12" stroke-width="13"/>
+  <path d="M141 384c-17 67 106 66 275-9 168-75 287-169 250-192" stroke="url(#ring)" stroke-width="25"/>
+  <ellipse cx="404" cy="300" rx="324" ry="95" transform="rotate(-24 404 300)" stroke="#bea3d8" stroke-opacity=".18"/>
+  <circle cx="627" cy="149" r="17" fill="#e3bea5"/>
+  <path d="M43 64h34m-34 0v34m680-34h34v34M43 502v34h34m646 0h34v-34" stroke="#cbc4de" opacity=".3"/>
+</svg>

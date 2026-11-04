@@ -1,451 +1,110 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Button, Input, Tag, Tabs, Empty } from 'antd';
-import {
-  SearchOutlined,
-  PlayCircleOutlined,
-  StarOutlined,
-  NodeIndexOutlined,
-  ThunderboltOutlined,
-  PictureOutlined,
-  VideoCameraOutlined,
-  AudioOutlined,
-  FileTextOutlined,
-  RocketOutlined,
-} from '@ant-design/icons';
-import tokens from '../theme/dark';
+import { useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Alert, Button, Empty, Input, Pagination, Select, Skeleton, Tag } from 'antd';
+import { ArrowRightOutlined, CopyOutlined, SearchOutlined, ApartmentOutlined, CompassOutlined } from '@ant-design/icons';
+import { useI18n } from '../i18n';
+import { useTemplateCopy } from '../hooks/useTemplateCopy';
+import { TemplateCover } from '../components/Templates/TemplateMedia';
+import { TemplatePage, templateCatalogApi, templateDate, templateScenarios } from '../services/template-api';
+import './Templates.css';
 
-interface Template {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-  nodes: number;
-  uses: number;
-  rating: number;
-  thumbnail?: string;
-  tags: string[];
-}
-
-// 模拟模板数据
-const templates: Template[] = [
-  {
-    id: '1',
-    name: 'Text to Image Pipeline',
-    description: 'Generate stunning images from text prompts using multiple AI models with automatic refinement',
-    category: 'Image',
-    nodes: 4,
-    uses: 12500,
-    rating: 4.8,
-    tags: ['text-to-image', 'stable-diffusion', 'midjourney'],
-  },
-  {
-    id: '2',
-    name: 'Video Enhancement Suite',
-    description: 'Upscale, denoise, and enhance video quality with AI-powered processing pipeline',
-    category: 'Video',
-    nodes: 6,
-    uses: 8900,
-    rating: 4.6,
-    tags: ['video', 'upscaling', 'enhancement'],
-  },
-  {
-    id: '3',
-    name: 'Content Summarizer',
-    description: 'Extract key insights and generate summaries from long-form content automatically',
-    category: 'Text',
-    nodes: 3,
-    uses: 21000,
-    rating: 4.9,
-    tags: ['summarization', 'nlp', 'content'],
-  },
-  {
-    id: '4',
-    name: 'Image Style Transfer',
-    description: 'Apply artistic styles from reference images to your photos with one click',
-    category: 'Image',
-    nodes: 5,
-    uses: 15600,
-    rating: 4.7,
-    tags: ['style-transfer', 'artistic', 'creative'],
-  },
-  {
-    id: '5',
-    name: 'Audio Transcription & Analysis',
-    description: 'Convert speech to text with speaker diarization and sentiment analysis',
-    category: 'Audio',
-    nodes: 4,
-    uses: 9800,
-    rating: 4.5,
-    tags: ['transcription', 'speech-to-text', 'analysis'],
-  },
-  {
-    id: '6',
-    name: 'Product Photo Generator',
-    description: 'Create professional product photos with AI backgrounds and lighting',
-    category: 'Image',
-    nodes: 5,
-    uses: 18200,
-    rating: 4.8,
-    tags: ['product', 'ecommerce', 'photography'],
-  },
-  {
-    id: '7',
-    name: 'Video Subtitle Generator',
-    description: 'Auto-generate subtitles with translation support for 50+ languages',
-    category: 'Video',
-    nodes: 4,
-    uses: 11200,
-    rating: 4.6,
-    tags: ['subtitles', 'translation', 'multilingual'],
-  },
-  {
-    id: '8',
-    name: 'Blog Post Generator',
-    description: 'Generate complete blog posts with images, SEO optimization, and social media snippets',
-    category: 'Text',
-    nodes: 7,
-    uses: 14500,
-    rating: 4.7,
-    tags: ['blog', 'content', 'seo'],
-  },
-  {
-    id: '9',
-    name: 'Music Generation Pipeline',
-    description: 'Create original music tracks with customizable style, tempo, and instruments',
-    category: 'Audio',
-    nodes: 3,
-    uses: 6700,
-    rating: 4.4,
-    tags: ['music', 'generation', 'creative'],
-  },
-  {
-    id: '10',
-    name: 'Face Swap Video Creator',
-    description: 'Seamlessly swap faces in videos with high-quality AI processing',
-    category: 'Video',
-    nodes: 5,
-    uses: 22300,
-    rating: 4.9,
-    tags: ['face-swap', 'video', 'creative'],
-  },
-  {
-    id: '11',
-    name: 'Document Q&A System',
-    description: 'Build intelligent Q&A systems from your documents with RAG pipeline',
-    category: 'Text',
-    nodes: 6,
-    uses: 16800,
-    rating: 4.8,
-    tags: ['qa', 'rag', 'documents'],
-  },
-  {
-    id: '12',
-    name: 'Image Background Remover',
-    description: 'Remove and replace image backgrounds with AI precision in seconds',
-    category: 'Image',
-    nodes: 3,
-    uses: 31200,
-    rating: 4.9,
-    tags: ['background-removal', 'editing', 'quick'],
-  },
-];
-
-const categories = [
-  { key: 'all', label: 'All Templates', icon: <RocketOutlined /> },
-  { key: 'Image', label: 'Image', icon: <PictureOutlined /> },
-  { key: 'Video', label: 'Video', icon: <VideoCameraOutlined /> },
-  { key: 'Audio', label: 'Audio', icon: <AudioOutlined /> },
-  { key: 'Text', label: 'Text', icon: <FileTextOutlined /> },
-];
-
+const pageSize = 12;
 export default function TemplateGallery() {
-  const navigate = useNavigate();
-  const [searchValue, setSearchValue] = useState('');
-  const [activeCategory, setActiveCategory] = useState('all');
-
-  const filteredTemplates = templates.filter((template) => {
-    const matchesSearch = template.name.toLowerCase().includes(searchValue.toLowerCase()) ||
-      template.description.toLowerCase().includes(searchValue.toLowerCase()) ||
-      template.tags.some(tag => tag.toLowerCase().includes(searchValue.toLowerCase()));
-    const matchesCategory = activeCategory === 'all' || template.category === activeCategory;
-    return matchesSearch && matchesCategory;
-  });
-
-  const getCategoryColor = (category: string) => {
-    const colors: Record<string, string> = {
-      Image: '#f59e0b',
-      Video: '#3b82f6',
-      Audio: '#8b5cf6',
-      Text: '#22c55e',
-    };
-    return colors[category] || tokens.accent.primary;
+  const { t, locale } = useI18n();
+  const [search, setSearch] = useSearchParams();
+  const query = search.get('search') || '';
+  const source = ['official', 'community'].includes(search.get('source') || '') ? search.get('source')! : '';
+  const scenario = templateScenarios.some(([key]) => key === search.get('scenario')) ? search.get('scenario')! : '';
+  const category = search.get('category') || '';
+  const order = ['updated', 'newest', 'name'].includes(search.get('order') || '') ? search.get('order')! : 'updated';
+  const page = Math.min(100000, Math.max(1, Math.trunc(Number(search.get('page'))) || 1));
+  const [data, setData] = useState<TemplatePage | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const [sourceCounts, setSourceCounts] = useState<{ official: number; community: number } | null>(null);
+  const { copyTemplate, copyingId, loginPrompt } = useTemplateCopy();
+  const update = (key: string, value: string) => {
+    const next = new URLSearchParams(search);
+    if (value) next.set(key, value); else next.delete(key);
+    if (key !== 'page') next.delete('page');
+    setSearch(next, { replace: key === 'search' });
   };
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.all(['official', 'community'].map(source => templateCatalogApi.list({ source, pageSize: 1 }, controller.signal)))
+      .then(([official, community]) => { if (!controller.signal.aborted) setSourceCounts({ official: official.total, community: community.total }); })
+      .catch(() => { if (!controller.signal.aborted) setSourceCounts(null); });
+    return () => controller.abort();
+  }, [revision]);
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true); setError(false);
+    const timer = setTimeout(() => {
+      templateCatalogApi.list({ search: query, source, scenario, category, order, page, pageSize }, controller.signal)
+        .then(result => { if (!controller.signal.aborted) setData(result); })
+        .catch(() => { if (!controller.signal.aborted) { setError(true); setData(null); } })
+        .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    }, query ? 250 : 0);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [query, source, scenario, category, order, page, revision]);
+  const filtered = !!(query || source || scenario || category);
+  const pageOutOfRange = !!data?.total && !data.items.length;
+  const communityEmpty = source === 'community' && sourceCounts?.community === 0;
+  const detailState = { discovery: `/discover${search.size ? `?${search}` : ''}` };
 
-  const formatNumber = (num: number) => {
-    if (num >= 1000) {
-      return `${(num / 1000).toFixed(1)}k`;
-    }
-    return num.toString();
-  };
-
-  return (
-    <div style={{
-      padding: tokens.spacing.xl,
-      maxWidth: 1400,
-      margin: '0 auto',
-    }}>
-      {/* 页面头部 */}
-      <div style={{
-        marginBottom: tokens.spacing.xl,
-      }}>
-        <h1 style={{
-          fontSize: tokens.font.size.xxl,
-          fontWeight: tokens.font.weight.semibold,
-          color: tokens.text.primary,
-          margin: 0,
-          marginBottom: tokens.spacing.sm,
-        }}>
-          Template Gallery
-        </h1>
-        <p style={{
-          fontSize: tokens.font.size.md,
-          color: tokens.text.secondary,
-          margin: 0,
-        }}>
-          Start with pre-built workflows and customize them to your needs
-        </p>
-      </div>
-
-      {/* 搜索和筛选 */}
-      <div style={{
-        display: 'flex',
-        gap: tokens.spacing.md,
-        marginBottom: tokens.spacing.xl,
-        flexWrap: 'wrap',
-      }}>
-        <Input
-          prefix={<SearchOutlined style={{ color: tokens.text.tertiary }} />}
-          placeholder="Search templates..."
-          value={searchValue}
-          onChange={(e) => setSearchValue(e.target.value)}
-          style={{
-            width: 400,
-            background: tokens.bg.tertiary,
-            borderColor: tokens.border.default,
-          }}
-        />
-      </div>
-
-      {/* 分类标签页 */}
-      <Tabs
-        activeKey={activeCategory}
-        onChange={setActiveCategory}
-        items={categories.map((cat) => ({
-          key: cat.key,
-          label: (
-            <span style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: tokens.spacing.sm,
-            }}>
-              {cat.icon}
-              {cat.label}
-            </span>
-          ),
-        }))}
-        style={{ marginBottom: tokens.spacing.xl }}
-      />
-
-      {/* 模板网格 */}
-      {filteredTemplates.length === 0 ? (
-        <div style={{
-          background: tokens.bg.tertiary,
-          borderRadius: tokens.radius.lg,
-          padding: tokens.spacing.xxl,
-          textAlign: 'center',
-        }}>
-          <Empty
-            description={
-              <span style={{ color: tokens.text.secondary }}>
-                No templates found matching your criteria
-              </span>
-            }
-          />
-        </div>
-      ) : (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-          gap: tokens.spacing.lg,
-        }}>
-          {filteredTemplates.map((template) => {
-            const categoryColor = getCategoryColor(template.category);
-            return (
-              <div
-                key={template.id}
-                style={{
-                  background: tokens.bg.tertiary,
-                  border: `1px solid ${tokens.border.default}`,
-                  borderRadius: tokens.radius.lg,
-                  overflow: 'hidden',
-                  cursor: 'pointer',
-                  transition: 'all 0.3s ease',
-                }}
-                onClick={() => navigate(`/templates/${template.id}`)}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = 'translateY(-4px)';
-                  e.currentTarget.style.boxShadow = tokens.shadow.lg;
-                  e.currentTarget.style.borderColor = tokens.border.hover;
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = 'none';
-                  e.currentTarget.style.borderColor = tokens.border.default;
-                }}
-              >
-                {/* 预览图 */}
-                <div style={{
-                  height: 160,
-                  background: `linear-gradient(135deg, ${categoryColor}20 0%, ${categoryColor}10 100%)`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  position: 'relative',
-                }}>
-                  <PlayCircleOutlined style={{
-                    fontSize: 48,
-                    color: categoryColor,
-                    opacity: 0.4,
-                  }} />
-                  {/* 分类标签 */}
-                  <Tag
-                    color={categoryColor}
-                    style={{
-                      position: 'absolute',
-                      top: tokens.spacing.md,
-                      left: tokens.spacing.md,
-                      background: `${categoryColor}20`,
-                      border: 'none',
-                      margin: 0,
-                    }}
-                  >
-                    {template.category}
-                  </Tag>
-                  {/* 评分 */}
-                  <div style={{
-                    position: 'absolute',
-                    top: tokens.spacing.md,
-                    right: tokens.spacing.md,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: tokens.spacing.xs,
-                    background: `${tokens.bg.primary}cc`,
-                    padding: `${tokens.spacing.xs} ${tokens.spacing.sm}`,
-                    borderRadius: tokens.radius.sm,
-                  }}>
-                    <StarOutlined style={{ color: '#f59e0b', fontSize: 12 }} />
-                    <span style={{
-                      color: tokens.text.primary,
-                      fontSize: tokens.font.size.sm,
-                      fontWeight: tokens.font.weight.medium,
-                    }}>
-                      {template.rating}
-                    </span>
-                  </div>
-                </div>
-
-                {/* 内容区 */}
-                <div style={{ padding: tokens.spacing.lg }}>
-                  <h3 style={{
-                    fontSize: tokens.font.size.md,
-                    fontWeight: tokens.font.weight.semibold,
-                    color: tokens.text.primary,
-                    margin: 0,
-                    marginBottom: tokens.spacing.sm,
-                  }}>
-                    {template.name}
-                  </h3>
-
-                  <p style={{
-                    fontSize: tokens.font.size.sm,
-                    color: tokens.text.secondary,
-                    marginBottom: tokens.spacing.md,
-                    lineHeight: 1.5,
-                    display: '-webkit-box',
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: 'vertical',
-                    overflow: 'hidden',
-                  }}>
-                    {template.description}
-                  </p>
-
-                  {/* 标签 */}
-                  <div style={{
-                    display: 'flex',
-                    gap: tokens.spacing.xs,
-                    marginBottom: tokens.spacing.md,
-                    flexWrap: 'wrap',
-                  }}>
-                    {template.tags.slice(0, 3).map((tag) => (
-                      <Tag
-                        key={tag}
-                        style={{
-                          background: `${tokens.accent.primary}15`,
-                          color: tokens.accent.primary,
-                          border: 'none',
-                          fontSize: tokens.font.size.xs,
-                        }}
-                      >
-                        {tag}
-                      </Tag>
-                    ))}
-                  </div>
-
-                  {/* 底部统计 */}
-                  <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    paddingTop: tokens.spacing.md,
-                    borderTop: `1px solid ${tokens.border.default}`,
-                  }}>
-                    <div style={{
-                      display: 'flex',
-                      gap: tokens.spacing.lg,
-                      color: tokens.text.tertiary,
-                      fontSize: tokens.font.size.sm,
-                    }}>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: tokens.spacing.xs }}>
-                        <NodeIndexOutlined />
-                        {template.nodes} nodes
-                      </span>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: tokens.spacing.xs }}>
-                        <ThunderboltOutlined />
-                        {formatNumber(template.uses)} uses
-                      </span>
-                    </div>
-                    <Button
-                      type="primary"
-                      size="small"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/workflows/new?template=${template.id}`);
-                      }}
-                      style={{
-                        background: tokens.accent.gradient,
-                        border: 'none',
-                      }}
-                    >
-                      Use Template
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+  return <div className="templates-page">
+    {loginPrompt}
+    <header className="templates-heading">
+      <div><p className="templates-eyebrow"><CompassOutlined /> {t('WORKFLOW DISCOVERY')}</p>
+        <h1>{t('Find a workflow. Make it yours.')}</h1>
+        <p>{t('Explore ready-made workflows, see how they work, and start creating with your own inputs.')}</p></div>
+      <Link to="/workflows"><Button icon={<ApartmentOutlined />}>{t('My workflows')}</Button></Link>
+    </header>
+    <Alert style={{ marginBottom: 24 }} type="info" showIcon message={t('Make your first AI short drama')} description={t('Start with a story and follow five guided steps to create your film.')} action={<Link to="/short-dramas"><Button type="primary">{t('Open short drama studio')}</Button></Link>} />
+    <div className="templates-journey" aria-label={t('How to use a template')}>
+      {['Find your use case', 'Preview the workflow', 'Copy, customize & run'].map((label, index) => <span key={label}><b>{index + 1}</b>{t(label)}{index < 2 && <ArrowRightOutlined />}</span>)}
     </div>
-  );
+    <section className="templates-discovery" aria-label={t('Discover workflows')}>
+      <div className="templates-source-tabs" role="group" aria-label={t('Template source')}>
+        {[['', 'All workflows'], ['official', 'Official templates'], ['community', 'Community templates']].map(([key, label]) =>
+          <button key={key} type="button" aria-pressed={source === key} className={source === key ? 'active' : ''} onClick={() => update('source', key)}>{t(label)}{sourceCounts && <span className="template-source-count">{key === 'official' ? sourceCounts.official : key === 'community' ? sourceCounts.community : sourceCounts.official + sourceCounts.community}</span>}</button>)}
+      </div>
+      <div className="templates-search-row">
+        <Input allowClear maxLength={100} size="large" prefix={<SearchOutlined />} value={query} onChange={event => update('search', event.target.value)}
+          placeholder={t('Search by task, model or keyword...')} aria-label={t('Search templates')} />
+        <Select value={category} onChange={value => update('category', value)} aria-label={t('Output category')} options={[
+          ['', 'All types'], ['Image', 'Image'], ['Video', 'Video'], ['Audio', 'Audio'], ['Text', 'Text'], ['Creative', 'Creative'],
+        ].map(([value, label]) => ({ value, label: t(label) }))} />
+        <Select value={order} onChange={value => update('order', value)} aria-label={t('Sort templates')} options={[
+          ['updated', 'Recently updated'], ['newest', 'Newest'], ['name', 'Name A–Z'],
+        ].map(([value, label]) => ({ value, label: t(label) }))} />
+      </div>
+      <div className="templates-scenarios" role="group" aria-label={t('Explore by use case')}>
+        <button type="button" className={!scenario ? 'active' : ''} aria-pressed={!scenario} onClick={() => update('scenario', '')}>{t('All use cases')}</button>
+        {templateScenarios.map(([key, label]) => <button key={key} type="button" className={scenario === key ? 'active' : ''} aria-pressed={scenario === key} onClick={() => update('scenario', key)}>{t(label)}</button>)}
+      </div>
+    </section>
+    <div className="templates-results-heading" aria-live="polite"><h2>{t('Explore workflows')} <span>{loading || error ? '—' : data?.total || 0}</span></h2>
+      {filtered && <Button type="text" onClick={() => setSearch({})}>{t('Clear filters')}</Button>}</div>
+    {error ? <Alert type="error" showIcon message={t('Unable to load templates. Please try again.')} action={<Button onClick={() => setRevision(value => value + 1)}>{t('Retry')}</Button>} />
+      : loading ? <div className="templates-grid" aria-busy="true">{[0, 1, 2].map(key => <div className="template-skeleton" key={key}><Skeleton active paragraph={{ rows: 6 }} /></div>)}</div>
+      : !data?.items.length ? <div className="templates-empty"><Empty description={t(communityEmpty ? 'No community workflows have been published yet. Start with an official template.' : pageOutOfRange ? 'No workflows on this page.' : filtered ? 'No matching workflows. Try another search or clear your filters.' : 'No published workflows yet. Check back soon.')} />
+        {communityEmpty ? <Button type="primary" onClick={() => setSearch({ source: 'official' })}>{t('Browse official templates')}</Button> : pageOutOfRange ? <Button onClick={() => update('page', '1')}>{t('Back to first page')}</Button> : filtered && <Button onClick={() => setSearch({})}>{t('Clear filters')}</Button>}</div>
+      : <><div className="templates-grid">{data.items.map(template => <article className="template-card" key={template.id}>
+        <Link className="template-card-visual" to={`/templates/${template.id}`} state={detailState} aria-label={`${t('View details')}: ${template.name}`}>
+          <TemplateCover url={template.thumbnail} name={template.name} nodeCount={template.nodeCount} />
+          <Tag className="template-category">{t(template.category)}</Tag>
+        </Link>
+        <div className="template-card-body"><div className="template-attribution"><span className={`template-source ${template.source}`}>{t(template.source === 'community' ? 'Community' : 'Official')}</span>
+          <span>{template.authorName || t(template.source === 'community' ? 'Community creator' : 'Model Hub team')}</span></div>
+          <h3><Link to={`/templates/${template.id}`} state={detailState}>{template.name}</Link></h3>
+          <p className="template-description">{template.description || t('Open the details to explore this workflow.')}</p>
+          <div className="template-tags">{template.tags.slice(0, 3).map(tag => <Tag key={tag}>{tag}</Tag>)}</div>
+          <div className="template-card-meta"><span>{template.nodeCount} {t('nodes')} · {template.models.length} {t('models')}</span><span>{t('Updated')} {templateDate(template.updatedAt, locale)}</span></div>
+          <div className="template-card-actions"><Link to={`/templates/${template.id}`} state={detailState}>{t('View details')} <ArrowRightOutlined /></Link>
+            <Button type="primary" icon={<CopyOutlined />} loading={copyingId === template.id} disabled={!!copyingId && copyingId !== template.id} onClick={() => void copyTemplate(template.id)}>{t('Use template')}</Button></div>
+        </div>
+      </article>)}</div><Pagination className="templates-pagination" current={page} pageSize={pageSize} total={data.total} showSizeChanger={false} hideOnSinglePage onChange={value => update('page', String(value))} /></>}
+  </div>;
 }

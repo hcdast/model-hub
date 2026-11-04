@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Button, Input, Table, Tag, Space, Modal, message, Popconfirm, Tooltip, Card, Progress } from 'antd';
+import { Button, Input, Table, Tag, Space, Modal, message, Popconfirm, Tooltip, Card, Progress, Alert } from 'antd';
+import { Link, useSearchParams } from 'react-router-dom';
+import { useI18n } from '../i18n';
+import { workflowReturnPath } from '../utils/workflow-billing';
 import {
   PlusOutlined,
   DeleteOutlined,
@@ -50,6 +53,9 @@ interface UserLimits {
 }
 
 export default function ApiKeys() {
+  const { t } = useI18n();
+  const [searchParams] = useSearchParams();
+  const returnTo = workflowReturnPath(searchParams.get('returnTo'));
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -296,6 +302,10 @@ export default function ApiKeys() {
         </Button>
       </div>
 
+      {returnTo && <Alert type="info" showIcon style={{ marginBottom: tokens.spacing.xl }}
+        message={t('Set up model billing')}
+        description={returnTo.startsWith('/short-dramas/') ? t('Create or enable a Portal API Key, then return to your short drama. Paid generation needs sufficient wallet balance. Returning does not start generation.') : t('Create or enable a Portal API Key, then return to your workflow. The key needs sufficient wallet balance for paid model usage. Returning does not automatically run the workflow.')}
+        action={<Link to={returnTo}><Button>{t(returnTo.startsWith('/short-dramas/') ? 'Back to short drama' : 'Back to workflow')}</Button></Link>} />}
       {/* 用户角色和限制信息 */}
       {limits && (
         <Card

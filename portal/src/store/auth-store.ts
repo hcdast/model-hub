@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { authApi, setPortalAccessToken } from '../services/auth-api';
+import { authApi, hasPortalSessionHint, setPortalAccessToken } from '../services/auth-api';
 import axios from 'axios';
 
 interface User {
@@ -16,6 +16,7 @@ interface User {
   };
   createdAt: string;
   lastLoginAt?: string;
+  authMethods?: { password: boolean; google: boolean; github: boolean };
 }
 
 interface ApiEnvelope<T> {
@@ -28,6 +29,7 @@ interface AuthPayload {
 }
 
 interface AuthState {
+  isInitialized: boolean;
   /** 当前用户 */
   user: User | null;
   /** 是否已登录 */
@@ -46,19 +48,19 @@ interface AuthState {
   login: (email: string, password: string) => Promise<void>;
 
   /** 注册 */
-  register: (email: string, username: string, password: string) => Promise<void>;
+  register: (email: string, username: string, password: string, verificationCode: string, acceptedTerms: boolean) => Promise<void>;
 
   /** 登出 */
   logout: () => Promise<void>;
 
-  /** 初始化（从 localStorage 恢复登录状态） */
+  /** 初始化（通过会话 Cookie 恢复登录状态） */
   init: () => Promise<void>;
 
   /** 更新用户信息 */
   updateProfile: (data: { username?: string; avatar?: string }) => Promise<void>;
 }
 
-function getApiErrorMessage(error: unknown, fallback: string): string {
+export function getApiErrorMessage(error: unknown, fallback: string): string {
   if (!axios.isAxiosError(error)) return fallback;
 
   const message = error.response?.data?.message;
@@ -68,17 +70,25 @@ function getApiErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+let initPromise: Promise<void> | null = null;
+let sessionVersion = 0;
+
+export const useAuthStore = create<AuthState>((set, get) => ({
+  isInitialized: false,
   user: null,
   isAuthenticated: false,
   isLoading: false,
   error: null,
 
-  setUser: (user) => set({ user, isAuthenticated: !!user }),
+  setUser: (user) => {
+    sessionVersion += 1;
+    set({ user, isAuthenticated: !!user });
+  },
   setLoading: (isLoading) => set({ isLoading }),
   setError: (error) => set({ error }),
 
   login: async (email: string, password: string) => {
+    sessionVersion += 1;
     set({ isLoading: true, error: null });
     try {
       const response = await authApi.login({ email, password }) as unknown as ApiEnvelope<AuthPayload>;
@@ -92,10 +102,11 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  register: async (email: string, username: string, password: string) => {
+  register: async (email, username, password, verificationCode, acceptedTerms) => {
+    sessionVersion += 1;
     set({ isLoading: true, error: null });
     try {
-      const response = await authApi.register({ email, username, password }) as unknown as ApiEnvelope<AuthPayload>;
+      const response = await authApi.register({ email, username, password, verificationCode, acceptedTerms }) as unknown as ApiEnvelope<AuthPayload>;
       const { accessToken, user } = response.data;
       setPortalAccessToken(accessToken);
       set({ user, isAuthenticated: true, isLoading: false });
@@ -107,6 +118,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: async () => {
+    sessionVersion += 1;
     try {
       await authApi.logout();
     } catch {
@@ -117,16 +129,33 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   init: async () => {
-    set({ isLoading: true });
-    try {
-      const refreshResponse = await authApi.refreshSession() as ApiEnvelope<{ accessToken: string }>;
-      setPortalAccessToken(refreshResponse.data.accessToken);
-      const meResponse = await authApi.getMe() as unknown as ApiEnvelope<User>;
-      set({ user: meResponse.data, isAuthenticated: true, isLoading: false });
-    } catch {
+    if (get().isInitialized) return;
+    if (initPromise) return initPromise;
+    if (!hasPortalSessionHint()) {
       setPortalAccessToken(null);
-      set({ user: null, isAuthenticated: false, isLoading: false });
+      set({ user: null, isAuthenticated: false, isLoading: false, isInitialized: true });
+      return;
     }
+    const version = sessionVersion;
+    initPromise = (async () => {
+      set({ isLoading: true });
+      try {
+        const refreshResponse = await authApi.refreshSession() as ApiEnvelope<{ accessToken: string }>;
+        if (version !== sessionVersion) return;
+        setPortalAccessToken(refreshResponse.data.accessToken);
+        const meResponse = await authApi.getMe() as unknown as ApiEnvelope<User>;
+        if (version !== sessionVersion) return;
+        set({ user: meResponse.data, isAuthenticated: true, isLoading: false });
+      } catch {
+        if (version !== sessionVersion) return;
+        setPortalAccessToken(null);
+        set({ user: null, isAuthenticated: false, isLoading: false });
+      } finally {
+        set({ isInitialized: true });
+        initPromise = null;
+      }
+    })();
+    return initPromise;
   },
 
   updateProfile: async (data: { username?: string; avatar?: string }) => {

@@ -1,5 +1,6 @@
+import { useI18n } from '../i18n';
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { Button, Input, Tag, Select, Empty, Spin, message, Dropdown } from 'antd';
 import {
   PlusOutlined,
@@ -16,6 +17,8 @@ import {
 } from '@ant-design/icons';
 import tokens from '../theme/dark';
 import { workflowApi } from '../services/workflow-api';
+import { useAuthStore } from '../store/auth-store';
+import { useProtectedNavigate } from '../hooks/useProtectedNavigate';
 
 interface Workflow {
   _id: string;
@@ -30,7 +33,9 @@ interface Workflow {
 }
 
 export default function WorkflowList() {
-  const navigate = useNavigate();
+  const { t } = useI18n();
+  const { openFeature, loginPrompt } = useProtectedNavigate();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const [searchParams] = useSearchParams();
   const [items, setItems] = useState<Workflow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -42,6 +47,12 @@ export default function WorkflowList() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
   const fetchData = async () => {
+    if (!isAuthenticated) {
+      setItems([]);
+      setTotal(0);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const params: any = { page, pageSize };
@@ -49,10 +60,12 @@ export default function WorkflowList() {
       if (statusFilter !== 'all') params.status = statusFilter;
 
       const res: any = await workflowApi.list(params);
-      setItems(res.data?.items || []);
-      setTotal(res.data?.total || 0);
+      if (useAuthStore.getState().isAuthenticated) {
+        setItems(res.data?.items || []);
+        setTotal(res.data?.total || 0);
+      }
     } catch (err) {
-      message.error('Failed to load workflows');
+      if (useAuthStore.getState().isAuthenticated) message.error('Failed to load workflows');
     } finally {
       setLoading(false);
     }
@@ -60,7 +73,7 @@ export default function WorkflowList() {
 
   useEffect(() => {
     fetchData();
-  }, [page, pageSize, statusFilter]);
+  }, [page, pageSize, statusFilter, isAuthenticated]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -124,7 +137,7 @@ export default function WorkflowList() {
       key: 'edit',
       icon: <EditOutlined />,
       label: 'Edit',
-      onClick: () => navigate(`/workflows/${workflow._id}`),
+      onClick: () => openFeature(`/workflows/${workflow._id}`),
     },
     {
       key: 'duplicate',
@@ -150,7 +163,7 @@ export default function WorkflowList() {
     }}>
       {/* 新建卡片 */}
       <div
-        onClick={() => navigate('/workflows/new')}
+        onClick={() => openFeature('/workflows/new')}
         style={{
           background: tokens.bg.tertiary,
           border: `1px dashed ${tokens.border.hover}`,
@@ -189,8 +202,7 @@ export default function WorkflowList() {
           fontSize: tokens.font.size.base,
           color: tokens.text.secondary,
         }}>
-          Create New Workflow
-        </span>
+          {t("Create New Workflow")}</span>
       </div>
 
       {/* 工作流卡片 */}
@@ -207,7 +219,7 @@ export default function WorkflowList() {
               cursor: 'pointer',
               transition: 'all 0.3s ease',
             }}
-            onClick={() => navigate(`/workflows/${workflow._id}`)}
+            onClick={() => openFeature(`/workflows/${workflow._id}`)}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-4px)';
               e.currentTarget.style.boxShadow = tokens.shadow.lg;
@@ -339,8 +351,7 @@ export default function WorkflowList() {
               }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: tokens.spacing.xs }}>
                   <NodeIndexOutlined />
-                  {workflow.nodes?.length || 0} nodes
-                </span>
+                  {workflow.nodes?.length || 0} {t("nodes")}</span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: tokens.spacing.xs }}>
                   <ClockCircleOutlined />
                   {formatDate(workflow.updatedAt)}
@@ -361,7 +372,7 @@ export default function WorkflowList() {
     }}>
       {/* 新建按钮 */}
       <div
-        onClick={() => navigate('/workflows/new')}
+        onClick={() => openFeature('/workflows/new')}
         style={{
           background: tokens.bg.tertiary,
           border: `1px dashed ${tokens.border.hover}`,
@@ -381,7 +392,7 @@ export default function WorkflowList() {
         }}
       >
         <PlusOutlined style={{ color: tokens.accent.primary }} />
-        <span style={{ color: tokens.text.secondary }}>Create New Workflow</span>
+        <span style={{ color: tokens.text.secondary }}>{t("Create New Workflow")}</span>
       </div>
 
       {/* 工作流列表 */}
@@ -401,7 +412,7 @@ export default function WorkflowList() {
               alignItems: 'center',
               gap: tokens.spacing.lg,
             }}
-            onClick={() => navigate(`/workflows/${workflow._id}`)}
+            onClick={() => openFeature(`/workflows/${workflow._id}`)}
             onMouseEnter={(e) => {
               e.currentTarget.style.borderColor = tokens.border.hover;
               e.currentTarget.style.background = tokens.bg.elevated;
@@ -473,7 +484,7 @@ export default function WorkflowList() {
               fontSize: tokens.font.size.sm,
               flexShrink: 0,
             }}>
-              <span>{workflow.nodes?.length || 0} nodes</span>
+              <span>{workflow.nodes?.length || 0} {t("nodes")}</span>
               <span>{formatDate(workflow.updatedAt)}</span>
             </div>
 
@@ -502,6 +513,7 @@ export default function WorkflowList() {
       maxWidth: 1400,
       margin: '0 auto',
     }}>
+      {loginPrompt}
       {/* 页面头部 */}
       <div style={{
         display: 'flex',
@@ -515,19 +527,17 @@ export default function WorkflowList() {
           color: tokens.text.primary,
           margin: 0,
         }}>
-          Workflows
-        </h1>
+          {t("Workflows")}</h1>
         <Button
           type="primary"
           icon={<PlusOutlined />}
-          onClick={() => navigate('/workflows/new')}
+          onClick={() => openFeature('/workflows/new')}
           style={{
             background: tokens.accent.gradient,
             border: 'none',
           }}
         >
-          Create Workflow
-        </Button>
+          {t("Create Workflow")}</Button>
       </div>
 
       {/* 筛选栏 */}
@@ -539,7 +549,7 @@ export default function WorkflowList() {
       }}>
         <Input
           prefix={<SearchOutlined style={{ color: tokens.text.tertiary }} />}
-          placeholder="Search workflows..."
+          placeholder={t("Search workflows...")}
           value={searchValue}
           onChange={(e) => setSearchValue(e.target.value)}
           style={{
@@ -588,8 +598,7 @@ export default function WorkflowList() {
           icon={<ReloadOutlined />}
           onClick={fetchData}
         >
-          Refresh
-        </Button>
+          {t("Refresh")}</Button>
       </div>
 
       {/* 内容区 */}
@@ -612,7 +621,7 @@ export default function WorkflowList() {
           <Empty
             description={
               <span style={{ color: tokens.text.secondary }}>
-                {searchValue ? 'No workflows found matching your search' : 'No workflows yet'}
+                {t(!isAuthenticated ? 'Sign in to view and manage your workflows.' : searchValue ? 'No workflows found matching your search' : 'No workflows yet')}
               </span>
             }
           >
@@ -620,10 +629,9 @@ export default function WorkflowList() {
               <Button
                 type="primary"
                 icon={<PlusOutlined />}
-                onClick={() => navigate('/workflows/new')}
+                onClick={() => openFeature('/workflows/new')}
               >
-                Create Your First Workflow
-              </Button>
+                {t("Create Your First Workflow")}</Button>
             )}
           </Empty>
         </div>

@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { Button, Input, Avatar, message, Card, Statistic } from 'antd';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Button, Input, Avatar, message, Card, Statistic, Alert, Tag } from 'antd';
 import {
   UserOutlined,
   MailOutlined,
@@ -11,11 +12,35 @@ import {
   ClockCircleOutlined,
 } from '@ant-design/icons';
 import tokens from '../theme/dark';
-import { useAuthStore } from '../store/auth-store';
+import { useAuthStore, getApiErrorMessage } from '../store/auth-store';
 import { authApi } from '../services/auth-api';
+import { useI18n } from '../i18n';
 
 export default function Profile() {
+  const { t } = useI18n();
+  const [params] = useSearchParams();
   const { user, updateProfile, isLoading } = useAuthStore();
+  const [providers, setProviders] = useState<{ google: boolean; github: boolean } | null>(null);
+  const [providerError, setProviderError] = useState(false);
+  const [linking, setLinking] = useState<'google' | 'github' | null>(null);
+  useEffect(() => {
+    let active = true;
+    authApi.providers().then(response => {
+      if (active) setProviders((response as unknown as { data: { google: boolean; github: boolean } }).data);
+    }).catch(() => { if (active) setProviderError(true); });
+    return () => { active = false; };
+  }, []);
+
+  const handleLink = async (provider: 'google' | 'github') => {
+    setLinking(provider);
+    try {
+      const response = await authApi.linkOAuth(provider) as unknown as { data: { url: string } };
+      window.location.assign(response.data.url);
+    } catch (error) {
+      message.error(t(getApiErrorMessage(error, 'Unable to start account linking. Please try again.')));
+      setLinking(null);
+    }
+  };
 
   const [editing, setEditing] = useState(false);
   const [username, setUsername] = useState(user?.username || '');
@@ -233,6 +258,23 @@ export default function Profile() {
         </div>
       </Card>
 
+      <Card title={t('Sign-in methods')} style={{ background: tokens.bg.tertiary, borderColor: tokens.border.default, marginBottom: tokens.spacing.xl }}>
+        {params.get('oauth') === 'linked' && <Alert role="status" type="success" showIcon message={t('Account linked. You can now sign in with this provider.')} style={{ marginBottom: tokens.spacing.md }} />}
+        {params.get('oauth') === 'link_failed' && <Alert type="error" showIcon message={t('Account linking failed. Use the same email and ensure the provider is not linked to another account, then retry.')} style={{ marginBottom: tokens.spacing.md }} />}
+        <p style={{ color: tokens.text.secondary }}>{t('Link a provider with the same email. Your existing workflows and account stay together.')}</p>
+        {providerError && <Alert type="error" message={t('Unable to load sign-in options.')} style={{ marginBottom: tokens.spacing.md }} />}
+        {(['google', 'github'] as const).map(provider => (
+          <div key={provider} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: `${tokens.spacing.md} 0`, borderBottom: `1px solid ${tokens.border.default}` }}>
+            <span style={{ color: tokens.text.primary }}>{provider === 'google' ? 'Google' : 'GitHub'}</span>
+            {user.authMethods?.[provider] ? <Tag color="green">{t('Linked')}</Tag> : (
+              <Button onClick={() => handleLink(provider)} disabled={!providers?.[provider] || !!linking} loading={linking === provider}>
+                {t('Link account')}
+              </Button>
+            )}
+          </div>
+        ))}
+      </Card>
+
       {/* 统计数据 */}
       <Card
         title="Usage Statistics"
@@ -276,7 +318,9 @@ export default function Profile() {
           borderColor: tokens.border.default,
         }}
       >
-        {showPasswordForm ? (
+        {user.authMethods?.password === false ? (
+          <p style={{ color: tokens.text.secondary }}>You signed in with {user.authMethods.google ? 'Google' : 'GitHub'}. Manage your password with that provider.</p>
+        ) : showPasswordForm ? (
           <div style={{ maxWidth: 400 }}>
             <div style={{ marginBottom: tokens.spacing.lg }}>
               <label style={{

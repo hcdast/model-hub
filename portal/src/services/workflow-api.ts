@@ -39,7 +39,7 @@ export const workflowApi = {
 export const templateApi = {
   list: (params?: Record<string, unknown>) => portalApi.get('/workflow-templates', { params }),
   createFromTemplate: (templateId: string) =>
-    portalApi.post(`/workflows/from-template/${templateId}`),
+    portalApi.post<unknown, Envelope<WorkflowDefinition>>(`/workflows/from-template/${encodeURIComponent(templateId)}`),
 };
 
 export default portalApi;

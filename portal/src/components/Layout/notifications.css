@@ -1,0 +1,12 @@
+.portal-notification-bell.ant-btn { width: 36px; height: 36px; background: #1c1c30; color: #94a3b8; border-radius: 8px; }
+.portal-notifications { width: min(400px, calc(100vw - 56px)); max-height: min(680px, calc(100vh - 120px)); overflow-y: auto; }
+.portal-notifications-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.portal-notifications-hint, .portal-notifications-filter { color: #94a3b8; font-size: 12px; }
+.portal-notifications-filter { display: flex; align-items: center; gap: 8px; margin: 12px 0; }
+.portal-notification-item { display: flex; flex-direction: column; gap: 6px; width: 100%; min-width: 0; }
+.portal-notification-name { overflow-wrap: anywhere; }
+.portal-notification-item time, .portal-notification-id { color: #94a3b8; font-size: 12px; }
+.portal-notification-id { overflow-wrap: anywhere; }
+.portal-notification-unread { background: rgba(99, 102, 241, .08); }
+.portal-notifications .ant-list-item { padding: 12px 8px; }
+.portal-notifications .ant-pagination { margin: 12px 0 4px; }

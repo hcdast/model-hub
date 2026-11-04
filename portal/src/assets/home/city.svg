@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 460" fill="none">
+  <defs>
+    <linearGradient id="sky" x2=".7" y2="1"><stop stop-color="#18273d"/><stop offset=".65" stop-color="#658f98"/><stop offset="1" stop-color="#d1bfb4"/></linearGradient>
+    <linearGradient id="building" x2="1" y2="1"><stop stop-color="#3a5061"/><stop offset="1" stop-color="#182a3b"/></linearGradient>
+  </defs>
+  <path fill="url(#sky)" d="M0 0h800v460H0z"/>
+  <circle cx="570" cy="123" r="53" fill="#e6d5c1" opacity=".8"/>
+  <path d="M0 310l110-35 85 28 110-40 100 30 110-45 95 34 100-18 90 30v166H0z" fill="#9eafb3" opacity=".4"/>
+  <path d="M0 177l112-39v322H0zm135 75l72-18v226h-72zm482-66l86-36v310h-86zm105 73l78-25v226h-78z" fill="url(#building)"/>
+  <path d="M265 460V176l92-52 50 24v312zm146 0V243l75-39 39 20v236z" fill="#263e50"/>
+  <path d="M357 124v336h50V148zm129 80v256h39V224z" fill="#172c40"/>
+  <path d="M287 191v195m24-208v201m24-215v207M640 213v173m23-182v175m23-185v178" stroke="#c7d4ca" stroke-opacity=".42" stroke-width="4" stroke-dasharray="9 13"/>
+  <path d="M0 420l297-24 210 10 293-38v92H0z" fill="#13293b"/>
+  <path d="M342 460l167-49 291-19" stroke="#b2c8bf" stroke-opacity=".55" stroke-width="2"/>
+  <path d="M29 30h35M29 30v26m742-26h-35m35 0v26M29 430h35m-35 0v-26m742 26h-35m35 0v-26" stroke="#e2e8e7" stroke-opacity=".3"/>
+</svg>

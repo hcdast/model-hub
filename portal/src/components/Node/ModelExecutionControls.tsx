@@ -5,12 +5,13 @@ import ModelParamField from './ModelParamField';
 
 interface Props {
   modelId?: string;
+  selection?: import('../../../../src/common/interfaces/model-contract.interface').ModelSelection;
   parameters?: Record<string, unknown>;
   onParamChange: (key: string, value: unknown) => void;
 }
 
-export default function ModelExecutionControls({ modelId, parameters = {}, onParamChange }: Props) {
-  const { params, loading, error, retry } = useModelParams(modelId);
+export default function ModelExecutionControls({ modelId, selection, parameters = {}, onParamChange }: Props) {
+  const { params, loading, error, retry } = useModelParams(modelId, selection);
   const [opened, setOpened] = useState<string>();
   const groups = [{ label: '速度', keys: ['speed', 'speed_factor', 'speaking_rate'] }, { label: '数量', keys: ['image_quantity', 'img_count', 'num_images', 'batch_count'] }];
   return <>{groups.map((group) => {

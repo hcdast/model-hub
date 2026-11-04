@@ -17,12 +17,21 @@ function getCsrfToken(): string | undefined {
     .split(';')
     .map((part) => part.trim())
     .find((part) => part.startsWith(prefix));
-  return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : undefined;
+  if (!cookie) return undefined;
+  try { return decodeURIComponent(cookie.slice(prefix.length)) || undefined; }
+  catch { return undefined; }
 }
 
 
 
+/** A hint only: session validity is always verified by the server. */
+export function hasPortalSessionHint(): boolean {
+  return !!getCsrfToken();
+}
+
 function refreshAccessToken(): Promise<string> {
+  const csrfToken = getCsrfToken();
+  if (!csrfToken) return Promise.reject(new Error('No portal session to restore'));
   if (!refreshPromise) {
     refreshPromise = axios
       .post(
@@ -30,7 +39,7 @@ function refreshAccessToken(): Promise<string> {
         {},
         {
           withCredentials: true,
-          headers: { 'X-CSRF-Token': getCsrfToken() ?? '' },
+          headers: { 'X-CSRF-Token': csrfToken },
         },
       )
       .then((response) => {
@@ -77,7 +86,8 @@ portalApi.interceptors.response.use(
       error.response?.status !== 401 ||
       !originalRequest ||
       originalRequest._retry ||
-      originalRequest.url?.includes('/auth/refresh')
+      !accessToken ||
+      /^\/auth\/(login|register|refresh|email-code|reset-password)(?:[/?]|$)/.test(originalRequest.url || '')
     ) {
       return Promise.reject(error);
     }
@@ -89,17 +99,21 @@ portalApi.interceptors.response.use(
       return portalApi(originalRequest);
     } catch (refreshError) {
       accessToken = null;
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
-      }
+      window.dispatchEvent(new Event('portal:session-expired'));
       return Promise.reject(refreshError);
     }
   },
 );
 
 export const authApi = {
-  register: (data: { email: string; username: string; password: string }) =>
+  register: (data: { email: string; username: string; password: string; verificationCode: string; acceptedTerms: boolean }) =>
     portalApi.post('/auth/register', data),
+  providers: () => portalApi.get('/auth/providers'),
+  linkOAuth: (provider: 'google' | 'github') => portalApi.post(`/auth/oauth/${provider}/link`),
+  sendEmailCode: (data: { email: string; purpose: 'register' | 'reset-password' }) =>
+    portalApi.post('/auth/email-code', data),
+  resetPassword: (data: { email: string; password: string; verificationCode: string }) =>
+    portalApi.post('/auth/reset-password', data),
   login: (data: { email: string; password: string }) =>
     portalApi.post('/auth/login', data),
   logout: () => portalApi.post('/auth/logout'),

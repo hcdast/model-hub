@@ -1,18 +1,22 @@
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { isAxiosError } from 'axios';
-import { useParams, useNavigate, UNSAFE_NavigationContext } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate, UNSAFE_NavigationContext } from 'react-router-dom';
 import ReactFlow, { Node, Edge, Connection, Controls, Background, MiniMap, addEdge, useNodesState, useEdgesState, NodeTypes, BackgroundVariant, useReactFlow, ReactFlowProvider, Viewport } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { Button, Space, message, Input, Spin, Tooltip, Divider, Drawer, Select, List, Alert, Pagination, Modal, Tag } from 'antd';
 import { SaveOutlined, PlayCircleOutlined, CheckCircleOutlined, ArrowLeftOutlined, ZoomInOutlined, ZoomOutOutlined, ExpandOutlined } from '@ant-design/icons';
 import { workflowApi } from '../services/workflow-api';
+import { needsWorkflowApiKey } from '../utils/workflow-billing';
 import { workflowAssetsApi, WorkflowAsset } from '../services/workflow-assets-api';
 import { modelApi } from '../services/model-api';
 import { findMediaParams } from '../utils/model-params.util';
 import { useWorkflowStore, WorkflowNodeData } from '../store/workflow-store';
 import type { ParamDefinition } from '../types/model-params';
 import { getNodeDefinition, NodeType } from '../types/node-types';
-import { nodeTypeSupportsModel } from '../utils/model-type-map';
+import { nodeTypeSupportsModel, NODE_TYPE_TO_MODEL_TYPE } from '../utils/model-type-map';
+import { catalogApi } from '../services/catalog-api';
+import { useI18n } from '../i18n';
+import LanguageSwitcher from '../components/Layout/LanguageSwitcher';
 import { findNonOverlappingPosition, findNearbyPosition, getViewportCenter } from '../utils/node-placement';
 import { WorkflowEditorContext } from '../contexts/WorkflowEditorContext';
 import ModelNode from '../components/Node/ModelNode';
@@ -46,8 +50,8 @@ type RunState = { nodeId: string; status: string; output?: Record<string, unknow
 type Run = { runId: string; workflowId: string; status: string; createdAt?: string; nodeStates?: RunState[] };
 const terminal = new Set(['succeeded', 'failed', 'cancelled']);
 const cleanData = (data: WorkflowNodeData): WorkflowNodeData => {
-  const { type, label, modelId, parameters, conditions, loopConfig, transform, textDocument, messages } = data;
-  return { type, label, modelId, parameters, conditions, loopConfig, transform, textDocument, messages };
+  const { type, label, modelId, modelSelection, parameters, conditions, loopConfig, transform, textDocument, messages } = data;
+  return { type, label, modelId, modelSelection, parameters, conditions, loopConfig, transform, textDocument, messages };
 };
 const errorText = (error: unknown) => {
   const text = isAxiosError<{ message?: string | string[] }>(error) ? error.response?.data?.message || error.message : error instanceof Error ? error.message : '请求失败，请重试';
@@ -61,6 +65,12 @@ const graphData = (name: string, nodes: Node<WorkflowNodeData>[], edges: Edge[],
 
 function WorkflowEditorInner() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const initialModel = searchParams.get('model');
+  const initialModelType = searchParams.get('type');
+  const initialModelProvider = searchParams.get('provider');
+  const initialConfigId = searchParams.get('config');
+  const { t } = useI18n();
   const navigate = useNavigate();
   const { navigator } = useContext(UNSAFE_NavigationContext);
   const flow = useReactFlow();
@@ -92,6 +102,7 @@ function WorkflowEditorInner() {
   const [run, setRun] = useState<Run | null>(null);
   const [pollError, setPollError] = useState('');
   const [operation, setOperation] = useState(false);
+  const [apiKeyRequired, setApiKeyRequired] = useState(false);
   const [chatText, setChatText] = useState('');
   const [portSchemas, setPortSchemas] = useState<Record<string, { inputPorts: Port[]; outputPorts: Port[] }>>({});
   const [connecting, setConnecting] = useState<{ nodeId: string; port: string; direction: 'source' | 'target' } | null>(null);
@@ -162,7 +173,7 @@ function WorkflowEditorInner() {
     setLoadedWorkflowId(null); setHistoryWorkflowId(null);
     setHistoryItems([]); setHistoryTotal(0); setHistoryError(''); setHistoryLoading(false);
     setHistoryPage(1); setHistoryStatus(undefined); setHistoryNodeId(undefined); setHistoryRefresh(0);
-    setOperation(false); setSaving(false); setValidating(false); setAssetChoice(null);
+    setOperation(false); setSaving(false); setValidating(false); setAssetChoice(null); setApiKeyRequired(false);
     useWorkflowStore.getState().reset();
     setNodes([]); setEdges([]); setRun(null); setSelectedRun(null); setSidebarAction(null);
     setParameterId(null); setAssets({ open: false }); setHistoryOpen(false); setConnecting(null);
@@ -174,7 +185,13 @@ function WorkflowEditorInner() {
         const response = workflowId.current ? await workflowApi.get(workflowId.current) : null;
         if (!alive) return;
         const data = response?.data;
-        const nextNodes = (data?.nodes || []).map(n => ({ id: n.id, type: n.type, position: n.position, data: { ...n.data, type: n.type as NodeType } }));
+        const nextNodes: Node<WorkflowNodeData>[] = (data?.nodes || []).map(n => ({ id: n.id, type: n.type, position: n.position, data: { ...n.data, type: n.type as NodeType } }));
+        if (!data && initialModel) {
+          const model = await catalogApi.detail(initialModel, initialModelType, undefined, initialModelProvider, initialConfigId);
+          if (!alive) return;
+          const nodeType = Object.entries(NODE_TYPE_TO_MODEL_TYPE).find(([, type]) => type === model.model_type)?.[0] as NodeType || 'model';
+          nextNodes.push({ id: crypto.randomUUID(), type: nodeType, position: { x: 200, y: 160 }, data: { type: nodeType, label: model.model_name || model.model_id, modelId: model.model_id, modelSelection: { configId: model.config_id, configRevision: model.revision || 0, featureType: model.model_type, provider: model.provider }, parameters: Object.fromEntries(model.params.filter(param => param.default !== undefined).map(param => [param.name, param.default])) } });
+        }
         const nextEdges = (data?.edges || []).map(e => ({ id: e.id, source: e.source.nodeId, target: e.target.nodeId, sourceHandle: e.source.port, targetHandle: e.target.port, label: e.label, data: { branchId: e.branchId } }));
         const nextViewport = data?.viewport || { x: 0, y: 0, zoom: 1 };
         const nextName = data?.name || '未命名工作流';
@@ -188,7 +205,7 @@ function WorkflowEditorInner() {
     };
     void load();
     return () => { alive = false; };
-  }, [id, setNodes, setEdges, setName, stopPolling, flow]);
+  }, [id, initialModel, initialModelType, initialModelProvider, initialConfigId, setNodes, setEdges, setName, stopPolling, flow]);
   useEffect(() => {
     const ids = [...new Set(nodes.map(n => n.data.modelId).filter((value): value is string => !!value))];
     let alive = true;
@@ -339,7 +356,10 @@ function WorkflowEditorInner() {
       const response = nodeId ? await workflowApi.runNode(savedId, nodeId, {}) : await workflowApi.run(savedId, {});
       if (!mounted.current || generation !== documentGeneration.current) return;
       setRun({ runId: response.data.runId, workflowId: savedId, status: 'pending' }); setRunId(response.data.runId); monitor(response.data.runId);
-    } catch (error) { if (mounted.current && generation === documentGeneration.current) { busy.current = false; setIsExecuting(false); message.error(errorText(error)); } }
+    } catch (error) { if (mounted.current && generation === documentGeneration.current) {
+      busy.current = false; setIsExecuting(false);
+      if (needsWorkflowApiKey(error)) setApiKeyRequired(true); else message.error(errorText(error));
+    } }
   };
   const cancelRun = async () => {
     if (!run || operationPending.current) return;
@@ -498,7 +518,7 @@ function WorkflowEditorInner() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 52, padding: '0 16px', background: tokens.bg.secondary, borderBottom: `1px solid ${tokens.border.default}`, zIndex: 10 }}>
           <Space><Tooltip title="返回工作流列表"><Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/workflows')} /></Tooltip><Divider type="vertical" /><Input value={name} onChange={event => setName(event.target.value)} placeholder="工作流名称" variant="borderless" style={{ width: 220 }} /><span>{dirty ? '未保存' : '已保存'}</span></Space>
           <Space><Tooltip title="放大"><Button type="text" icon={<ZoomInOutlined />} onClick={() => flow.zoomIn()} /></Tooltip><Tooltip title="缩小"><Button type="text" icon={<ZoomOutOutlined />} onClick={() => flow.zoomOut()} /></Tooltip><Tooltip title="适应画布"><Button type="text" icon={<ExpandOutlined />} onClick={() => flow.fitView(manualFitViewOptions)} /></Tooltip></Space>
-          <Space><Button icon={<CheckCircleOutlined />} loading={validating} onClick={handleValidate}>校验</Button><Button icon={<SaveOutlined />} loading={saving} disabled={loading || isExecuting} onClick={handleSave}>保存</Button><Button type="primary" icon={<PlayCircleOutlined />} loading={isExecuting} disabled={loading || saving || !nodes.length} onClick={() => execute()}>运行</Button>{run && <Tag>{run.status}</Tag>}{run && !terminal.has(run.status) && <Button danger loading={operation} onClick={cancelRun}>取消运行</Button>}{run?.status === 'failed' && <Button loading={operation} disabled={!historyReady || run.workflowId !== id} onClick={() => retryRun(run)}>重试失败节点</Button>}</Space>
+          <Space><LanguageSwitcher /><Button icon={<CheckCircleOutlined />} loading={validating} onClick={handleValidate}>{t('Validate')}</Button><Button icon={<SaveOutlined />} loading={saving} disabled={loading || isExecuting} onClick={handleSave}>{t('Save')}</Button><Button type="primary" icon={<PlayCircleOutlined />} loading={isExecuting} disabled={loading || saving || !nodes.length} onClick={() => execute()}>{t('Run')}</Button>{run && <Tag>{run.status}</Tag>}{run && !terminal.has(run.status) && <Button danger loading={operation} onClick={cancelRun}>{t('Cancel run')}</Button>}{run?.status === 'failed' && <Button loading={operation} disabled={!historyReady || run.workflowId !== id} onClick={() => retryRun(run)}>{t('Retry failed nodes')}</Button>}</Space>
         </div>
         {pollError && <Alert type="warning" message={pollError} action={<Button onClick={() => run && monitor(run.runId)}>重新连接状态</Button>} />}
         <div style={{ flex: 1, position: 'relative' }}>
@@ -517,6 +537,12 @@ function WorkflowEditorInner() {
         <NodeParametersPanel node={nodes.find(node => node.id === parameterId) || null} open={!!parameterId} onClose={() => setParameterId(null)} onUpdate={updateNodeData} />
         <AssetsPanel open={assets.open} nodeId={assets.nodeId} onClose={() => setAssets({ open: false })} onSelect={selectAsset} />
         <Modal open={!!assetChoice} title="选择素材写入的模型参数" footer={null} onCancel={() => setAssetChoice(null)}><Space direction="vertical">{assetChoice?.fields.map(field => <Button key={field} onClick={() => applyAsset(field)}>{field}</Button>)}</Space></Modal>
+        <Modal open={apiKeyRequired} title={t('Set up model billing')} onCancel={() => setApiKeyRequired(false)}
+          okText={t('Manage API Keys')} cancelText={t('Continue editing')}
+          onOk={() => { setApiKeyRequired(false); navigate(`/settings/api-keys?returnTo=${encodeURIComponent(`/workflows/${workflowId.current}`)}`); }}>
+          <p>{t('Your workflow is saved. Create or enable a Portal API Key to run model nodes.')}</p>
+          <p>{t('The key links model usage to its billing wallet. No need to paste the key into the editor. Creating a key does not start a run or add wallet balance.')}</p>
+        </Modal>
         <Modal open={!!connecting} title="选择连接目标端口" footer={null} onCancel={() => setConnecting(null)}><p>只列出类型兼容、不会产生环路或重复边的端口。</p>{!connectionOptions.length && <Alert type="info" message="暂无兼容端口：请添加目标节点、选择模型，或重试加载端口。" />}<List dataSource={connectionOptions} renderItem={option => <List.Item><Button onClick={() => connect(option.connection)}>{option.node.data.label} / {option.port.displayName || option.port.name}</Button></List.Item>} />{connecting && <Button onClick={() => openConnection(connecting.nodeId, connecting.port, connecting.direction)}>重新加载端口</Button>}</Modal>
         <Drawer title="运行历史" width={640} open={historyOpen && !loading && (!workflowId.current || historyReady)} onClose={() => setHistoryOpen(false)}>
           {!workflowId.current ? <Alert type="info" message="新工作流尚未保存，没有运行历史。" /> : <><Space><Select allowClear disabled={!historyReady} placeholder="所有状态" value={historyStatus} onChange={value => { setHistoryStatus(value); setHistoryPage(1); }} style={{ width: 180 }} options={['pending', 'running', 'succeeded', 'failed', 'cancelled'].map(value => ({ value, label: value }))} /><Button disabled={!historyReady} onClick={() => setHistoryRefresh(value => value + 1)}>刷新</Button></Space>{historyVisible && historyError && <Alert type="error" message={historyError} />}<List loading={historyReady && historyLoading} dataSource={historyVisible ? historyItems : []} renderItem={entry => <List.Item actions={[<Button key="view" disabled={!historyReady || entry.workflowId !== id} onClick={() => chooseHistory(entry)}>查看输出</Button>, ...(entry.status === 'failed' ? [<Button key="retry" disabled={!historyReady || entry.workflowId !== id || isExecuting || operation} onClick={() => retryRun(entry)}>重试</Button>] : [])]}><List.Item.Meta title={entry.runId} description={`${entry.status} · ${entry.createdAt || ''}`} /></List.Item>} /><Pagination current={historyVisible ? historyPage : 1} pageSize={20} total={historyVisible ? historyTotal : 0} disabled={!historyReady} showSizeChanger={false} onChange={setHistoryPage} />{historyVisible && selectedRun?.workflowId === id && <><h3>已选择：{selectedRun.runId}</h3>{(selectedRun.nodeStates || []).filter(state => !historyNodeId || state.nodeId === historyNodeId).map(state => <div key={state.nodeId}><h4>{state.nodeId} · {state.status}</h4>{state.error?.message && <Alert type="error" message={state.error.message} />}<NodeOutputPreview output={state.output} /><Button disabled={!historyReady || state.output === undefined || !nodes.some(node => node.id === state.nodeId)} onClick={() => applyHistory(state)}>应用此节点输出</Button></div>)}</>}</>}

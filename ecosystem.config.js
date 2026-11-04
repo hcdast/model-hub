@@ -50,8 +50,7 @@ module.exports = {
     },
     {
       name: 'model-hub-portal',
-      script: 'node_modules/serve/build/main.js',
-      args: ['-s', 'dist', '-l', '7004'],
+      script: 'server.cjs',
       cwd: './portal',
       instances: 1,
       exec_mode: 'fork',

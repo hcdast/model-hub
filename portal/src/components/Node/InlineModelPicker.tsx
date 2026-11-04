@@ -7,15 +7,17 @@ import { nodeTypeSupportsModel } from '../../utils/model-type-map';
 import { formatModelDisplayName } from '../../utils/model-params.util';
 import { ModelConfigItem } from '../../services/model-api';
 import AnchoredDropdown from './AnchoredDropdown';
+import type { ModelSelection } from '../../../../src/common/interfaces/model-contract.interface';
 
 interface Props {
   nodeType: NodeType;
   value?: string;
+  selection?: ModelSelection;
   onChange: (modelId: string, model?: ModelConfigItem) => void | Promise<void>;
 }
 
 /** 底部 ✦ 模型选择器（数据来自 model_configs） */
-export default function InlineModelPicker({ nodeType, value, onChange }: Props) {
+export default function InlineModelPicker({ nodeType, value, selection, onChange }: Props) {
   const { models, loading, error, retry } = useModels(nodeTypeSupportsModel(nodeType) ? nodeType : undefined);
   const [open, setOpen] = useState(false);
   const [selectionError, setSelectionError] = useState<string>();
@@ -23,7 +25,8 @@ export default function InlineModelPicker({ nodeType, value, onChange }: Props) 
 
   if (!nodeTypeSupportsModel(nodeType)) return null;
 
-  const selected = models.find((m) => m.model_id === value);
+  const isSelected = (m: ModelConfigItem) => m.model_id === value && (selection?.configId ? m._id === selection.configId : (!selection?.provider || m.provider === selection.provider) && (!selection?.featureType || m.model_type === selection.featureType));
+  const selected = models.find(isSelected);
   const displayName = loading ? '加载中...' : formatModelDisplayName(selected || (value ? { model_id: value } : undefined));
 
   return (
@@ -52,7 +55,7 @@ export default function InlineModelPicker({ nodeType, value, onChange }: Props) 
       ) : (
         models.map((m) => (
           <button
-            key={m.model_id}
+            key={m._id || JSON.stringify([m.model_id, m.model_type, m.provider])}
             type="button"
             disabled={m.disabled || selecting}
             title={m.disabled ? '该模型已停用' : undefined}
@@ -62,10 +65,10 @@ export default function InlineModelPicker({ nodeType, value, onChange }: Props) 
               catch (failure) { setSelectionError(failure instanceof Error ? failure.message : '模型加载失败，请重新选择重试'); }
               finally { setSelecting(false); }
             }}
-            className={`tapnow-model-option${value === m.model_id ? ' tapnow-model-option--active' : ''}`}
+            className={`tapnow-model-option${isSelected(m) ? ' tapnow-model-option--active' : ''}`}
           >
             <div style={{ fontWeight: 500 }}>{formatModelDisplayName(m)}</div>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{m.model_id}</div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{m.provider} · {m.model_type} · {m.model_id}</div>
           </button>
         ))
       )}

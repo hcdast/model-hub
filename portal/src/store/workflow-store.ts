@@ -7,6 +7,7 @@ export interface WorkflowNodeData {
   label: string;
   type: NodeType;
   modelId?: string;
+  modelSelection?: import('../../../src/common/interfaces/model-contract.interface').ModelSelection;
   parameters?: Record<string, any>;
   textDocument?: { blocks: Array<{
     type: 'paragraph' | 'h1' | 'h2' | 'h3' | 'bullet' | 'ordered';

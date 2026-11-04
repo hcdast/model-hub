@@ -26,7 +26,7 @@ function NodeConfiguration({ node, onUpdate }: Pick<Props, 'onUpdate'> & { node:
   const { data, id } = node;
   const modelBacked = nodeTypeSupportsModel(data.type);
   const { updateModel, updateParam } = useNodeModelConfig({ nodeId: id, nodeType: data.type, modelId: data.modelId, parameters: data.parameters, onUpdateNode: onUpdate });
-  const { params, loading, error, retry } = useModelParams(modelBacked ? data.modelId : undefined);
+  const { params, loading, error, retry } = useModelParams(modelBacked ? data.modelId : undefined, data.modelSelection);
   const update = (patch: Partial<WorkflowNodeData>) => onUpdate(id, patch);
   const loop = data.loopConfig ?? { inputArray: '', outputMode: 'collect' as const, parallelism: 'sequential' as const };
   return <Space direction="vertical" size="middle" style={{ width: '100%' }}>

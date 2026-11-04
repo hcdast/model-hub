@@ -27,8 +27,8 @@ function AIAgentNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
     isRunning={status === 'running'} onRun={() => onRunNode(id)}
     collapsedContent={data.output ? <NodeOutputPreview output={data.output} /> : prompt ? <StructuredTextPreview value={data.textDocument} prompt={prompt} /> : <div style={{ color: tokens.text.secondary, fontSize: tokens.font.size.base }}>选中节点并输入文本内容…</div>}
     expandedContent={<StructuredTextEditor value={data.textDocument} prompt={prompt} onChange={(textDocument, text) => onUpdateNode(id, { textDocument, parameters: { ...data.parameters, prompt: text } })} />}
-    footer={<><InlineModelPicker nodeType={data.type} value={data.modelId} onChange={updateModel} /><ModelParamChips modelId={data.modelId} parameters={data.parameters} onParamChange={updateParam} /></>}
-    footerExtra={<ModelExecutionControls modelId={data.modelId} parameters={data.parameters} onParamChange={updateParam} />}
+    footer={<><InlineModelPicker nodeType={data.type} value={data.modelId} selection={data.modelSelection} onChange={updateModel} /><ModelParamChips modelId={data.modelId} selection={data.modelSelection} parameters={data.parameters} onParamChange={updateParam} /></>}
+    footerExtra={<ModelExecutionControls modelId={data.modelId} selection={data.modelSelection} parameters={data.parameters} onParamChange={updateParam} />}
   />;
 }
 

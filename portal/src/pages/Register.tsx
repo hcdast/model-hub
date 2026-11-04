@@ -1,12 +1,21 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import LanguageSwitcher from '../components/Layout/LanguageSwitcher';
+import '../styles/portal-shell.css';
+import { useI18n } from '../i18n';
+import { useEffect, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Button, Input, Checkbox, message } from 'antd';
 import { MailOutlined, LockOutlined, UserOutlined } from '@ant-design/icons';
 import tokens from '../theme/dark';
 import { useAuthStore } from '../store/auth-store';
+import { getAuthReturnPath } from '../utils/auth-redirect';
+import EmailCodeInput from '../components/Auth/EmailCodeInput';
+import SocialAuth from '../components/Auth/SocialAuth';
+import BrandIcon from '../components/BrandIcon';
 
 export default function Register() {
+  const { t } = useI18n();
   const navigate = useNavigate();
+  const location = useLocation();
   const { register, error } = useAuthStore();
 
   const [username, setUsername] = useState('');
@@ -14,13 +23,15 @@ export default function Register() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [agreeTerms, setAgreeTerms] = useState(false);
+  const [verificationCode, setVerificationCode] = useState('');
   const [loading, setLoading] = useState(false);
+  useEffect(() => { useAuthStore.getState().setError(null); }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!username || !email || !password || !confirmPassword) {
-      message.warning('Please fill in all fields');
+    if (!username || !email || !password || !confirmPassword || verificationCode.length !== 6) {
+      message.warning(t("Please fill in all fields"));
       return;
     }
 
@@ -39,6 +50,11 @@ export default function Register() {
       return;
     }
 
+    if (new TextEncoder().encode(password).length > 72) {
+      message.error('Password must be at most 72 UTF-8 bytes');
+      return;
+    }
+
     if (!agreeTerms) {
       message.warning('Please agree to the Terms of Service');
       return;
@@ -46,9 +62,9 @@ export default function Register() {
 
     setLoading(true);
     try {
-      await register(email, username, password);
-      message.success('Registration successful');
-      navigate('/');
+      await register(email.trim(), username.trim(), password, verificationCode, agreeTerms);
+      message.success(t("Registration successful"));
+      navigate(getAuthReturnPath(location.state), { replace: true });
     } catch (err) {
       // Error is handled by store
     } finally {
@@ -62,6 +78,7 @@ export default function Register() {
       display: 'flex',
       background: tokens.bg.primary,
     }}>
+      <div className="portal-auth-language"><LanguageSwitcher /></div>
       {/* 左侧装饰区域 */}
       <div style={{
         flex: 1,
@@ -92,13 +109,12 @@ export default function Register() {
             height: 80,
             margin: `0 auto ${tokens.spacing.xl}`,
             borderRadius: tokens.radius.xl,
-            background: tokens.accent.gradient,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             boxShadow: tokens.shadow.glowLg,
           }}>
-            <span style={{ fontSize: 36, fontWeight: 700, color: '#fff' }}>W</span>
+            <BrandIcon size={80} />
           </div>
 
           <h1 style={{
@@ -107,7 +123,7 @@ export default function Register() {
             color: tokens.text.primary,
             marginBottom: tokens.spacing.md,
           }}>
-            加入 Model Hub
+            {t('Join Model Hub')}
           </h1>
 
           <p style={{
@@ -116,8 +132,7 @@ export default function Register() {
             maxWidth: 400,
             lineHeight: 1.6,
           }}>
-            Create your account and start building powerful AI workflows today.
-          </p>
+            {t("Create your account and start building powerful AI workflows today.")}</p>
 
           {/* 统计数据 */}
           <div style={{
@@ -167,15 +182,13 @@ export default function Register() {
             color: tokens.text.primary,
             marginBottom: tokens.spacing.sm,
           }}>
-            Create an account
-          </h2>
+            {t("Create an account")}</h2>
           <p style={{
             fontSize: tokens.font.size.base,
             color: tokens.text.secondary,
             marginBottom: tokens.spacing.xl,
           }}>
-            Get started with your free account
-          </p>
+            {t("Get started with your free account")}</p>
 
           {/* 错误提示 */}
           {error && (
@@ -202,11 +215,12 @@ export default function Register() {
                 color: tokens.text.secondary,
                 fontWeight: tokens.font.weight.medium,
               }}>
-                Username
-              </label>
+                {t("Username")}</label>
               <Input
                 prefix={<UserOutlined style={{ color: tokens.text.tertiary }} />}
-                placeholder="Choose a username"
+                placeholder={t("Choose a username")}
+                autoComplete="username"
+                required
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 minLength={3}
@@ -227,14 +241,16 @@ export default function Register() {
                 color: tokens.text.secondary,
                 fontWeight: tokens.font.weight.medium,
               }}>
-                Email
-              </label>
+                {t("Email")}</label>
               <Input
                 prefix={<MailOutlined style={{ color: tokens.text.tertiary }} />}
                 type="email"
-                placeholder="Enter your email"
+                autoComplete="email"
+                required
+                maxLength={254}
+                placeholder={t("Enter your email")}
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => { setEmail(e.target.value); setVerificationCode(''); }}
                 size="large"
                 style={{
                   background: tokens.bg.tertiary,
@@ -242,6 +258,8 @@ export default function Register() {
                 }}
               />
             </div>
+
+            <EmailCodeInput email={email} purpose="register" value={verificationCode} onChange={setVerificationCode} />
 
             <div style={{ marginBottom: tokens.spacing.lg }}>
               <label style={{
@@ -251,11 +269,13 @@ export default function Register() {
                 color: tokens.text.secondary,
                 fontWeight: tokens.font.weight.medium,
               }}>
-                Password
-              </label>
+                {t("Password")}</label>
               <Input.Password
                 prefix={<LockOutlined style={{ color: tokens.text.tertiary }} />}
-                placeholder="Create a password (min 8 characters)"
+                placeholder={t("Create a password (min 8 characters)")}
+                autoComplete="new-password"
+                required
+                minLength={8}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 size="large"
@@ -274,11 +294,12 @@ export default function Register() {
                 color: tokens.text.secondary,
                 fontWeight: tokens.font.weight.medium,
               }}>
-                Confirm Password
-              </label>
+                {t("Confirm Password")}</label>
               <Input.Password
                 prefix={<LockOutlined style={{ color: tokens.text.tertiary }} />}
-                placeholder="Confirm your password"
+                placeholder={t("Confirm your password")}
+                autoComplete="new-password"
+                required
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 size="large"
@@ -295,14 +316,12 @@ export default function Register() {
                 onChange={(e) => setAgreeTerms(e.target.checked)}
                 style={{ color: tokens.text.secondary }}
               >
-                I agree to the{' '}
+                {t("I agree to the")}{' '}
                 <Link to="/terms" style={{ color: tokens.accent.primary }}>
-                  Terms of Service
-                </Link>
-                {' '}and{' '}
+                  {t("Terms of Service")}</Link>
+                {' '}{t("and")}{' '}
                 <Link to="/privacy" style={{ color: tokens.accent.primary }}>
-                  Privacy Policy
-                </Link>
+                  {t("Privacy Policy")}</Link>
               </Checkbox>
             </div>
 
@@ -319,9 +338,10 @@ export default function Register() {
                 fontWeight: tokens.font.weight.medium,
               }}
             >
-              Create account
-            </Button>
+              {t("Create account")}</Button>
           </form>
+
+          <SocialAuth returnState={location.state} disabled={loading} />
 
           {/* 登录链接 */}
           <p style={{
@@ -330,14 +350,14 @@ export default function Register() {
             color: tokens.text.secondary,
             fontSize: tokens.font.size.base,
           }}>
-            Already have an account?{' '}
-            <Link to="/login" style={{
+            {t("Already have an account?")}{' '}
+            <Link to="/login" state={location.state} style={{
               color: tokens.accent.primary,
               fontWeight: tokens.font.weight.medium,
             }}>
-              Sign in
-            </Link>
+              {t("Sign in")}</Link>
           </p>
+          <p style={{ textAlign: 'center' }}><Link to="/">{t("Continue browsing")}</Link></p>
         </div>
       </div>
     </div>

@@ -91,8 +91,8 @@ function ModelNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
         minHeight: 40,
       }}>
         <div className="nodrag nowheel" style={{ maxWidth: 360 }}>
-          <InlineModelPicker nodeType={data.type} value={data.modelId} onChange={updateModel} />
-          <ModelParamChips modelId={data.modelId} parameters={data.parameters} onParamChange={updateParam} />
+          <InlineModelPicker nodeType={data.type} value={data.modelId} selection={data.modelSelection} onChange={updateModel} />
+          <ModelParamChips modelId={data.modelId} selection={data.modelSelection} parameters={data.parameters} onParamChange={updateParam} />
           <Button onClick={() => onOpenParameters(id)}>完整配置</Button>
           <Button disabled={status === 'running'} onClick={() => onRunNode(id)}>运行节点</Button>
           {ports.loading && <div>端口加载中…</div>}

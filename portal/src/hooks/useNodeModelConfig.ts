@@ -24,11 +24,12 @@ export function useNodeModelConfig(options: Options) {
   const updateModel = useCallback(async (nextModelId: string, model?: ModelConfigItem) => {
     const request = ++sequence.current;
     const initial = latest.current;
-    const detail = model?.params ? model : await fetchModelDetail(nextModelId);
+    const detail = model?.params ? model : await fetchModelDetail(nextModelId, model ? { configId: model._id, featureType: model.model_type, provider: model.provider } : undefined);
     if (request !== sequence.current || latest.current.nodeId !== initial.nodeId || latest.current.modelId !== initial.modelId) return;
     if (detail.disabled) throw new Error('该模型已停用，请选择其他模型');
     latest.current.onUpdateNode(initial.nodeId, {
       modelId: nextModelId,
+      modelSelection: { configId: detail._id, configRevision: detail.revision || 0, featureType: detail.model_type, provider: detail.provider },
       parameters: compatibleParams(latest.current.parameters ?? {}, detail.params ?? {}),
     });
   }, []);

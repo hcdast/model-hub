@@ -1,543 +1,159 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Button, Card, Tag, Skeleton, Empty } from 'antd';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Button, Modal, Skeleton } from 'antd';
 import {
-  PlusOutlined,
-  ThunderboltOutlined,
-  RightOutlined,
-  ClockCircleOutlined,
-  NodeIndexOutlined,
-  RocketOutlined,
-  PlayCircleOutlined,
-  StarOutlined,
+  ArrowRightOutlined, PlusOutlined, PictureOutlined, VideoCameraOutlined,
+  AudioOutlined, FileTextOutlined, NodeIndexOutlined, BookOutlined,
+  ApiOutlined, ClockCircleOutlined, ArrowUpOutlined,
 } from '@ant-design/icons';
-import tokens from '../theme/dark';
+import { useI18n } from '../i18n';
+import { homeCopy } from '../i18n/home';
+import { useCatalog } from '../hooks/useCatalog';
+import { useProtectedNavigate } from '../hooks/useProtectedNavigate';
+import { modelDocKey, modelDocPath } from '../services/catalog-api';
 import { workflowApi } from '../services/workflow-api';
+import { useAuthStore } from '../store/auth-store';
+import landscape from '../assets/home/landscape.svg';
+import product from '../assets/home/product.svg';
+import orbit from '../assets/home/orbit.svg';
+import audio from '../assets/home/audio.svg';
+import editorial from '../assets/home/editorial.svg';
+import './Home.css';
+import BrandIcon from '../components/BrandIcon';
 
-interface Workflow {
-  _id: string;
-  name: string;
-  description?: string;
-  status: string;
-  nodes: any[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-// 模拟模板数据
-const popularTemplates = [
-  {
-    id: '1',
-    name: 'Text to Image Pipeline',
-    description: 'Generate images from text prompts using multiple AI models',
-    category: 'Image',
-    nodes: 4,
-    uses: 1250,
-    rating: 4.8,
-  },
-  {
-    id: '2',
-    name: 'Video Enhancement',
-    description: 'Upscale and enhance video quality with AI processing',
-    category: 'Video',
-    nodes: 6,
-    uses: 890,
-    rating: 4.6,
-  },
-  {
-    id: '3',
-    name: 'Content Summarizer',
-    description: 'Extract key insights from long-form content',
-    category: 'Text',
-    nodes: 3,
-    uses: 2100,
-    rating: 4.9,
-  },
-  {
-    id: '4',
-    name: 'Image Style Transfer',
-    description: 'Apply artistic styles to your images',
-    category: 'Image',
-    nodes: 5,
-    uses: 1560,
-    rating: 4.7,
-  },
+const scenes = [
+  { cover: product, type: 'textToImage', category: 1, icon: PictureOutlined },
+  { cover: orbit, type: 'textToVideo', category: 2, icon: VideoCameraOutlined },
+  { cover: audio, type: 'tts', category: 3, icon: AudioOutlined },
+  { cover: editorial, type: 'textGenerate', category: 4, icon: FileTextOutlined },
 ];
+const guideIcons = [NodeIndexOutlined, BookOutlined, ApiOutlined];
+interface RecentWorkflow { _id: string; name: string; nodes?: unknown[]; updatedAt?: string }
 
 export default function Home() {
-  const navigate = useNavigate();
-  const [recentWorkflows, setRecentWorkflows] = useState<Workflow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { locale, t } = useI18n();
+  const copy = homeCopy[locale];
+  const { models, loading, error, retry } = useCatalog();
+  const { openFeature, loginPrompt } = useProtectedNavigate();
+  const isAuthenticated = useAuthStore(state => state.isAuthenticated);
+  const [category, setCategory] = useState(0);
+  const [guide, setGuide] = useState<number | null>(null);
+  const [workflows, setWorkflows] = useState<RecentWorkflow[]>([]);
+  const [workflowLoading, setWorkflowLoading] = useState(true);
+  const [workflowError, setWorkflowError] = useState(false);
+  const [workflowAttempt, setWorkflowAttempt] = useState(0);
 
   useEffect(() => {
-    fetchRecentWorkflows();
-  }, []);
+    if (!isAuthenticated) { setWorkflows([]); return; }
+    let active = true;
+    setWorkflowLoading(true);
+    setWorkflowError(false);
+    workflowApi.list({ page: 1, pageSize: 3 }).then(res => {
+      if (active) setWorkflows(res.data?.items || []);
+    }).catch(() => {
+      if (active) setWorkflowError(true);
+    }).finally(() => {
+      if (active) setWorkflowLoading(false);
+    });
+    return () => { active = false; };
+  }, [isAuthenticated, workflowAttempt]);
 
-  const fetchRecentWorkflows = async () => {
-    try {
-      const res: any = await workflowApi.list({ page: 1, pageSize: 4 });
-      setRecentWorkflows(res.data?.items || []);
-    } catch (err) {
-      console.error('Failed to fetch workflows:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
-      active: tokens.status.success,
-      draft: tokens.text.tertiary,
-      archived: tokens.text.disabled,
-    };
-    return colors[status] || tokens.text.tertiary;
-  };
-
-  const formatDate = (date: string) => {
-    if (!date) return '-';
-    const d = new Date(date);
-    const now = new Date();
-    const diff = now.getTime() - d.getTime();
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-
-    if (days === 0) return 'Today';
-    if (days === 1) return 'Yesterday';
-    if (days < 7) return `${days} days ago`;
-    return d.toLocaleDateString();
-  };
+  // Represent different capabilities without inventing popularity or usage figures.
+  const featured = useMemo(() => {
+    const selected = scenes.map(scene => models.find(model => model.model_type === scene.type))
+      .filter((model): model is (typeof models)[number] => Boolean(model));
+    const keys = new Set(selected.map(modelDocKey));
+    return [...selected, ...models.filter(model => !keys.has(modelDocKey(model)))].slice(0, 4);
+  }, [models]);
+  const metrics = [models.length, new Set(models.map(model => model.model_type)).size, new Set(models.map(model => model.provider)).size];
+  const dateFormatter = new Intl.DateTimeFormat(locale === 'zh' ? 'zh-CN' : locale === 'ja' ? 'ja-JP' : 'en', { month: 'short', day: 'numeric' });
+  const activeGuide = guide === null ? null : copy.guides[guide];
 
   return (
-    <div style={{
-      minHeight: '100%',
-      background: tokens.bg.primary,
-    }}>
-      {/* Hero 区域 */}
-      <section style={{
-        padding: `${tokens.spacing.xxl} ${tokens.spacing.xl}`,
-        background: `linear-gradient(180deg, ${tokens.bg.secondary} 0%, ${tokens.bg.primary} 100%)`,
-        borderBottom: `1px solid ${tokens.border.default}`,
-      }}>
-        <div style={{
-          maxWidth: 1200,
-          margin: '0 auto',
-          textAlign: 'center',
-        }}>
-          {/* 装饰性背景 */}
-          <div style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            height: 400,
-            background: `radial-gradient(ellipse at center, ${tokens.accent.primary}15 0%, transparent 70%)`,
-            pointerEvents: 'none',
-          }} />
-
-          <div style={{ position: 'relative', zIndex: 1 }}>
-            {/* 图标 */}
-            <div style={{
-              width: 80,
-              height: 80,
-              margin: `0 auto ${tokens.spacing.xl}`,
-              borderRadius: tokens.radius.xl,
-              background: tokens.accent.gradient,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: tokens.shadow.glowLg,
-            }}>
-              <RocketOutlined style={{ fontSize: 36, color: '#fff' }} />
-            </div>
-
-            {/* 标题 */}
-            <h1 style={{
-              fontSize: tokens.font.size.hero,
-              fontWeight: tokens.font.weight.bold,
-              color: tokens.text.primary,
-              marginBottom: tokens.spacing.md,
-              lineHeight: 1.2,
-              letterSpacing: '-0.02em',
-            }}>
-              Create Powerful{' '}
-              <span className="gradient-text">AI Workflows</span>
-            </h1>
-
-            {/* 副标题 */}
-            <p style={{
-              fontSize: tokens.font.size.lg,
-              color: tokens.text.secondary,
-              marginBottom: tokens.spacing.xxl,
-              maxWidth: 600,
-              margin: `0 auto ${tokens.spacing.xxl}`,
-              lineHeight: 1.6,
-            }}>
-              Design, build, and deploy automated AI pipelines with our visual canvas.
-              Connect models, transform data, and orchestrate complex tasks.
-            </p>
-
-            {/* 按钮组 */}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'center',
-              gap: tokens.spacing.md,
-            }}>
-              <Button
-                type="primary"
-                size="large"
-                icon={<PlusOutlined />}
-                onClick={() => navigate('/workflows/new')}
-                style={{
-                  height: 48,
-                  padding: `0 ${tokens.spacing.xl}`,
-                  fontSize: tokens.font.size.md,
-                  fontWeight: tokens.font.weight.medium,
-                  background: tokens.accent.gradient,
-                  border: 'none',
-                  borderRadius: tokens.radius.md,
-                  boxShadow: tokens.shadow.glow,
-                }}
-              >
-                Start from Scratch
-              </Button>
-              <Button
-                size="large"
-                icon={<ThunderboltOutlined />}
-                onClick={() => navigate('/templates')}
-                style={{
-                  height: 48,
-                  padding: `0 ${tokens.spacing.xl}`,
-                  fontSize: tokens.font.size.md,
-                  fontWeight: tokens.font.weight.medium,
-                  background: tokens.bg.elevated,
-                  borderColor: tokens.border.hover,
-                  borderRadius: tokens.radius.md,
-                  color: tokens.text.primary,
-                }}
-              >
-                Browse Templates
-              </Button>
-            </div>
+    <div className="home-page">
+      {loginPrompt}
+      <section className="home-hero" aria-labelledby="home-title">
+        <div className="home-hero-copy">
+          <p className="home-eyebrow"><span />{copy.eyebrow}</p>
+          <h1 id="home-title">{copy.title[0]}<br /><span>{copy.title[1]}</span></h1>
+          <p className="home-intro">{copy.intro}</p>
+          <div className="home-actions">
+            <Button type="primary" size="large" icon={<PlusOutlined />} onClick={() => openFeature('/workflows/new')}>{copy.create}</Button>
+            <Link className="home-secondary-button" to="/models">{copy.explore}<ArrowRightOutlined /></Link>
           </div>
+          <p className="home-access">{copy.access}</p>
+        </div>
+        <div className="home-hero-art">
+          <figure className="home-main-art">
+            <img src={landscape} alt="" fetchPriority="high" />
+            <figcaption><span>STUDIO / 01</span><strong>{copy.preview}</strong></figcaption>
+          </figure>
+          <div className="home-art-inset"><img src={product} alt="" /><span>FORM & LIGHT</span></div>
+          <div className="home-flow-preview" aria-label={`${copy.input} → ${copy.generate} → ${copy.output}`}>
+            <span><FileTextOutlined />{copy.input}</span><ArrowRightOutlined /><span><NodeIndexOutlined />{copy.generate}</span><ArrowRightOutlined /><span><PictureOutlined />{copy.output}</span>
+          </div>
+          <p className="home-art-note">{copy.visualNote}</p>
         </div>
       </section>
 
-      {/* 内容区域 */}
-      <div style={{
-        maxWidth: 1200,
-        margin: '0 auto',
-        padding: `${tokens.spacing.xxl} ${tokens.spacing.xl}`,
-      }}>
-        {/* 最近工作流 */}
-        <section style={{ marginBottom: tokens.spacing.xxl }}>
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: tokens.spacing.lg,
-          }}>
-            <h2 style={{
-              fontSize: tokens.font.size.xl,
-              fontWeight: tokens.font.weight.semibold,
-              color: tokens.text.primary,
-            }}>
-              Recent Workflows
-            </h2>
-            <Button
-              type="link"
-              icon={<RightOutlined />}
-              onClick={() => navigate('/workflows')}
-              style={{ color: tokens.accent.primary }}
-            >
-              View All
-            </Button>
-          </div>
-
-          {loading ? (
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-              gap: tokens.spacing.lg,
-            }}>
-              {[1, 2, 3, 4].map((i) => (
-                <Card key={i} style={{ background: tokens.bg.tertiary }}>
-                  <Skeleton active paragraph={{ rows: 2 }} />
-                </Card>
-              ))}
-            </div>
-          ) : recentWorkflows.length === 0 ? (
-            <Card style={{
-              background: tokens.bg.tertiary,
-              borderColor: tokens.border.default,
-              textAlign: 'center',
-              padding: tokens.spacing.xxl,
-            }}>
-              <Empty
-                description={
-                  <span style={{ color: tokens.text.secondary }}>
-                    No workflows yet. Create your first workflow!
-                  </span>
-                }
-              >
-                <Button
-                  type="primary"
-                  icon={<PlusOutlined />}
-                  onClick={() => navigate('/workflows/new')}
-                >
-                  Create Workflow
-                </Button>
-              </Empty>
-            </Card>
-          ) : (
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-              gap: tokens.spacing.lg,
-            }}>
-              {/* 新建卡片 */}
-              <Card
-                hoverable
-                onClick={() => navigate('/workflows/new')}
-                style={{
-                  background: tokens.bg.tertiary,
-                  borderColor: tokens.border.default,
-                  borderRadius: tokens.radius.lg,
-                  cursor: 'pointer',
-                  minHeight: 180,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-                bodyStyle={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: tokens.spacing.xl,
-                }}
-              >
-                <div style={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: tokens.radius.md,
-                  background: `${tokens.accent.primary}20`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginBottom: tokens.spacing.md,
-                }}>
-                  <PlusOutlined style={{ fontSize: 24, color: tokens.accent.primary }} />
-                </div>
-                <span style={{
-                  fontSize: tokens.font.size.base,
-                  color: tokens.text.secondary,
-                }}>
-                  Create New Workflow
-                </span>
-              </Card>
-
-              {/* 工作流卡片 */}
-              {recentWorkflows.map((workflow) => (
-                <Card
-                  key={workflow._id}
-                  hoverable
-                  onClick={() => navigate(`/workflows/${workflow._id}`)}
-                  style={{
-                    background: tokens.bg.tertiary,
-                    borderColor: tokens.border.default,
-                    borderRadius: tokens.radius.lg,
-                    cursor: 'pointer',
-                    transition: 'all 0.3s ease',
-                  }}
-                  bodyStyle={{ padding: tokens.spacing.lg }}
-                >
-                  {/* 头部：名称 + 状态 */}
-                  <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'flex-start',
-                    marginBottom: tokens.spacing.md,
-                  }}>
-                    <h3 style={{
-                      fontSize: tokens.font.size.md,
-                      fontWeight: tokens.font.weight.medium,
-                      color: tokens.text.primary,
-                      margin: 0,
-                      flex: 1,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}>
-                      {workflow.name}
-                    </h3>
-                    <Tag
-                      color={getStatusColor(workflow.status)}
-                      style={{
-                        background: `${getStatusColor(workflow.status)}20`,
-                        border: 'none',
-                        marginLeft: tokens.spacing.sm,
-                      }}
-                    >
-                      {workflow.status}
-                    </Tag>
-                  </div>
-
-                  {/* 描述 */}
-                  {workflow.description && (
-                    <p style={{
-                      fontSize: tokens.font.size.sm,
-                      color: tokens.text.secondary,
-                      marginBottom: tokens.spacing.md,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}>
-                      {workflow.description}
-                    </p>
-                  )}
-
-                  {/* 底部信息 */}
-                  <div style={{
-                    display: 'flex',
-                    gap: tokens.spacing.lg,
-                    color: tokens.text.tertiary,
-                    fontSize: tokens.font.size.sm,
-                  }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: tokens.spacing.xs }}>
-                      <NodeIndexOutlined />
-                      {workflow.nodes?.length || 0} nodes
-                    </span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: tokens.spacing.xs }}>
-                      <ClockCircleOutlined />
-                      {formatDate(workflow.updatedAt)}
-                    </span>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* 热门模板 */}
-        <section>
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: tokens.spacing.lg,
-          }}>
-            <h2 style={{
-              fontSize: tokens.font.size.xl,
-              fontWeight: tokens.font.weight.semibold,
-              color: tokens.text.primary,
-            }}>
-              Popular Templates
-            </h2>
-            <Button
-              type="link"
-              icon={<RightOutlined />}
-              onClick={() => navigate('/templates')}
-              style={{ color: tokens.accent.primary }}
-            >
-              Browse All
-            </Button>
-          </div>
-
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-            gap: tokens.spacing.lg,
-          }}>
-            {popularTemplates.map((template) => (
-              <Card
-                key={template.id}
-                hoverable
-                onClick={() => navigate(`/templates/${template.id}`)}
-                style={{
-                  background: tokens.bg.tertiary,
-                  borderColor: tokens.border.default,
-                  borderRadius: tokens.radius.lg,
-                  cursor: 'pointer',
-                  transition: 'all 0.3s ease',
-                }}
-                bodyStyle={{ padding: tokens.spacing.lg }}
-              >
-                {/* 模板预览图占位 */}
-                <div style={{
-                  height: 120,
-                  marginBottom: tokens.spacing.md,
-                  borderRadius: tokens.radius.md,
-                  background: `linear-gradient(135deg, ${tokens.accent.primary}30 0%, ${tokens.accent.secondary}20 100%)`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}>
-                  <PlayCircleOutlined style={{
-                    fontSize: 36,
-                    color: tokens.accent.primary,
-                    opacity: 0.6,
-                  }} />
-                </div>
-
-                {/* 模板信息 */}
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'flex-start',
-                  marginBottom: tokens.spacing.sm,
-                }}>
-                  <h3 style={{
-                    fontSize: tokens.font.size.base,
-                    fontWeight: tokens.font.weight.medium,
-                    color: tokens.text.primary,
-                    margin: 0,
-                    flex: 1,
-                  }}>
-                    {template.name}
-                  </h3>
-                  <Tag
-                    style={{
-                      background: `${tokens.accent.primary}20`,
-                      color: tokens.accent.primary,
-                      border: 'none',
-                    }}
-                  >
-                    {template.category}
-                  </Tag>
-                </div>
-
-                <p style={{
-                  fontSize: tokens.font.size.sm,
-                  color: tokens.text.secondary,
-                  marginBottom: tokens.spacing.md,
-                  lineHeight: 1.5,
-                }}>
-                  {template.description}
-                </p>
-
-                {/* 统计信息 */}
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  color: tokens.text.tertiary,
-                  fontSize: tokens.font.size.sm,
-                }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: tokens.spacing.xs }}>
-                    <NodeIndexOutlined />
-                    {template.nodes} nodes
-                  </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: tokens.spacing.xs }}>
-                    <StarOutlined />
-                    {template.rating}
-                  </span>
-                  <span>
-                    {template.uses.toLocaleString()} uses
-                  </span>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </section>
+      <div className="home-metrics" aria-label={copy.allModels}>
+        {copy.metrics.map((label, index) => <div key={label}><strong>{loading || error ? '—' : metrics[index].toLocaleString(locale)}</strong><span>{label}</span></div>)}
+        <Link to="/docs"><BookOutlined /><span>{copy.docs}</span><ArrowRightOutlined /></Link>
       </div>
+
+      {isAuthenticated && <section className="home-section home-recent" aria-labelledby="home-recent-title">
+        <div className="home-section-heading"><h2 id="home-recent-title">{copy.recent}</h2><Link to="/workflows">{copy.allWorkflows}<ArrowRightOutlined /></Link></div>
+        {workflowLoading ? <Skeleton active paragraph={{ rows: 1 }} /> : workflowError ? <div className="home-state"><span>{copy.workflowError}</span><Button onClick={() => setWorkflowAttempt(value => value + 1)}>{copy.retry}</Button></div> : workflows.length ? <div className="home-workflow-grid">
+          {workflows.map(workflow => {
+            const updatedAt = workflow.updatedAt ? new Date(workflow.updatedAt) : null;
+            return <Link key={workflow._id} to={`/workflows/${encodeURIComponent(workflow._id)}`} className="home-workflow"><NodeIndexOutlined /><div><h3>{workflow.name}</h3><p>{workflow.nodes?.length || 0} {copy.nodes}{updatedAt && !Number.isNaN(updatedAt.getTime()) && <> · {dateFormatter.format(updatedAt)}</>}</p></div><ArrowRightOutlined /></Link>;
+          })}
+        </div> : <div className="home-state"><span>{copy.emptyWorkflows}</span><Button icon={<PlusOutlined />} onClick={() => openFeature('/workflows/new')}>{copy.create}</Button></div>}
+      </section>}
+
+      <section className="home-section" aria-labelledby="home-scenes-title">
+        <div className="home-section-heading"><div><p className="home-kicker">CREATE SOMETHING NEW</p><h2 id="home-scenes-title">{copy.scenesTitle}</h2><p>{copy.scenesIntro}</p></div>
+          <div className="home-filters" role="group" aria-label={copy.scenesTitle}>{copy.categories.map((label, index) => <button key={label} type="button" aria-pressed={category === index} onClick={() => setCategory(index)}>{label}</button>)}</div>
+        </div>
+        <div className="home-scene-grid">
+          {scenes.map((scene, index) => (category === 0 || category === scene.category) && <Link key={scene.type} to={`/models?type=${scene.type}`} className="home-scene-card">
+            <div className="home-scene-cover"><img src={scene.cover} alt="" loading="lazy" /><span><scene.icon />{copy.categories[scene.category]}</span></div>
+            <div className="home-scene-body"><p className="home-scene-steps">{copy.scenes[index].steps}</p><h3>{copy.scenes[index].title}</h3><p>{copy.scenes[index].description}</p><span className="home-card-link">{copy.discover}<ArrowRightOutlined /></span></div>
+          </Link>)}
+        </div>
+        <p className="home-illustration-note">{copy.visualNote}</p>
+      </section>
+
+      <section className="home-section" aria-labelledby="home-models-title">
+        <div className="home-section-heading"><div><p className="home-kicker">MEET YOUR MODELS</p><h2 id="home-models-title">{copy.modelsTitle}</h2><p>{copy.modelsIntro}</p></div><Link to="/models">{copy.allModels}<ArrowRightOutlined /></Link></div>
+        {loading ? <div className="home-model-grid">{[0, 1, 2, 3].map(value => <div className="home-model-card" key={value}><Skeleton active paragraph={{ rows: 3 }} /></div>)}</div> : error ? <div className="home-state"><span>{copy.catalogError}</span><Button onClick={retry}>{copy.retry}</Button></div> : !featured.length ? <div className="home-state">{copy.catalogEmpty}</div> : <div className="home-model-grid">
+          {featured.map((model, index) => {
+            const Icon = scenes.find(scene => scene.type === model.model_type)?.icon || NodeIndexOutlined;
+            return <Link to={modelDocPath(model)} className="home-model-card" key={modelDocKey(model)}>
+              <div className="home-model-top"><span className={`home-model-icon home-model-icon-${index}`}><Icon /></span><span>{t(model.model_type)}</span></div>
+              <h3>{model.model_name || model.model_id}</h3><p className="home-model-provider">{model.provider}</p><p className="home-model-description">{model.description || copy.noDescription}</p><span className="home-card-link">{copy.modelDoc}<ArrowRightOutlined /></span>
+            </Link>;
+          })}
+        </div>}
+      </section>
+
+      <section className="home-section" aria-labelledby="home-resources-title">
+        <div className="home-section-heading"><div><p className="home-kicker">A GOOD PLACE TO START</p><h2 id="home-resources-title">{copy.resourcesTitle}</h2><p>{copy.resourcesIntro}</p></div><Link to="/docs">{copy.docs}<ArrowRightOutlined /></Link></div>
+        <div className="home-resource-grid">{copy.guides.map((item, index) => {
+          const Icon = guideIcons[index];
+          return <button type="button" className={`home-resource-card home-resource-${index}`} key={item.title} onClick={() => setGuide(index)}>
+            <div className="home-resource-visual" aria-hidden="true"><span className="home-resource-number">0{index + 1}</span><Icon /><div className="home-resource-lines"><i /><i /><i /></div></div>
+            <div className="home-resource-body"><p className="home-resource-meta">{copy.guideLabel}<span><ClockCircleOutlined />{item.duration}</span></p><h3>{item.title}</h3><p>{item.description}</p><span className="home-card-link">{copy.readGuide}<ArrowRightOutlined /></span></div>
+          </button>;
+        })}</div>
+      </section>
+
+      <section className="home-closing"><div><h2>{copy.closingTitle}</h2><p>{copy.closingBody}</p></div><Button size="large" type="primary" onClick={() => openFeature('/workflows/new')}>{copy.create}<ArrowRightOutlined /></Button></section>
+      <footer className="home-footer"><Link to="/" className="home-footer-brand"><BrandIcon size={22} />Model Hub</Link><p>{copy.footer}</p><Link to="/docs">{copy.docs}<ArrowUpOutlined rotate={45} /></Link></footer>
+
+      <Modal open={activeGuide !== null} onCancel={() => setGuide(null)} footer={null} width={700} title={activeGuide?.title} className="home-guide-modal">
+        {activeGuide && <><p className="home-guide-intro">{activeGuide.description}</p><ol className="home-guide-steps">{activeGuide.steps.map(([title, body]) => <li key={title}><h3>{title}</h3><p>{body}</p></li>)}</ol><div className="home-actions"><Link className="home-secondary-button" to={guide === 0 ? '/models' : '/docs'} onClick={() => setGuide(null)}>{guide === 0 ? copy.explore : copy.docs}<ArrowRightOutlined /></Link>{guide === 0 && <Button type="primary" onClick={() => { setGuide(null); openFeature('/workflows/new'); }}>{copy.create}</Button>}</div></>}
+      </Modal>
     </div>
   );
 }

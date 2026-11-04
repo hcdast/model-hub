@@ -7,13 +7,14 @@ import ModelParamField from './ModelParamField';
 
 interface Props {
   modelId?: string;
+  selection?: import('../../../../src/common/interfaces/model-contract.interface').ModelSelection;
   parameters?: Record<string, unknown>;
   onParamChange: (key: string, value: unknown) => void;
   maxChips?: number;
 }
 
-export default function ModelParamChips({ modelId, parameters = {}, onParamChange, maxChips = 3 }: Props) {
-  const { params, loading, error, retry } = useModelParams(modelId);
+export default function ModelParamChips({ modelId, selection, parameters = {}, onParamChange, maxChips = 3 }: Props) {
+  const { params, loading, error, retry } = useModelParams(modelId, selection);
   const [openParam, setOpenParam] = useState<string | null>(null);
   if (!modelId) return null;
   if (loading) return <span>参数加载中…</span>;

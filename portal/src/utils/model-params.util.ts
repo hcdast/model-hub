@@ -1,3 +1,4 @@
+import { validateParams as validateSharedParams } from '../../../src/common/utils/param-validator';
 import { ParamDefinition, ParamDocItem } from '../types/model-params';
 import { SKIP_FOOTER_PARAMS, PARAM_DISPLAY_PRIORITY } from '../types/model-params';
 
@@ -80,11 +81,7 @@ export function formatModelDisplayName(model?: { model_name?: string; model_id?:
 }
 
 export function validateParam(param: ParamDocItem, value: unknown, parameters: Record<string, unknown>): string | undefined {
-  if (value === undefined || value === null || value === '') return param.required ? '此参数为必填项' : undefined;
-  if (param.type === 'array' ? !Array.isArray(value) : param.type === 'object' ? typeof value !== 'object' || Array.isArray(value) : param.type === 'integer' ? typeof value !== 'number' || !Number.isInteger(value) : typeof value !== param.type) return `需要 ${param.type} 类型`;
-  if (typeof value === 'number' && (!Number.isFinite(value) || (param.min !== undefined && value < param.min) || (param.max !== undefined && value > param.max))) return `数值范围：${param.min ?? '不限'} 至 ${param.max ?? '不限'}`;
-  if ((param.enum?.length || param.enumDependsOn) && !resolveEnumOptions(param, parameters).includes(value as string | number | boolean)) return '不在当前可用选项中';
-  return undefined;
+  return validateSharedParams({ ...parameters, [param.name]: value }, { [param.name]: param }).errors[0]?.message;
 }
 
 export function compatibleParams(previous: Record<string, unknown>, definitions: Record<string, ParamDefinition>): Record<string, unknown> {
@@ -135,5 +132,5 @@ export function findMediaParams(params: Record<string, ParamDefinition>, kind: '
     audio: ['audio', 'audio_url', 'input_audio', 'reference_audio'],
     text: ['prompt', 'text', 'input_text'],
   };
-  return Object.entries(params).filter(([name, definition]) => !definition.hide && (names[kind].includes(name) || definition.ui_type === kind || definition.ui_type === `${kind}_upload`)).map(([name]) => name);
+  return Object.entries(params).filter(([name, definition]) => !definition.hide && (names[kind].includes(name) || definition.media?.kind === kind || (definition.ui_type as string) === kind || definition.ui_type === `${kind}_upload`)).map(([name]) => name);
 }
