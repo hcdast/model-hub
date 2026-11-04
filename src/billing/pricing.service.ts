@@ -9,6 +9,7 @@ import { APP_CONFIG } from '../config/config.module';
 import { AppConfig } from '../config/interfaces/config.interface';
 import { UsageType, PriceEstimate } from './interfaces/billing.interface';
 import { pickCreditReferenceUnitFromPriceMap } from './unit-price-map.util';
+import { estimateModelPrice } from '../common/utils/model-pricing';
 
 /** 视频类用量：请求未带 duration 时的默认预估秒数（不再来自模型配置字段） */
 export const DEFAULT_DURATION_FALLBACK_SECONDS = 5;
@@ -120,7 +121,9 @@ export class PricingService {
   async estimate(
     model: string,
     input: Record<string, any>,
+    selectedConfig?: ModelConfig,
   ): Promise<PriceEstimate> {
+    if (selectedConfig) return estimateModelPrice(selectedConfig, input) as PriceEstimate;
     const { unitPrice, usageType, currency, durationStep } =
       await this.getUnitPrice(model);
 
@@ -131,7 +134,7 @@ export class PricingService {
         estimatedUsage = input?.batch_quantity ?? 1;
         break;
       case UsageType.DURATION:
-        estimatedUsage = input?.duration ?? durationStep;
+        estimatedUsage = input?.duration === -1 ? 30 : input?.duration ?? durationStep;
         break;
       case UsageType.TOKEN:
       default:
@@ -139,6 +142,7 @@ export class PricingService {
         break;
     }
 
+    if (!Number.isFinite(estimatedUsage) || estimatedUsage <= 0) throw new Error('Invalid billing usage');
     const estimatedCost = unitPrice * estimatedUsage;
 
     return {

@@ -1,3 +1,4 @@
+import { MediaInputValidatorService } from '../metadata/media-input-validator.service';
 import {
   Injectable, Logger, Inject, BadRequestException, NotFoundException, ConflictException,
   HttpException, HttpStatus,
@@ -33,10 +34,11 @@ import { BillingAdapter } from '../billing/billing.adapter';
 import { BillingService } from '../billing/billing.service';
 import { InsufficientBalanceException } from '../billing/exceptions/insufficient-balance.exception';
 import { TaskResourceMetadataEnqueueService } from '../queue/task-resource-metadata-enqueue.service';
-import { findModelConfigForTask } from './model-config-resolver.util';
+import { findExplicitModelConfig, findModelConfigForTask } from './model-config-resolver.util';
 import { inferInternalFeatureFromPathSegment } from '../common/utils/model-path-infer.util';
 import { normalizeAkoolSwapClientInput } from '../common/utils/akool-swap-input.util';
 import { inferProviderFallback } from './model-service-provider.map';
+import { ProviderConfigService } from '../provider/provider-config.service';
 
 @Injectable()
 export class TaskService {
@@ -59,9 +61,11 @@ export class TaskService {
     private readonly billingAdapter: BillingAdapter,
     private readonly billingService: BillingService,
     private readonly resourceMetadataEnqueue: TaskResourceMetadataEnqueueService,
+    private readonly providerConfig: ProviderConfigService,
+    private readonly mediaValidator: MediaInputValidatorService,
   ) {}
 
-  async createTask(apiKey: string, dto: CreateTaskDto, idempotencyKey?: string) {
+  async createTask(apiKey: string, dto: CreateTaskDto, idempotencyKey?: string, authorization?: { maxCharge: number }) {
     const receivedAt = new Date();
 
     if (idempotencyKey) {
@@ -101,12 +105,9 @@ export class TaskService {
       );
     }
 
-    const cfg = await findModelConfigForTask(
-      this.modelConfigModel,
-      dto.model,
-      configModelType ?? undefined,
-      ruleHit?.provider,
-    );
+    const cfg = dto.options?.configId !== undefined
+      ? await findExplicitModelConfig(this.modelConfigModel, dto.model, dto.options, configModelType ?? undefined, ruleHit?.provider)
+      : await findModelConfigForTask(this.modelConfigModel, dto.model, configModelType ?? undefined, ruleHit?.provider);
 
     if (cfg?.disabled) {
       ErrorLogger.logWarning(
@@ -160,7 +161,12 @@ export class TaskService {
       throw new BadRequestException(`Unsupported provider: ${provider}`);
     }
 
+    if (!(await this.providerConfig.getResolved(provider)).enabled) {
+      throw new BadRequestException(`供应商已停用或未配置: ${provider}`);
+    }
+
     // 参数校验与转换：根据 ModelConfig.params 定义校验请求参数并转换第三方字段名
+    let billingInput = dto.input;
     if (cfg?.params && Object.keys(cfg.params).length > 0) {
       const definitions = cfg.params as ParamDefinitions;
 
@@ -168,7 +174,7 @@ export class TaskService {
       normalizeAkoolSwapClientInput(dto.input);
       this.normalizeImageFields(dto.input, definitions);
 
-      const validationResult = validateParams(dto.input, definitions);
+      const validationResult = validateParams(dto.input, definitions, cfg.params_rules);
       if (!validationResult.valid) {
         throw new BadRequestException({
           message: '参数校验失败',
@@ -177,6 +183,8 @@ export class TaskService {
       }
       // 用校验后的参数（含默认值、过滤未定义字段）替换原始 input
       dto.input = validationResult.sanitized;
+      await this.mediaValidator.validate(dto.input, definitions);
+      billingInput = dto.input;
 
       // 转换第三方字段名
       const { transformed } = transformParams(dto.input, definitions);
@@ -199,8 +207,10 @@ export class TaskService {
         model: dto.model,
         provider,
         featureType,
-        input: dto.input,
+        input: billingInput,
+        modelConfig: cfg || undefined,
         options: dto.options,
+        maxCharge: authorization?.maxCharge,
       });
     } catch (err) {
       if (err instanceof InsufficientBalanceException) {
@@ -235,7 +245,8 @@ export class TaskService {
       providerModel, // 保存 provider_model_name
       routeId,
       status: TaskStatus.PENDING, version: 0,
-      requestPayload: { input: dto.input, options: dto.options },
+      requestPayload: { input: dto.input, options: dto.options, configId: (cfg as any)?._id?.toString(), configRevision: cfg?.revision || 0,
+        billingInput, billingUsageParam: cfg?.pricing?.usage_param },
       callback: dto.callbackUrl ? {
         url: dto.callbackUrl,
         secret: dto.callbackSecret || this.config.callback.defaultSecret,
@@ -315,6 +326,33 @@ export class TaskService {
     return { items: items.map((t) => this.toResponse(t)), total, page: query.page ?? 1, pageSize: query.pageSize ?? 20 };
   }
 
+  /** Explicit operator attestation is required for records without a provider job id. Never infer a failure from an absent queue job. */
+  async reconcileVerifiedFailure(taskId: string, body: { expectedUpdatedAt: string; verificationReference: string; reason: string; confirmedFailure: boolean }, operator: string) {
+    if (body.confirmedFailure !== true || typeof body.reason !== 'string' || !body.reason.trim() || typeof body.verificationReference !== 'string' || !body.verificationReference.trim() || body.reason.length > 500 || body.verificationReference.length > 1000 || !Number.isFinite(Date.parse(body.expectedUpdatedAt))) throw new BadRequestException('请提供供应商失败核验编号、原因、已核对确认和任务版本时间');
+    const task = await this.taskRepo.findByTaskId(taskId);
+    if (!task) throw new NotFoundException('任务不存在');
+    if (['SUCCESS', 'CANCELLED'].includes(task.status)) throw new ConflictException('成功或已取消任务不能按失败修复');
+    if (new Date((task as any).updatedAt).getTime() !== Date.parse(body.expectedUpdatedAt)) throw new ConflictException('任务已变化，请重新核验');
+    const id = task.providerTask?.providerTaskId;
+    if (id) {
+      const adapter = this.providerRegistry.getAdapter(task.provider);
+      if (!adapter) throw new ConflictException('适配器不可用，无法核对供应商状态');
+      const result = await adapter.queryTask(id);
+      if (!['failed', 'cancelled'].includes(result.status)) throw new ConflictException('供应商尚未确认失败或取消，拒绝修复');
+    }
+    const bill = await this.billingService.getRecord(taskId);
+    if (bill?.status === 'settled') throw new ConflictException('已结算账单不能通过失败修复退款，请走对账流程');
+    const closed = await this.taskRepo.updateIfUnchanged(taskId, task.status, new Date(body.expectedUpdatedAt), { status: TaskStatus.FAILED, error: { code: 'ADMIN_VERIFIED_FAILURE', message: body.reason, retryable: false }, reconciliation: { operator, verificationReference: body.verificationReference, reason: body.reason, verifiedAt: new Date() } });
+    if (!closed) throw new ConflictException('任务已变化，请重新核验');
+    await this.billingAdapter.refund({ taskId, reason: 'admin_verified_failure' });
+    await this.timelineService.addEvent(taskId, TimelineEvent.TASK_FAILED, { operator, verificationReference: body.verificationReference, reason: body.reason, reconciliation: true });
+    return { taskId, status: closed.status, message: '已根据核验结果收尾；解冻操作按任务幂等执行' };
+  }
+
+  canCancel(task: { status: string; provider: string }): boolean {
+    return task.status === TaskStatus.PENDING || (task.status === TaskStatus.SUBMITTED && this.providerRegistry.getAdapter(task.provider)?.supportsCancellation !== false);
+  }
+
   async cancelTask(apiKey: string, taskId: string, cancelledBy?: string) {
     const task = await this.taskRepo.findByClientAndTaskId(apiKey, taskId);
     if (!task) {
@@ -333,7 +371,10 @@ export class TaskService {
       );
       throw new ConflictException(`Task ${taskId} cannot be cancelled in status ${task.status}`);
     }
-    const updated = await this.taskRepo.updateStatus(taskId, [TaskStatus.PENDING, TaskStatus.SUBMITTED], TaskStatus.CANCELLED);
+    const cancellableStatuses = this.providerRegistry.getAdapter(task.provider)?.supportsCancellation === false
+      ? [TaskStatus.PENDING] : [TaskStatus.PENDING, TaskStatus.SUBMITTED];
+    if (!cancellableStatuses.includes(task.status)) throw new ConflictException('该供应商不支持取消已提交的任务');
+    const updated = await this.taskRepo.updateStatus(taskId, cancellableStatuses, TaskStatus.CANCELLED);
     if (!updated) {
       ErrorLogger.logWarning(
         this.logger,
@@ -465,11 +506,15 @@ export class TaskService {
     const opt = options?.featureType;
     if (typeof opt === 'string' && opt.length > 0) {
       const camelToInternal: Record<string, string> = {
+        textGenerate: 'text_generate',
+        tts: 'tts',
+        music: 'music',
         textToImage: 'image_generate',
         imageToImage: 'image_to_image',
         textToVideo: 'text_to_video',
         imageToVideo: 'image_to_video',
         videoToVideo: 'image_to_video',
+        referenceToVideo: 'image_to_video',
         characterSwap: 'character_swap',
         characterFaceswap: 'character_swap',
         headSwap: 'head_swap',

@@ -240,7 +240,7 @@ export class PollingService {
         // 如果扣费失败，任务保持 PROCESSING 状态，下次轮询会重试
         let billingSettled = false;
         try {
-          const actualUsage = await this.extractActualUsage(
+          const actualUsage = task.requestPayload?.billingInput ? { usageType: UsageType.COUNT, usageValue: 1 } : await this.extractActualUsage(
             task.model,
             normalizedResult,
             task.requestPayload?.input,
@@ -248,6 +248,9 @@ export class PollingService {
           await this.billingAdapter.settle({
             taskId: task.taskId,
             actualUsage,
+            requestInput: task.requestPayload?.billingInput,
+            usageParam: task.requestPayload?.billingUsageParam,
+            rawUsageResult: queryResult.rawResponse,
             resultPayload: normalizedResult,
           });
           billingSettled = true;
@@ -314,6 +317,17 @@ export class PollingService {
 
         void this.resourceMetadataEnqueue.scheduleForTask(task.taskId).catch(() => undefined);
         break;
+      case 'cancelled': {
+        // Refund first so a transient refund failure leaves the task pollable for retry.
+        await this.billingAdapter.refund({ taskId: task.taskId, reason: 'provider_cancelled' });
+        const updated = await this.taskRepo.updateStatus(task.taskId, [TaskStatus.SUBMITTED, TaskStatus.PROCESSING], TaskStatus.CANCELLED);
+        if (updated) {
+          await this.timelineService.addEvent(task.taskId, TimelineEvent.TASK_CANCELLED, { cancelledBy: 'provider' });
+          this.usageTracker.recordCompletion(task.apiKey, false).catch(() => undefined);
+          void this.resourceMetadataEnqueue.scheduleForTask(task.taskId).catch(() => undefined);
+        }
+        break;
+      }
       case 'processing':
         if (task.status === TaskStatus.SUBMITTED) await this.taskRepo.updateStatus(task.taskId, TaskStatus.SUBMITTED, TaskStatus.PROCESSING);
         await this.scheduleNextPoll(task.taskId, task.polling?.pollInterval ?? this.config.polling.defaultIntervalMs);

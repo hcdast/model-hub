@@ -1,4 +1,5 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { redactAdminData } from './utils/redact-admin-data';
 import {
   ApiTags,
   ApiOperation,
@@ -52,6 +53,7 @@ export class AdminCallbackLogsController {
       if (!Number.isNaN(n)) query.responseCode = n;
     }
     if (from || to) {
+      if ((from && !Number.isFinite(Date.parse(from))) || (to && !Number.isFinite(Date.parse(to))) || (from && to && Date.parse(from) > Date.parse(to))) throw new BadRequestException('回调日志日期范围无效');
       const range: { $gte?: Date; $lte?: Date } = {};
       if (from) range.$gte = new Date(from);
       if (to) range.$lte = new Date(to);
@@ -71,6 +73,6 @@ export class AdminCallbackLogsController {
       this.callbackLogModel.countDocuments(query),
     ]);
 
-    return { code: 0, data: { items, total, page: p, pageSize: ps } };
+    return { code: 0, data: { items: items.map(row => redactAdminData(row)), total, page: p, pageSize: ps } };
   }
 }

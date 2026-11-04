@@ -13,6 +13,7 @@ export type ModelRoutingRuleDocument = HydratedDocument<ModelRoutingRule>;
  */
 @Schema({ timestamps: true, collection: 'model_routing_rules' })
 export class ModelRoutingRule {
+  @Prop({ default: 0 }) revision?: number;
   /** 与创建任务请求体 `model` 一致 */
   @Prop({ required: true, index: true })
   model_id!: string;

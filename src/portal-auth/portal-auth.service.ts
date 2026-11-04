@@ -4,6 +4,7 @@
  */
 import {
   Injectable,
+  Inject,
   OnModuleInit,
   UnauthorizedException,
   ConflictException,
@@ -22,6 +23,8 @@ import {
   PortalRefreshTokenDocument,
 } from '../database/schemas/portal-refresh-token.schema';
 import { generateTemporaryPassword } from '../admin/utils/password.util';
+import { APP_CONFIG } from '../config/config.module';
+import { AppConfig } from '../config/interfaces/config.interface';
 
 const BCRYPT_ROUNDS = 10;
 
@@ -37,17 +40,18 @@ export class PortalAuthService implements OnModuleInit {
     private readonly userModel: Model<PortalUserDocument>,
     @InjectModel(PortalRefreshToken.name)
     private readonly refreshTokenModel: Model<PortalRefreshTokenDocument>,
+    @Inject(APP_CONFIG) config: AppConfig,
   ) {
     this.accessTokenExpires =
-      process.env.PORTAL_ACCESS_TOKEN_EXPIRES?.trim() || '15m';
+      config.portalAuth?.accessTokenExpires?.trim() || '15m';
     const accessTokenSeconds = this.parseExpiry(this.accessTokenExpires);
     if (accessTokenSeconds < 60 || accessTokenSeconds > 86400) {
       throw new Error(
-        'PORTAL_ACCESS_TOKEN_EXPIRES must be between 60 seconds and 1 day',
+        'portalAuth.accessTokenExpires must be between 60 seconds and 1 day',
       );
     }
     const configuredRefreshDays = Number(
-      process.env.PORTAL_REFRESH_TOKEN_EXPIRES_DAYS ?? 7,
+      config.portalAuth?.refreshTokenExpiresDays ?? 7,
     );
     if (
       !Number.isInteger(configuredRefreshDays) ||
@@ -55,23 +59,27 @@ export class PortalAuthService implements OnModuleInit {
       configuredRefreshDays > 365
     ) {
       throw new Error(
-        'PORTAL_REFRESH_TOKEN_EXPIRES_DAYS must be an integer from 1 to 365',
+        'portalAuth.refreshTokenExpiresDays must be an integer from 1 to 365',
       );
     }
     this.refreshTokenExpiresDays = configuredRefreshDays;
-    const configuredSecret = process.env.PORTAL_JWT_SECRET?.trim();
+    const configuredSecret = config.portalAuth?.jwtSecret?.trim();
     if (!configuredSecret) {
       if (process.env.NODE_ENV === 'production') {
-        throw new Error('PORTAL_JWT_SECRET is required in production');
+        throw new Error('portalAuth.jwtSecret is required in production');
       }
       this.jwtSecret = randomBytes(32).toString('hex');
-      this.logger.warn('PORTAL_JWT_SECRET is not configured; using an ephemeral development secret');
+      this.logger.warn('portalAuth.jwtSecret is not configured; using an ephemeral development secret');
     } else {
       if (Buffer.byteLength(configuredSecret, 'utf8') < 32) {
-        throw new Error('PORTAL_JWT_SECRET must be at least 32 bytes');
+        throw new Error('portalAuth.jwtSecret must be at least 32 bytes');
       }
       this.jwtSecret = configuredSecret;
     }
+  }
+
+  getRefreshCookieMaxAge(): number {
+    return this.refreshTokenExpiresDays * 24 * 60 * 60 * 1000;
   }
 
   async onModuleInit(): Promise<void> {
@@ -110,6 +118,9 @@ export class PortalAuthService implements OnModuleInit {
     username: string,
     password: string,
   ): Promise<{ accessToken: string; refreshToken: string; user: any }> {
+    email = email.trim().toLowerCase();
+    username = username.trim();
+    this.assertPassword(password);
     // 检查邮箱是否已存在
     const existingUser = await this.userModel.findOne({
       email: email.toLowerCase(),
@@ -140,6 +151,8 @@ export class PortalAuthService implements OnModuleInit {
         authVersion: 0,
         role: 'user',
         status: 'active',
+        emailVerifiedAt: new Date(),
+        termsAcceptedAt: new Date(),
       });
     } catch (error: unknown) {
       if (Reflect.get(Object(error), 'code') === 11000) {
@@ -187,7 +200,7 @@ export class PortalAuthService implements OnModuleInit {
   ): Promise<{ accessToken: string; refreshToken: string; user: any }> {
     // 查找用户
     const user = await this.userModel.findOne({
-      email: email.toLowerCase(),
+      email: email.trim().toLowerCase(),
       deletedAt: null,
     });
     if (!user) {
@@ -195,13 +208,13 @@ export class PortalAuthService implements OnModuleInit {
     }
 
     // 检查用户状态
-    if (user.status === 'suspended') {
-      throw new UnauthorizedException('Account suspended');
+    if (user.status !== 'active') {
+      throw new UnauthorizedException('Account is not active');
     }
 
     const authVersion = this.getAuthVersion(user.authVersion, true);
     // 验证密码
-    const isValid = await bcrypt.compare(password, user.passwordHash);
+    const isValid = user.passwordHash && await bcrypt.compare(password, user.passwordHash);
     if (!isValid) {
       throw new UnauthorizedException('Invalid email or password');
     }
@@ -383,11 +396,12 @@ export class PortalAuthService implements OnModuleInit {
     }
 
     // 验证旧密码
-    const isValid = await bcrypt.compare(oldPassword, user.passwordHash);
+    const isValid = user.passwordHash && await bcrypt.compare(oldPassword, user.passwordHash);
     if (!isValid) {
       throw new BadRequestException('Invalid old password');
     }
 
+    this.assertPassword(newPassword);
     const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     const updated = await this.updatePassword(user, passwordHash, true);
     await this.revokeOlderTokens(updated._id.toString(), this.getAuthVersion(updated.authVersion));
@@ -462,7 +476,126 @@ export class PortalAuthService implements OnModuleInit {
     }
   }
 
+  /** Capture the authenticated account in server-side OAuth state, never in a query parameter. */
+  async getOAuthLinkAccount(userId: string): Promise<{ userId: string; authVersion: number }> {
+    const user = await this.userModel.findById(userId);
+    if (!user || user.deletedAt || user.status !== 'active') throw new UnauthorizedException('Account is not active');
+    return { userId: user._id.toString(), authVersion: this.getAuthVersion(user.authVersion, true) };
+  }
+
+  /** Requires both a local authenticated session and a fresh, browser-bound provider proof. */
+  async linkOAuthAccount(
+    provider: 'google' | 'github',
+    profile: { id: string; email: string; username: string; avatar?: string },
+    account: { userId: string; authVersion: number },
+    ip?: string,
+    userAgent?: string,
+  ): Promise<{ accessToken: string; refreshToken: string; user: any }> {
+    const identityField = provider === 'google' ? 'googleId' : 'githubId';
+    const user = await this.userModel.findById(account.userId);
+    if (!user || user.deletedAt || user.status !== 'active' ||
+      this.getAuthVersion(user.authVersion, true) !== account.authVersion) {
+      throw new UnauthorizedException('Account authentication changed. Please sign in again');
+    }
+    if (user.email.trim().toLowerCase() !== profile.email.trim().toLowerCase()) {
+      throw new ConflictException('Use the provider account with the same email as your Model Hub account');
+    }
+    if (user[identityField] && user[identityField] !== profile.id) {
+      throw new ConflictException('A different provider account is already linked');
+    }
+    try {
+      const linked = await this.userModel.findOneAndUpdate({
+        _id: user._id, email: user.email, status: 'active', deletedAt: null,
+        [identityField]: { $in: [null, profile.id] },
+        $or: [
+          { authVersion: account.authVersion },
+          ...(account.authVersion === 0 ? [{ authVersion: { $exists: false } }] : []),
+        ],
+      }, { $set: { [identityField]: profile.id } }, { new: true });
+      if (!linked) throw new ConflictException('Account changed. Please retry linking');
+    } catch (error) {
+      if (Reflect.get(Object(error), 'code') === 11000) {
+        throw new ConflictException('This provider account is already linked to another account');
+      }
+      throw error;
+    }
+    return this.loginWithOAuth(provider, profile, ip, userAgent, account);
+  }
+
+  /** Only the provider subject identifies an OAuth account; email alone never links accounts. */
+  async loginWithOAuth(
+    provider: 'google' | 'github',
+    profile: { id: string; email: string; username: string; avatar?: string },
+    ip?: string,
+    userAgent?: string,
+    expectedAccount?: { userId: string; authVersion: number },
+  ): Promise<{ accessToken: string; refreshToken: string; user: any }> {
+    const identityField = provider === 'google' ? 'googleId' : 'githubId';
+    let user = await this.userModel.findOne({ [identityField]: profile.id });
+    if (expectedAccount && (!user || user._id.toString() !== expectedAccount.userId)) {
+      throw new UnauthorizedException('Linked account changed. Please sign in again');
+    }
+    if (!user) {
+      if (await this.userModel.findOne({ email: profile.email })) {
+        throw new ConflictException('An account already uses this email. Sign in using its original method.');
+      }
+      const name = profile.username.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 19) || 'user';
+      try {
+        user = await this.userModel.create({
+          [identityField]: profile.id,
+          email: profile.email,
+          username: `${name}_${randomBytes(5).toString('hex')}`,
+          avatar: profile.avatar,
+          emailVerifiedAt: new Date(),
+          termsAcceptedAt: new Date(),
+          authVersion: 0,
+          role: 'user',
+          status: 'active',
+        });
+      } catch (error) {
+        if (Reflect.get(Object(error), 'code') !== 11000) throw error;
+        user = await this.userModel.findOne({ [identityField]: profile.id });
+        if (!user) throw new ConflictException('An account already uses this email. Sign in using its original method.');
+      }
+    }
+    if (user.deletedAt || user.status !== 'active') throw new UnauthorizedException('Account is not active');
+    const authVersion = this.getAuthVersion(user.authVersion, true);
+    if (expectedAccount && authVersion !== expectedAccount.authVersion) {
+      throw new UnauthorizedException('Account authentication changed. Please sign in again');
+    }
+    user.lastLoginAt = new Date();
+    user.lastLoginIp = ip;
+    await user.save();
+    const refresh = await this.createRefreshToken(user._id.toString(), authVersion, userAgent, ip);
+    await this.confirmIssuedToken(user._id.toString(), authVersion, refresh.tokenId);
+    return {
+      accessToken: this.signAccessToken({ sub: user._id.toString(), email: user.email, username: user.username, role: user.role }),
+      refreshToken: refresh.token,
+      user: this.sanitizeUser(user),
+    };
+  }
+
+  async canResetPassword(email: string): Promise<boolean> {
+    const user = await this.userModel.findOne({ email: email.trim().toLowerCase(), deletedAt: null });
+    return !!user && user.status === 'active' && !!user.passwordHash;
+  }
+
+  /** Called only after consuming a one-time email proof. OAuth-only accounts keep their original sign-in method. */
+  async recoverPassword(email: string, password: string): Promise<void> {
+    this.assertPassword(password);
+    const user = await this.userModel.findOne({ email: email.trim().toLowerCase(), deletedAt: null });
+    if (!user || user.status !== 'active' || !user.passwordHash) throw new BadRequestException('Unable to reset password');
+    const updated = await this.updatePassword(user, await bcrypt.hash(password, BCRYPT_ROUNDS), true);
+    await this.revokeOlderTokens(updated._id.toString(), this.getAuthVersion(updated.authVersion));
+  }
+
   // ==================== 私有方法 ====================
+
+  private assertPassword(password: string): void {
+    if (password.length < 8 || Buffer.byteLength(password, 'utf8') > 72) {
+      throw new BadRequestException('Password must be at least 8 characters and at most 72 UTF-8 bytes');
+    }
+  }
 
   /**
    * 签发 Access Token
@@ -613,6 +746,7 @@ export class PortalAuthService implements OnModuleInit {
       usage: user.usage,
       createdAt: user.createdAt,
       lastLoginAt: user.lastLoginAt,
+      authMethods: { password: !!user.passwordHash, google: !!user.googleId, github: !!user.githubId },
     };
   }
 }

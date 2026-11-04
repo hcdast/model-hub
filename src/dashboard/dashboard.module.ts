@@ -10,6 +10,9 @@ import { join } from 'path';
       exclude: ['/api/(.*)'],
       serveStaticOptions: {
         fallthrough: true,
+        setHeaders: (res, filePath) => {
+          res.setHeader('Cache-Control', /[\\/]assets[\\/]/.test(filePath) ? 'public, max-age=31536000, immutable' : 'no-cache, must-revalidate');
+        },
       },
     }),
   ],

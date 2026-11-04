@@ -1,3 +1,5 @@
+import { redactAdminData } from './utils/redact-admin-data';
+import { auditContext } from './audit-context';
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -66,12 +68,14 @@ export class AuditLogService {
         operator: operator!,
         detail,
         ip,
+        result: 'success',
       };
     } else {
       logData = actionOrData;
     }
 
-    await this.logModel.create(logData);
+    const correlationId = auditContext.getStore()?.correlationId;
+    await this.logModel.create({ ...redactAdminData(logData), detail: { ...redactAdminData(logData.detail), ...(correlationId ? { correlationId } : {}) } });
   }
 
   /**
@@ -122,7 +126,7 @@ export class AuditLogService {
       this.logModel.countDocuments(query),
     ]);
 
-    const items = rawItems.map((row) => enrichAuditLogRecord(row as Record<string, any>));
+    const items = rawItems.map((row) => enrichAuditLogRecord(redactAdminData(row as Record<string, any>)));
 
     return { items, total, page, pageSize };
   }

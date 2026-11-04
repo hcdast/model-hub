@@ -44,7 +44,7 @@ export class PortalApiKeyService {
       .find({
         userId,
         $or: [
-          { expiresAt: { $exists: false } },
+          { expiresAt: null },
           { expiresAt: { $gt: new Date() } },
         ],
       })
@@ -77,7 +77,7 @@ export class PortalApiKeyService {
     const currentCount = await this.apiKeyModel.countDocuments({
       userId,
       $or: [
-        { expiresAt: { $exists: false } },
+        { expiresAt: null },
         { expiresAt: { $gt: new Date() } },
       ],
     });
@@ -181,6 +181,7 @@ export class PortalApiKeyService {
         try {
           key = await this.apiKeyModel.create({
             userId,
+            name: normalizedName,
             slot,
             keyId,
             secretHash,
@@ -333,7 +334,7 @@ export class PortalApiKeyService {
       .findOne({
         userId,
         enabled: true,
-        $or: [{ expiresAt: { $exists: false } }, { expiresAt: { $gt: new Date() } }],
+        $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
       })
       .sort({ createdAt: 1 })
       .select('billingKey')

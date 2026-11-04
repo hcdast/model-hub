@@ -12,11 +12,28 @@ import {
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { MODEL_CONFIG_MODEL_TYPES } from '../../common/constants/model-config-model-type';
+import type { ModelContract } from '../../common/interfaces/model-contract.interface';
 
 /**
  * 创建模型配置 DTO
  */
 export class CreateModelConfigDto {
+  @IsOptional() @IsString()
+  icon?: string;
+  @IsOptional() @IsNumber() @IsIn([1, 2])
+  contract_version?: number;
+  @IsOptional() @IsArray()
+  params_rules?: ModelContract['params_rules'];
+  @IsOptional() @IsObject()
+  ui_schema?: ModelContract['ui_schema'];
+  @IsOptional() @IsObject()
+  output_schema?: ModelContract['output_schema'];
+  @IsOptional() @IsObject()
+  docs?: ModelContract['docs'];
+  @IsOptional() @IsArray()
+  examples?: ModelContract['examples'];
+  @IsOptional() @IsObject()
+  pricing?: ModelContract['pricing'];
   @ApiProperty({
     description: '模型标识，与创建任务请求体 model 一致',
     example: 'wavespeed-ai/flux-2-pro/text-to-image',

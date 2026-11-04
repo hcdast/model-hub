@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { moneyOptions, moneyTransaction } from './money-transaction';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import {
@@ -27,6 +28,9 @@ export interface BillingSummaryItem {
 
 /** 创建计费记录参数 */
 export interface CreateRecordParams {
+  pricingSnapshot?: BillingRecord['pricingSnapshot'];
+  usageMeasure?: 'characters';
+  maxCharge?: number;
   /** 任务 ID */
   taskId: string;
   /** API Key（与 api_clients.apiKey 一致） */
@@ -58,6 +62,10 @@ export class BillingService {
     private readonly billingModel: Model<BillingRecordDocument>,
   ) {}
 
+  transaction<T>(work: () => Promise<T>): Promise<T> {
+    return moneyTransaction(this.billingModel.db, work);
+  }
+
   /**
    * 创建计费记录 —— 任务创建时调用
    *
@@ -66,7 +74,8 @@ export class BillingService {
   async createRecord(params: CreateRecordParams): Promise<BillingRecordDocument> {
     const { taskId, apiKey, model, provider, estimate, billingPolicy } = params;
 
-    const record = await this.billingModel.create({
+    const [record] = await this.billingModel.create([{
+      reservationTracked: true,
       taskId,
       apiKey,
       model,
@@ -77,8 +86,11 @@ export class BillingService {
       unitPrice: estimate.unitPrice,
       currency: estimate.currency,
       billingPolicy,
+      ...(params.usageMeasure ? { usageMeasure: params.usageMeasure } : {}),
+      ...(params.maxCharge !== undefined ? { maxCharge: params.maxCharge } : {}),
+      ...(params.pricingSnapshot ? { pricingSnapshot: params.pricingSnapshot } : {}),
       status: BillingStatus.ESTIMATED,
-    });
+    }], moneyOptions());
 
     this.logger.log(
       `创建计费记录：taskId=${taskId}, apiKey=${apiKey}, model=${model}, ` +
@@ -97,12 +109,11 @@ export class BillingService {
     const result = await this.billingModel.findOneAndUpdate(
       { taskId, status: BillingStatus.ESTIMATED },
       { $set: { status: BillingStatus.PRE_DEDUCTED } },
-      { new: true },
+      { new: true, ...moneyOptions() },
     );
 
     if (!result) {
-      this.logger.warn(`标记预扣失败：taskId=${taskId}，记录不存在或状态不是 estimated`);
-      return;
+      throw new Error(`标记预扣失败：taskId=${taskId}，记录不存在或状态不是 estimated`);
     }
 
     this.logger.log(`标记预扣成功：taskId=${taskId}`);
@@ -116,7 +127,7 @@ export class BillingService {
    */
   async settle(taskId: string, actualUsage: number, actualCost: number): Promise<void> {
     // 先检查是否已经结算（幂等处理）
-    const existing = await this.billingModel.findOne({ taskId }).lean();
+    const existing = await this.billingModel.findOne({ taskId }, null, moneyOptions()).lean();
     if (!existing) {
       this.logger.warn(`结算跳过：taskId=${taskId}，记录不存在`);
       return;
@@ -139,14 +150,11 @@ export class BillingService {
           settledAt: new Date(),
         },
       },
-      { new: true },
+      { new: true, ...moneyOptions() },
     );
 
     if (!result) {
-      this.logger.warn(
-        `结算失败：taskId=${taskId}，状态不允许结算（当前状态：${existing.status}）`,
-      );
-      return;
+      throw new Error(`结算状态冲突：${taskId}`);
     }
 
     this.logger.log(
@@ -162,7 +170,7 @@ export class BillingService {
    */
   async markRefunded(taskId: string): Promise<void> {
     // 先检查是否已经退款（幂等处理）
-    const existing = await this.billingModel.findOne({ taskId }).lean();
+    const existing = await this.billingModel.findOne({ taskId }, null, moneyOptions()).lean();
     if (!existing) {
       this.logger.warn(`退款跳过：taskId=${taskId}，记录不存在`);
       return;
@@ -183,14 +191,11 @@ export class BillingService {
           refundedAt: new Date(),
         },
       },
-      { new: true },
+      { new: true, ...moneyOptions() },
     );
 
     if (!result) {
-      this.logger.warn(
-        `退款失败：taskId=${taskId}，状态不允许退款（当前状态：${existing.status}）`,
-      );
-      return;
+      throw new Error(`退款状态冲突：${taskId}`);
     }
 
     this.logger.log(`退款成功：taskId=${taskId}`);
@@ -203,14 +208,14 @@ export class BillingService {
    */
   async markFailed(taskId: string, reason: string): Promise<void> {
     const result = await this.billingModel.findOneAndUpdate(
-      { taskId },
+      { taskId, status: { $in: [BillingStatus.ESTIMATED, BillingStatus.PRE_DEDUCTED] } },
       {
         $set: {
           status: BillingStatus.FAILED,
           failReason: reason,
         },
       },
-      { new: true },
+      { new: true, ...moneyOptions() },
     );
 
     if (!result) {
@@ -225,7 +230,7 @@ export class BillingService {
    * 按 taskId 查询单条计费记录
    */
   async getRecord(taskId: string): Promise<BillingRecordDocument | null> {
-    return this.billingModel.findOne({ taskId }).exec();
+    return this.billingModel.findOne({ taskId }, null, moneyOptions()).exec();
   }
 
   /**
@@ -244,6 +249,7 @@ export class BillingService {
     if (apiKey) {
       filter.$or = [{ apiKey }, { clientId: apiKey }];
     }
+    if (query.taskId) filter.taskId = query.taskId;
     if (model) {
       filter.model = model;
     }
@@ -254,6 +260,7 @@ export class BillingService {
       filter.status = status;
     }
     // 日期范围筛选（基于 createdAt）
+    if ((startDate && !Number.isFinite(Date.parse(startDate))) || (endDate && !Number.isFinite(Date.parse(endDate))) || (startDate && endDate && Date.parse(startDate) > Date.parse(endDate))) throw new BadRequestException('账单日期范围无效');
     if (startDate || endDate) {
       filter.createdAt = {};
       if (startDate) {
@@ -267,7 +274,7 @@ export class BillingService {
     const [rows, total] = await Promise.all([
       this.billingModel
         .find(filter)
-        .sort({ createdAt: -1 })
+        .sort({ createdAt: -1, _id: -1 })
         .skip(skip)
         .limit(pageSize)
         .lean()
@@ -306,6 +313,7 @@ export class BillingService {
     if (billingPolicy) {
       matchStage.billingPolicy = billingPolicy;
     }
+    if ((startDate && !Number.isFinite(Date.parse(startDate))) || (endDate && !Number.isFinite(Date.parse(endDate))) || (startDate && endDate && Date.parse(startDate) > Date.parse(endDate))) throw new BadRequestException('账单日期范围无效');
     if (startDate || endDate) {
       matchStage.createdAt = {};
       if (startDate) {

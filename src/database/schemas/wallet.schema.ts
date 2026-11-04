@@ -1,4 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Schema as MongooseSchema } from 'mongoose';
 import { HydratedDocument } from 'mongoose';
 
 export type WalletDocument = HydratedDocument<Wallet>;
@@ -9,6 +10,9 @@ export type WalletDocument = HydratedDocument<Wallet>;
  */
 @Schema({ timestamps: true, collection: 'wallets' })
 export class Wallet {
+  /** Only active reservations are retained for new tasks. Legacy release receipts are bounded by the legacy task population. */
+  @Prop({ type: MongooseSchema.Types.Mixed, default: {} }) reservations?: Record<string, number>;
+  @Prop({ type: [String], default: [] }) legacyReleasedTasks?: string[];
   /** API 客户端主键（与 api_clients.apiKey 一致），每个客户端唯一 */
   @Prop({ required: true, unique: true, index: true })
   apiKey!: string;

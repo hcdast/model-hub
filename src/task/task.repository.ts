@@ -42,6 +42,10 @@ export class TaskRepository {
     return { items, total };
   }
 
+  async updateIfUnchanged(taskId: string, status: TaskStatus, updatedAt: Date, updates: Partial<Task>) {
+    return this.taskModel.findOneAndUpdate({ taskId, status, updatedAt }, { $set: updates, $inc: { version: 1 } }, { new: true });
+  }
+
   async updateStatus(
     taskId: string,
     fromStatus: TaskStatus | TaskStatus[],

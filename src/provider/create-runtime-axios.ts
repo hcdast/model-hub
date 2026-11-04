@@ -9,6 +9,8 @@ const logger = new Logger('createRuntimeConfiguredAxios');
 
 /** Extended config to carry account pool metadata through interceptors */
 interface AxiosConfigWithPoolMeta extends InternalAxiosRequestConfig {
+  /** Server-generated account affinity for resources owned by one supplier account. */
+  __preferredAccountId?: string;
   __accountPoolId?: string;
   __accountPoolProvider?: string;
   __accountPoolStartMs?: number;
@@ -41,7 +43,10 @@ export function createRuntimeConfiguredAxios(
 
     // 账号池分支：统一从账号池获取密钥
     if (accountPoolService?.hasPool(providerName)) {
-      const account = await accountPoolService.selectAccount(providerName);
+      const account = config.__preferredAccountId
+        ? accountPoolService.getActiveAccounts(providerName).find(a => String(a._id) === config.__preferredAccountId)
+        : await accountPoolService.selectAccount(providerName);
+      if (config.__preferredAccountId && !account) throw new Error('资源所属供应商账号不可用，请联系管理员恢复原账号');
       if (account) {
         config.baseURL = account.base_url || r.baseUrl || '';
         const headers = AxiosHeaders.from(config.headers ?? {});

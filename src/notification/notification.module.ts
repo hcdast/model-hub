@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { BullModule } from '@nestjs/bull';
-import { EventEmitterModule } from '@nestjs/event-emitter';
+import { SystemEventsModule } from './events/system-events.module';
 import { RbacModule } from '../admin/rbac.module';
 
 // Schemas
@@ -42,7 +42,7 @@ import { InAppNotificationController } from './controllers/in-app-notification.c
 
 @Module({
   imports: [
-    EventEmitterModule.forRoot(),
+    SystemEventsModule,
     RbacModule,
     MongooseModule.forFeature([
       { name: NotificationRule.name, schema: NotificationRuleSchema },

@@ -23,6 +23,7 @@ import {
   BillingRefundContext,
 } from './interfaces/billing-context.interface';
 import { InsufficientBalanceException } from './exceptions/insufficient-balance.exception';
+import { computeActualUsageValue } from './actual-usage.util';
 
 /**
  * 计费适配器 —— 统一计费入口，按 API Client 的 billingPolicy 动态分发计费行为。
@@ -94,6 +95,20 @@ export class BillingAdapter {
    * 7. external → 不执行任何钱包操作，记录已创建
    */
   async initBilling(context: BillingInitContext): Promise<void> {
+    const rejected = await this.billingService.transaction(async () => {
+      try { await this.initBillingInTransaction(context); }
+      catch (error) { if (error instanceof InsufficientBalanceException) return error; throw error; }
+    });
+    if (rejected) throw rejected;
+  }
+
+  private async initBillingInTransaction(context: BillingInitContext): Promise<void> {
+    const existing = await this.billingService.getRecord(context.taskId);
+    if (existing) {
+      if (existing.apiKey !== context.apiKey || existing.model !== context.model || existing.provider !== context.provider) throw new Error('Conflicting billing task identity');
+      if (existing.status === BillingStatus.FAILED) throw new Error('Billing initialization previously failed');
+      return;
+    }
     const policy = await this.resolvePolicy(context.apiKey);
 
     this.logger.log(
@@ -111,7 +126,12 @@ export class BillingAdapter {
     const estimate = await this.pricingService.estimate(
       context.model,
       context.input,
+      context.modelConfig,
     );
+
+    if (context.maxCharge !== undefined && (!Number.isFinite(context.maxCharge) || context.maxCharge < 0 || estimate.estimatedCost > context.maxCharge)) {
+      throw new Error('Task estimate exceeds authorized charge');
+    }
 
     // 创建计费记录
     await this.billingService.createRecord({
@@ -120,7 +140,10 @@ export class BillingAdapter {
       model: context.model,
       provider: context.provider,
       estimate,
+      pricingSnapshot: context.modelConfig ? { revision: context.modelConfig.revision || 0, unit_price_map: JSON.parse(JSON.stringify(context.modelConfig.unit_price_map || {})), pricing: context.modelConfig.pricing } : undefined,
       billingPolicy: policy,
+      ...(context.modelConfig?.pricing?.usage_measure ? { usageMeasure: context.modelConfig.pricing.usage_measure } : {}),
+      ...(context.maxCharge !== undefined ? { maxCharge: context.maxCharge } : {}),
     });
 
     // external 策略：仅记录用量，不执行钱包操作
@@ -144,6 +167,9 @@ export class BillingAdapter {
       );
 
       if (!frozen) {
+        // No task will be created after a rejected reservation. Close the estimate
+        // so billing reports do not treat this attempt as awaiting settlement.
+        await this.billingService.markFailed(context.taskId, 'INSUFFICIENT_BALANCE');
         this.logger.warn(
           `预扣费失败（余额不足）：taskId=${context.taskId}, ` +
           `apiKey=${context.apiKey}, estimatedCost=${estimate.estimatedCost}`,
@@ -180,6 +206,10 @@ export class BillingAdapter {
    * 7. billingPolicy=external → 仅调用 billingService.settle() 更新记录（不扣费）
    */
   async settle(context: BillingSettleContext): Promise<void> {
+    return this.billingService.transaction(() => this.settleInTransaction(context));
+  }
+
+  private async settleInTransaction(context: BillingSettleContext): Promise<void> {
     const record = await this.billingService.getRecord(context.taskId);
 
     // exempt 任务无记录，直接返回
@@ -188,8 +218,24 @@ export class BillingAdapter {
       return;
     }
 
-    const actualCost =
-      record.unitPrice * context.actualUsage.usageValue;
+    if (['settled', 'refunded', 'failed'].includes(record.status)) return;
+
+    // Settle against the original billing record, never a fresh same-name model lookup.
+    if (context.requestInput) {
+      const canonicalParam = record.usageType === UsageType.DURATION ? 'duration' : record.usageType === UsageType.COUNT ? 'batch_quantity' : 'max_tokens';
+      const input = { ...context.requestInput, ...(context.usageParam ? { [canonicalParam]: context.requestInput[context.usageParam] } : {}) };
+      const raw = context.rawUsageResult as any;
+      const source = raw?.data || raw;
+      const result = source && typeof source === 'object' && !Array.isArray(source) ? { ...source, ...(context.resultPayload && typeof context.resultPayload === 'object' && !Array.isArray(context.resultPayload) ? context.resultPayload : {}) } : context.resultPayload;
+      context.actualUsage = { usageType: record.usageType as UsageType, usageValue: computeActualUsageValue(record.usageType as UsageType, result, { durationStep: record.estimatedUsage, requestInput: input }) };
+    }
+    // Character units were derived from validated text at reservation time. Never trust
+    // supplier duration/token fields or mutable model pricing for this measurement.
+    if (record.usageMeasure === 'characters') context.actualUsage = { usageType: UsageType.COUNT, usageValue: record.estimatedUsage };
+    if (!Number.isFinite(context.actualUsage.usageValue) || context.actualUsage.usageValue <= 0) throw new Error('Invalid settlement usage');
+    const rawCost = record.unitPrice * context.actualUsage.usageValue;
+    const actualCost = record.maxCharge === undefined ? rawCost : Math.min(rawCost, record.maxCharge);
+    if (actualCost < rawCost) this.logger.warn(`Authorized charge capped: taskId=${context.taskId}, providerCost=${rawCost}, authorized=${actualCost}`);
 
     this.logger.log(
       `计费结算开始：taskId=${context.taskId}, billingPolicy=${record.billingPolicy}, ` +
@@ -204,6 +250,7 @@ export class BillingAdapter {
           record.apiKey,
           record.estimatedCost,
           context.taskId,
+          record.reservationTracked,
         );
 
         const debitOk = await this.walletService.debit(
@@ -217,7 +264,6 @@ export class BillingAdapter {
             `结算扣费失败：taskId=${context.taskId}, apiKey=${record.apiKey}, ` +
             `actualCost=${actualCost}`,
           );
-          await this.billingService.markFailed(context.taskId, 'debit_failed');
           throw new Error(`Debit failed for taskId=${context.taskId}`);
         }
       } else {
@@ -233,7 +279,6 @@ export class BillingAdapter {
             `后扣费失败：taskId=${context.taskId}, apiKey=${record.apiKey}, ` +
             `actualCost=${actualCost}`,
           );
-          await this.billingService.markFailed(context.taskId, 'debit_failed');
           throw new Error(`Debit failed for taskId=${context.taskId}`);
         }
       }
@@ -254,12 +299,16 @@ export class BillingAdapter {
    *
    * 流程：
    * 1. 查询 BillingRecord，不存在则返回（exempt 任务无记录）
-   * 2. billingPolicy=internal + pre_deducted → walletService.unfreeze()（指数退避重试 3 次）
+   * 2. billingPolicy=internal + pre_deducted → walletService.unfreeze()（与流水、账单同事务；写冲突由驱动重试整个事务）
    * 3. 调用 billingService.markRefunded()
    * 4. billingPolicy=external → 仅更新记录状态
    * 5. 非 pre_deducted 状态（如 token 类型）→ 仅更新记录状态，不涉及钱包
    */
   async refund(context: BillingRefundContext): Promise<void> {
+    return this.billingService.transaction(() => this.refundInTransaction(context));
+  }
+
+  private async refundInTransaction(context: BillingRefundContext): Promise<void> {
     const record = await this.billingService.getRecord(context.taskId);
 
     // exempt 任务无记录，直接返回
@@ -267,6 +316,8 @@ export class BillingAdapter {
       this.logger.log(`退款跳过（无记录）：taskId=${context.taskId}`);
       return;
     }
+
+    if (['refunded', 'settled', 'failed'].includes(record.status)) return;
 
     this.logger.log(
       `计费退款开始：taskId=${context.taskId}, billingPolicy=${record.billingPolicy}, ` +
@@ -278,11 +329,7 @@ export class BillingAdapter {
       record.billingPolicy === BillingPolicy.INTERNAL &&
       record.status === BillingStatus.PRE_DEDUCTED
     ) {
-      await this.retryUnfreeze(
-        record.apiKey,
-        record.estimatedCost,
-        context.taskId,
-      );
+      await this.walletService.unfreeze(record.apiKey, record.estimatedCost, context.taskId, record.reservationTracked);
     }
 
     // 更新记录状态为 refunded（internal 和 external 都更新）
@@ -291,53 +338,4 @@ export class BillingAdapter {
     this.logger.log(`计费退款完成：taskId=${context.taskId}`);
   }
 
-  /**
-   * 指数退避重试解冻 —— 退款时使用
-   *
-   * 最多重试 3 次，每次等待时间翻倍（100ms → 200ms → 400ms）。
-   * 全部失败后记录 error 日志，不抛出异常（不阻断任务状态转换）。
-   */
-  private async retryUnfreeze(
-    apiKey: string,
-    amount: number,
-    taskId: string,
-    maxRetries = 3,
-  ): Promise<void> {
-    const baseDelay = 100; // 基础延迟 100ms
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        await this.walletService.unfreeze(apiKey, amount, taskId);
-        this.logger.log(
-          `解冻成功（第 ${attempt} 次尝试）：apiKey=${apiKey}, ` +
-          `amount=${amount}, taskId=${taskId}`,
-        );
-        return;
-      } catch (err: any) {
-        this.logger.warn(
-          `解冻失败（第 ${attempt}/${maxRetries} 次）：apiKey=${apiKey}, ` +
-          `amount=${amount}, taskId=${taskId}, error=${err.message}`,
-        );
-
-        if (attempt < maxRetries) {
-          // 指数退避等待
-          const delay = baseDelay * Math.pow(2, attempt - 1);
-          await this.sleep(delay);
-        }
-      }
-    }
-
-    // 全部重试失败
-    this.logger.error(
-      `解冻重试全部失败：apiKey=${apiKey}, amount=${amount}, ` +
-      `taskId=${taskId}，需人工介入`,
-    );
-  }
-
-  /**
-   * 延迟工具方法 —— 用于指数退避重试
-   */
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
 }

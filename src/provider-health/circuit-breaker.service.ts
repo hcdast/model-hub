@@ -416,6 +416,8 @@ export class CircuitBreakerService {
     provider: string,
     state: CircuitState,
     operator: string,
+    reason?: string,
+    ttlSeconds?: number,
   ): Promise<void> {
     // 仅允许 OPEN 或 CLOSED
     if (state !== CircuitState.OPEN && state !== CircuitState.CLOSED) {
@@ -425,7 +427,7 @@ export class CircuitBreakerService {
     }
 
     const config = await this.configService.getConfig(provider);
-    const ttlMs = config.cooldownDurationMs + 60000;
+    const ttlMs = ttlSeconds !== undefined ? ttlSeconds * 1000 : config.cooldownDurationMs + 60000;
     const now = new Date().toISOString();
 
     // 获取当前状态
@@ -446,11 +448,13 @@ export class CircuitBreakerService {
         state,
         operator,
         timestamp: now,
+        reason: reason?.trim(),
+        expiresAt: new Date(Date.now() + ttlMs).toISOString(),
       },
     };
 
     // 使用 setState（非 CAS）写入，管理员显式操作
-    await this.store.setState(provider, newState, ttlMs);
+    await this.store.setState(provider, newState, ttlMs, true);
 
     this.logger.warn(
       `Provider ${provider} 熔断器被手动覆盖为 ${state}，操作人: ${operator}`,
@@ -479,7 +483,7 @@ export class CircuitBreakerService {
     };
 
     // 使用 setState（非 CAS）写入
-    await this.store.setState(provider, newState, ttlMs);
+    await this.store.setState(provider, newState, ttlMs, true);
 
     this.logger.log(
       `Provider ${provider} 手动覆盖已清除，恢复自动熔断`,
@@ -493,7 +497,7 @@ export class CircuitBreakerService {
     return {
       state: CircuitState.CLOSED,
       openedAt: null,
-      lastTransitionAt: new Date().toISOString(),
+      lastTransitionAt: null,
       consecutiveFailures: 0,
       probeSuccesses: 0,
       manualOverride: null,

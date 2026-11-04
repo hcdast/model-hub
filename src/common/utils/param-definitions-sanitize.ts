@@ -5,11 +5,12 @@ import { normalizeEnumArray } from './param-enum.util';
  * 写入前规范化 params：移除已废弃字段，并删除与 type 不匹配的约束键。
  */
 export function sanitizeParamDefinitions(
-  params: Record<string, any> | undefined | null,
+  params: Record<string, any> | undefined | null, depth = 0,
 ): Record<string, any> | undefined {
   if (params == null || typeof params !== 'object' || Array.isArray(params)) {
     return params as undefined;
   }
+  if (depth > 12) return params;
   const out: Record<string, any> = {};
   for (const [k, v] of Object.entries(params)) {
     if (v == null || typeof v !== 'object' || Array.isArray(v)) {
@@ -26,7 +27,7 @@ export function sanitizeParamDefinitions(
       delete d.minLength;
       delete d.maxLength;
     }
-    if (t !== 'number') {
+    if (t !== 'number' && t !== 'integer') {
       delete d.min;
       delete d.max;
     }
@@ -34,6 +35,8 @@ export function sanitizeParamDefinitions(
       delete d.minItems;
       delete d.maxItems;
     }
+    if (d.properties) d.properties = sanitizeParamDefinitions(d.properties, depth + 1);
+    if (d.items) d.items = sanitizeParamDefinitions({ item: d.items }, depth + 1)?.item;
     out[k] = d;
   }
   return out;

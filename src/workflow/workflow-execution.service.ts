@@ -27,6 +27,8 @@ import { PortalApiKeyService } from '../portal-auth/portal-api-key.service';
 import { TaskService } from '../task/task.service';
 import { WorkflowPolicyService } from './workflow-policy.service';
 import { assignPortInput, readOutputPort } from './workflow-ports';
+import { BusinessException } from '../common/exceptions/business.exception';
+import { ErrorCode } from '../common/constants/error-codes';
 
 const TERMINAL_NODE_STATES: Record<string, true> = {
   succeeded: true,
@@ -92,10 +94,7 @@ export class WorkflowExecutionService {
         undefined;
     }
     if (requiresModelExecution && !executionApiKey) {
-      throw new BadRequestException({
-        code: 'WORKFLOW_API_KEY_REQUIRED',
-        message: 'Create an enabled Portal API Key before running model nodes',
-      });
+      throw new BusinessException(ErrorCode.WORKFLOW_API_KEY_REQUIRED);
     }
 
     const runId = uuidv4();

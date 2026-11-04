@@ -3,50 +3,83 @@ import { createHash, randomUUID } from 'crypto';
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http';
 import { AddressInfo, Socket } from 'net';
 import { AppConfig, WorkflowAssetMinioConfig } from '../../config/interfaces/config.interface';
-import { MinioWorkflowAssetStorageService } from '../minio-workflow-asset-storage.service';
+import { S3WorkflowAssetStorageService } from '../s3-workflow-asset-storage.service';
 
 const accessName = 'WORKFLOW_ASSET_MINIO_ACCESS_KEY_ID';
 const secretName = 'WORKFLOW_ASSET_MINIO_SECRET_ACCESS_KEY';
+const capsuleAccessName = 'WORKFLOW_ASSET_DATACAPSULE_ACCESS_KEY_ID';
+const capsuleSecretName = 'WORKFLOW_ASSET_DATACAPSULE_SECRET_ACCESS_KEY';
+const credentialNames = [accessName, secretName, capsuleAccessName, capsuleSecretName];
+const providers = ['minio', 'datacapsule', 'qiniu'] as const;
 const ownerKey = createHash('sha256').update('private-owner').digest('hex');
 const context = () => ({ assetId: randomUUID(), ownerKey, fileExt: 'txt', contentType: 'text/plain' });
 const valid: WorkflowAssetMinioConfig = {
   endPoint: '127.0.0.1', port: 9000, useSSL: false, bucket: 'modelhub', region: 'us-east-1',
+  accessKeyId: 'test-access-key', secretAccessKey: 'test-secret-key',
   publicBaseUrl: 'https://cdn.example.com/modelhub/', allowInsecureHttp: true, uploadTimeoutMs: 1000,
 };
-const create = (minio: unknown = valid) => new MinioWorkflowAssetStorageService({ workflowAssetStorage: { provider: 'minio', minio } } as AppConfig);
+const create = (minio: unknown = valid) => new S3WorkflowAssetStorageService({ workflowAssetStorage: { provider: 'minio', minio } } as AppConfig);
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-describe('MinioWorkflowAssetStorageService configuration', () => {
-  const saved = [process.env[accessName], process.env[secretName]];
-  beforeEach(() => { process.env[accessName] = 'test-access-key'; process.env[secretName] = 'test-secret-key'; });
-  afterAll(() => {
-    [accessName, secretName].forEach((name, index) => {
+describe('S3WorkflowAssetStorageService configuration', () => {
+  const saved = credentialNames.map(name => process.env[name]);
+  afterEach(() => {
+    credentialNames.forEach((name, index) => {
       if (saved[index] === undefined) delete process.env[name]; else process.env[name] = saved[index];
     });
   });
 
   it('does not require MinIO configuration or secrets for the legacy provider', () => {
-    delete process.env[accessName]; delete process.env[secretName];
-    expect(new MinioWorkflowAssetStorageService({} as AppConfig).enabled).toBe(false);
-    expect(new MinioWorkflowAssetStorageService({ workflowAssetStorage: { provider: 'storagesvc', minio: null } } as unknown as AppConfig).enabled).toBe(false);
+    expect(new S3WorkflowAssetStorageService({} as AppConfig).enabled).toBe(false);
+    expect(new S3WorkflowAssetStorageService({ workflowAssetStorage: { provider: 'storagesvc', minio: null } } as unknown as AppConfig).enabled).toBe(false);
   });
   it.each([null, {}, { provider: 'unknown' }])('rejects explicit invalid providers: %j', value => {
-    expect(() => new MinioWorkflowAssetStorageService({ workflowAssetStorage: value } as AppConfig)).toThrow('workflowAssetStorage.provider');
+    expect(() => new S3WorkflowAssetStorageService({ workflowAssetStorage: value } as AppConfig)).toThrow('workflowAssetStorage.provider');
   });
   it('requires configuration and nonblank credentials only when enabled', () => {
     expect(() => create(null)).toThrow('workflowAssetStorage.minio');
     expect(create().enabled).toBe(true);
-    for (const name of [accessName, secretName]) {
-      const previous = process.env[name]; process.env[name] = '  ';
-      expect(() => create()).toThrow('workflowAssetStorage.minio.credentials');
-      process.env[name] = previous;
+  });
+  it.each(providers)('only reads the selected %s configuration and credentials', provider => {
+    const storage = { provider, [provider]: valid };
+    for (const inactive of providers.filter(value => value !== provider)) {
+      Object.defineProperty(storage, inactive, { get: () => { throw new Error('Inactive configuration was read'); } });
     }
+    const service = new S3WorkflowAssetStorageService({ workflowAssetStorage: storage } as unknown as AppConfig);
+    expect(service.enabled).toBe(true);
+    expect(service.provider).toBe(provider);
+  });
+  it.each(providers)('does not fall back from %s to another provider configuration or credentials', provider => {
+    for (const inactive of providers.filter(value => value !== provider)) {
+      expect(() => new S3WorkflowAssetStorageService({ workflowAssetStorage: { provider, [inactive]: valid } } as unknown as AppConfig))
+        .toThrow(`workflowAssetStorage.${provider}`);
+      for (const field of ['accessKeyId', 'secretAccessKey']) {
+        expect(() => new S3WorkflowAssetStorageService({ workflowAssetStorage: {
+          provider, [inactive]: valid, [provider]: { ...valid, [field]: undefined },
+        } } as unknown as AppConfig)).toThrow(`workflowAssetStorage.${provider}.${field}`);
+      }
+    }
+  });
+  it.each(providers)('does not use legacy environment credentials for %s', provider => {
+    credentialNames.forEach(name => { process.env[name] = 'legacy-env-value'; });
+    for (const field of ['accessKeyId', 'secretAccessKey']) {
+      expect(() => new S3WorkflowAssetStorageService({ workflowAssetStorage: {
+        provider, [provider]: { ...valid, [field]: undefined },
+      } } as unknown as AppConfig)).toThrow(`workflowAssetStorage.${provider}.${field}`);
+    }
+  });
+  it.each(['datacapsule', 'qiniu'] as const)('identifies invalid %s fields without reporting secrets', provider => {
+    expect(() => new S3WorkflowAssetStorageService({ workflowAssetStorage: {
+      provider, [provider]: { ...valid, endPoint: 'https://secret.invalid' },
+    } } as unknown as AppConfig)).toThrow(new Error(`Invalid workflowAssetStorage.${provider}.endPoint`));
   });
   it.each([
     ['endPoint', 'http://secret.example.com'], ['endPoint', 'host:9000'], ['endPoint', 'a/path'], ['endPoint', ''],
     ['port', '9000'], ['port', 0], ['port', 65536], ['port', 1.5], ['useSSL', 'false'],
     ['bucket', 'UPPER'], ['bucket', 'ab'], ['bucket', 'a..b'], ['bucket', '127.0.0.1'],
     ['region', ''], ['region', 'with space'], ['pathPrefix', '../private'], ['pathPrefix', 'a//b'],
+    ['accessKeyId', undefined], ['accessKeyId', null], ['accessKeyId', ''], ['accessKeyId', '  '], ['accessKeyId', 123],
+    ['secretAccessKey', undefined], ['secretAccessKey', null], ['secretAccessKey', ''], ['secretAccessKey', '  '], ['secretAccessKey', 123],
     ['pathPrefix', '/assets'], ['pathPrefix', 'a\\b'], ['pathPrefix', 'a/%2f'], ['pathPrefix', ''],
     ['uploadTimeoutMs', 999], ['uploadTimeoutMs', 300001], ['uploadTimeoutMs', '1000'],
     ['uploadTimeoutMs', null], ['pathPrefix', null],
@@ -64,18 +97,36 @@ describe('MinioWorkflowAssetStorageService configuration', () => {
     expect(() => create({ ...valid, useSSL: true, publicBaseUrl: 'http://cdn.example.com', allowInsecureHttp: false })).toThrow('allowInsecureHttp');
     expect(create({ ...valid, useSSL: true, allowInsecureHttp: undefined }).enabled).toBe(true);
   });
+  it.each(providers)('explains the HTTP boundary for %s without exposing configuration values', provider => {
+    const build = (patch: Partial<WorkflowAssetMinioConfig>) => new S3WorkflowAssetStorageService({ workflowAssetStorage: {
+      provider, [provider]: { ...valid, useSSL: true, allowInsecureHttp: undefined, publicBaseUrl: 'http://private-cdn.example.com', ...patch },
+    } } as unknown as AppConfig);
+    let message = '';
+    try { build({}); } catch (error) { message = (error as Error).message; }
+    expect(message).toContain(`Invalid workflowAssetStorage.${provider}.allowInsecureHttp`);
+    expect(message).toContain('publicBaseUrl uses HTTP');
+    expect(message).toContain('valid certificate');
+    expect(message).toContain('Upload useSSL does not control publicBaseUrl');
+    expect(message).not.toMatch(/private-cdn|test-access-key|test-secret-key|useSSL=false/);
+    expect(() => build({ useSSL: false, publicBaseUrl: 'https://cdn.example.com' })).toThrow('useSSL=false');
+    expect(build({ allowInsecureHttp: true }).enabled).toBe(true);
+  });
 });
 
-describe('MinioWorkflowAssetStorageService real SDK transport', () => {
+describe.each(providers)('%s real SDK transport', provider => {
+  const create = (config: WorkflowAssetMinioConfig = valid) => new S3WorkflowAssetStorageService({ workflowAssetStorage: {
+    provider,
+    minio: config,
+    datacapsule: { ...config, accessKeyId: 'capsule-access-key', secretAccessKey: 'capsule-secret-key' },
+    qiniu: { ...config, accessKeyId: 'qiniu-access-key', secretAccessKey: 'qiniu-secret-key' },
+  } } as AppConfig);
   let server: Server;
   let sockets: Set<Socket>;
   let port: number;
   let handler: (req: IncomingMessage, res: ServerResponse) => void;
   let logError: jest.SpyInstance;
-  const saved = [process.env[accessName], process.env[secretName]];
   beforeEach(async () => {
     logError = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
-    process.env[accessName] = 'test-access-key'; process.env[secretName] = 'test-secret-key';
     sockets = new Set();
     handler = (_req, res) => { res.writeHead(200, { ETag: '"etag"' }); res.end(); };
     server = createServer((req, res) => handler(req, res));
@@ -88,11 +139,6 @@ describe('MinioWorkflowAssetStorageService real SDK transport', () => {
     sockets.forEach(socket => socket.destroy());
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   });
-  afterAll(() => {
-    [accessName, secretName].forEach((name, index) => {
-      if (saved[index] === undefined) delete process.env[name]; else process.env[name] = saved[index];
-    });
-  });
 
   it('writes exact bytes, length and MIME with isolated hashed keys and stable URLs', async () => {
     const requests: { method?: string; path?: string; headers: IncomingMessage['headers']; body: Buffer }[] = [];
@@ -104,7 +150,8 @@ describe('MinioWorkflowAssetStorageService real SDK transport', () => {
         res.writeHead(200, { ETag: '"etag"' }); res.end();
       });
     };
-    const service = create({ ...valid, port, pathPrefix: 'workflow-assets/nested', publicBaseUrl: 'https://cdn.example.com/素材///' });
+    const region = provider === 'qiniu' ? 'cn-east-1' : valid.region;
+    const service = create({ ...valid, port, region, pathPrefix: 'workflow-assets/nested', publicBaseUrl: 'https://cdn.example.com/素材///' });
     const body = Buffer.from('你好\u0000\xff');
     const first = context();
     const second = { ...context(), ownerKey: createHash('sha256').update('second-owner').digest('hex') };
@@ -117,6 +164,9 @@ describe('MinioWorkflowAssetStorageService real SDK transport', () => {
       expect(request.method).toBe('PUT');
       expect(request.headers['content-length']).toBe(String(body.length));
       expect(request.headers['content-type']).toBe('text/plain');
+      const accessKey = { minio: 'test-access-key', datacapsule: 'capsule-access-key', qiniu: 'qiniu-access-key' }[provider];
+      expect(request.headers.authorization).toContain(`Credential=${accessKey}/`);
+      expect(request.headers.authorization).toContain(`/${region}/s3/aws4_request`);
       expect(request.body).toEqual(body);
       expect(request.path).not.toContain('private-owner');
     }
@@ -126,7 +176,7 @@ describe('MinioWorkflowAssetStorageService real SDK transport', () => {
       category: 'metadata_failure', assetId: first.assetId,
       objectKey: `workflow-assets/nested/${first.ownerKey}/${first.assetId}.txt`,
     }]]);
-    expect(JSON.stringify(logError.mock.calls)).not.toMatch(/private-owner|test-secret-key|test-access-key|Authorization/);
+    expect(JSON.stringify(logError.mock.calls)).not.toMatch(/private-owner|test-secret-key|test-access-key|capsule-secret-key|capsule-access-key|qiniu-secret-key|qiniu-access-key|Authorization/);
   });
 
   it('discovers region only when omitted and writes without bucket mutation', async () => {
@@ -147,16 +197,16 @@ describe('MinioWorkflowAssetStorageService real SDK transport', () => {
     handler = (_req, res) => {
       calls++;
       res.writeHead(status, { 'Content-Type': 'application/xml' });
-      res.end('<Error><Code>AccessDenied</Code><Message>test-secret-key test-access-key Authorization secret-token</Message></Error>');
+      res.end('<Error><Code>AccessDenied</Code><Message>test-secret-key test-access-key capsule-secret-key capsule-access-key qiniu-secret-key qiniu-access-key Authorization secret-token</Message></Error>');
     };
     const item = context();
     const failure = await create({ ...valid, port }).upload(Buffer.from('hello'), item).catch(error => error);
     expect(failure).toBeInstanceOf(ServiceUnavailableException);
     expect(failure.getStatus()).toBe(503);
-    expect(JSON.stringify(failure)).not.toMatch(/test-secret-key|test-access-key|secret-token|Authorization/);
+    expect(JSON.stringify(failure)).not.toMatch(/test-secret-key|test-access-key|capsule-secret-key|capsule-access-key|qiniu-secret-key|qiniu-access-key|secret-token|Authorization/);
     expect(failure.message).toBe('Workflow asset storage unavailable');
     expect(logError.mock.calls).toEqual([[{ category: 'storage_failure', assetId: item.assetId }]]);
-    expect(JSON.stringify(logError.mock.calls)).not.toMatch(/test-secret-key|test-access-key|secret-token|Authorization/);
+    expect(JSON.stringify(logError.mock.calls)).not.toMatch(/test-secret-key|test-access-key|capsule-secret-key|capsule-access-key|qiniu-secret-key|qiniu-access-key|secret-token|Authorization/);
     await sleep(1100);
     expect(calls).toBe(1);
   });

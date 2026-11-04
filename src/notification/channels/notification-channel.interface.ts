@@ -8,6 +8,8 @@ export interface ChannelResult {
   success: boolean;
   error?: string;
   responseData?: any;
+  /** False when retrying the whole delivery would duplicate an already accepted recipient. */
+  retryable?: boolean;
 }
 
 export interface INotificationChannel {

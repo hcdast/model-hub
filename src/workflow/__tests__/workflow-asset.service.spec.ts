@@ -2,7 +2,7 @@ import { ArgumentsHost, BadRequestException, Logger, NotFoundException, ServiceU
 import { WorkflowAssetService, validateAssetFile, WORKFLOW_ASSET_MAX_BYTES, WORKFLOW_ASSET_TEXT_MAX_BYTES } from '../workflow-asset.service';
 import { createLinkConversionStorageAdapter } from '../../link-conversion/adapters/akool-storagesvc.adapter';
 import { createHash } from 'crypto';
-import { MinioWorkflowAssetStorageService } from '../minio-workflow-asset-storage.service';
+import { S3WorkflowAssetStorageService } from '../s3-workflow-asset-storage.service';
 import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 
 jest.mock('../../link-conversion/adapters/akool-storagesvc.adapter', () => ({ createLinkConversionStorageAdapter: jest.fn() }));
@@ -31,7 +31,7 @@ describe('WorkflowAssetService', () => {
     (createLinkConversionStorageAdapter as jest.Mock).mockReturnValue({ upload });
     minioStorage = { enabled: false, upload: jest.fn().mockResolvedValue('https://minio.example.com/workflow-assets/asset.txt'), logMetadataFailure: jest.fn() };
     // The in-process double only implements the storage API consumed by WorkflowAssetService.
-    const storageService = minioStorage as unknown as MinioWorkflowAssetStorageService;
+    const storageService = minioStorage as unknown as S3WorkflowAssetStorageService;
     service = new WorkflowAssetService(assets, runs, config, storageService);
   });
 
@@ -107,9 +107,9 @@ describe('WorkflowAssetService', () => {
     assets.create.mockRejectedValue(failure);
     const loggerError = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     // Exercise the real diagnostic method without constructing an SDK client or reading credentials.
-    const diagnostics = Object.assign(Object.create(MinioWorkflowAssetStorageService.prototype), {
+    const diagnostics = Object.assign(Object.create(S3WorkflowAssetStorageService.prototype), {
       config: { pathPrefix: 'workflow-assets' },
-      logger: new Logger(MinioWorkflowAssetStorageService.name),
+      logger: new Logger(S3WorkflowAssetStorageService.name),
     });
     minioStorage.logMetadataFailure.mockImplementation(context => diagnostics.logMetadataFailure(context));
     try {

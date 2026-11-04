@@ -27,9 +27,11 @@ export class WeComChannel implements INotificationChannel {
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
         const res = await axios.post(config.webhookUrl, body, { timeout: 10_000 });
+        if (res.data?.errcode !== 0) throw new Error(`企业微信拒绝通知（业务码 ${Number.isInteger(res.data?.errcode) ? res.data.errcode : '无效响应'}）`);
         return { success: true, responseData: res.data };
       } catch (err: any) {
-        lastError = err.message ?? String(err);
+        // Axios error messages can include the webhook credential; never persist the URL.
+        lastError = err.response ? `企业微信 HTTP ${err.response.status}` : /^企业微信拒绝通知/.test(err.message || '') ? err.message : '企业微信连接失败或超时';
         this.logger.warn(
           `WeCom webhook attempt ${attempt}/${MAX_RETRIES} failed: ${lastError}`,
         );

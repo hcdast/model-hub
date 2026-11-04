@@ -9,6 +9,7 @@ import { ApiClient, ApiClientDocument } from '../database/schemas/api-client.sch
 import { AdminJwtGuard } from './guards/admin-jwt.guard';
 import { PermissionGuard } from './guards/permission.guard';
 import { RequirePermissions } from './decorators/require-permissions.decorator';
+import { withClientDisplay } from './utils/client-display';
 import { BillingService } from '../billing/billing.service';
 
 @ApiTags('管理后台 - 统计监控')
@@ -41,7 +42,7 @@ export class AdminStatsController {
   ) {
     const result = await this.statsService.queryDaily(
       { dateFrom, dateTo, featureType, provider },
-      parseInt(page, 10) || 1, Math.min(100, parseInt(pageSize, 10) || 50),
+      Math.max(1, parseInt(page, 10) || 1), Math.max(1, Math.min(100, parseInt(pageSize, 10) || 50)),
     );
     return { code: 0, data: result };
   }
@@ -118,7 +119,7 @@ export class AdminStatsController {
   @ApiResponse({ status: 404, description: '队列不存在' })
   async getQueueJobs(
     @Param('queueName') queueName: string,
-    @Query('status') status: 'waiting' | 'active' = 'waiting',
+    @Query('status') status: 'waiting' | 'active' | 'failed' | 'delayed' = 'waiting',
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
   ) {
@@ -127,42 +128,15 @@ export class AdminStatsController {
       throw new NotFoundException(`Queue "${queueName}" not found`);
     }
 
-    const jobs = status === 'active' ? await queue.getActive() : await queue.getWaiting();
-
-    // Extract job data
-    const jobItems = jobs.map((job) => ({
-      jobId: String(job.id),
-      taskId: job.data?.taskId ?? null,
-      model: job.data?.model ?? job.data?.modelName ?? null,
-      priority: job.opts?.priority ?? null,
-      apiKey: job.data?.apiKey ?? null,
-      enqueuedAt: job.timestamp ?? null,
-    }));
-
-    // Paginate
+    if (!['waiting', 'active', 'failed', 'delayed'].includes(status)) return { code: 1001, message: '不支持的作业状态' };
     const p = Math.max(1, parseInt(page, 10) || 1);
     const ps = Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20));
-    const total = jobItems.length;
-    const paged = jobItems.slice((p - 1) * ps, p * ps);
-
-    // Attach client names
-    const apiKeys = [...new Set(paged.map((j) => j.apiKey).filter(Boolean))] as string[];
-    const clientNameMap = new Map<string, string | null>();
-    if (apiKeys.length > 0) {
-      const clients = await this.apiClientModel
-        .find({ apiKey: { $in: apiKeys } })
-        .select('apiKey name')
-        .lean();
-      for (const c of clients) {
-        clientNameMap.set(c.apiKey, c.name?.trim() || null);
-      }
-    }
-
-    const items = paged.map((j) => ({
-      ...j,
-      clientName: j.apiKey ? (clientNameMap.get(j.apiKey) ?? null) : null,
-    }));
-
+    const [jobs, counts] = await Promise.all([queue.getJobs([status], (p - 1) * ps, p * ps - 1), queue.getJobCounts()]);
+    const total = counts[status] || 0;
+    const items = await withClientDisplay(this.apiClientModel, jobs.map(job => ({ jobId: String(job.id), taskId: job.data?.taskId ?? null,
+      model: job.data?.model ?? job.data?.modelName ?? null, priority: job.opts?.priority ?? null, apiKey: job.data?.apiKey,
+      enqueuedAt: job.timestamp, failedReason: job.failedReason, attemptsMade: job.attemptsMade, maxAttempts: job.opts.attempts,
+      finishedOn: job.finishedOn })));
     return { code: 0, data: { items, total, page: p, pageSize: ps } };
   }
 }

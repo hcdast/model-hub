@@ -4,23 +4,16 @@ import * as bcrypt from 'bcrypt';
 import { Types } from 'mongoose';
 import { PortalAuthService } from './portal-auth.service';
 import { PortalRefreshTokenSchema } from '../database/schemas/portal-refresh-token.schema';
+import { AppConfig } from '../config/interfaces/config.interface';
 
 const userId = '507f1f77bcf86cd799439011';
 const password = 'PreviousPassword123';
-const envKeys = ['PORTAL_JWT_SECRET', 'PORTAL_ACCESS_TOKEN_EXPIRES', 'PORTAL_REFRESH_TOKEN_EXPIRES_DAYS'] as const;
-const savedEnv = envKeys.map(key => process.env[key]);
+const config = { portalAuth: { jwtSecret: 'portal-auth-version-test-secret-at-least-32-bytes', accessTokenExpires: '15m', refreshTokenExpiresDays: 7 } } as AppConfig;
 let passwordHash: string;
 
 beforeAll(async () => {
-  process.env.PORTAL_JWT_SECRET = 'portal-auth-version-test-secret-at-least-32-bytes';
-  process.env.PORTAL_ACCESS_TOKEN_EXPIRES = '15m';
-  process.env.PORTAL_REFRESH_TOKEN_EXPIRES_DAYS = '7';
   passwordHash = await bcrypt.hash(password, 10);
 });
-afterAll(() => envKeys.forEach((key, index) => {
-  if (savedEnv[index] === undefined) delete process.env[key];
-  else process.env[key] = savedEnv[index];
-}));
 
 /** Separate persisted state from authentication snapshots to control concurrent writes. */
 function harness() {
@@ -63,7 +56,7 @@ function harness() {
       }
     }),
   };
-  const service = new PortalAuthService(userModel as never, tokenModel as never);
+  const service = new PortalAuthService(userModel as never, tokenModel as never, config);
   const seedToken = async (authVersion: unknown = 0) => {
     const token = await persistToken({ userId, authVersion, tokenId: 'old-token', familyId: 'old-family',
       secretHash: createHash('sha256').update('old-secret').digest('hex'), isValid: true,

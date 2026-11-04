@@ -1,0 +1,453 @@
+{
+  "contract_version": 2,
+  "model_id": "seedance-2-5/reference-to-video",
+  "model_type": "referenceToVideo",
+  "provider": "akool-maas",
+  "provider_model_name": "doubao/seedance-2-5/reference-to-video",
+  "model_name": "Seedance 2.5 Reference to Video",
+  "disabled": true,
+  "description": "通过 AKOOL MaaS 进行多模态参考视频生成、编辑和扩展。",
+  "tags": [
+    "video",
+    "multimodal"
+  ],
+  "sort": 0,
+  "params": {
+    "images": {
+      "type": "array",
+      "required": false,
+      "maxItems": 30,
+      "ui_type": "upload",
+      "items": {
+        "type": "string",
+        "required": true,
+        "format": "uri"
+      },
+      "media": {
+        "kind": "image",
+        "accept": [
+          "image/*"
+        ],
+        "maxBytes": 20971520,
+        "referencePrefix": "Image"
+      },
+      "label": "参考图片",
+      "description": "最多 30 张 HTTP(S) 图片 URL；顺序决定 @Image1、@Image2 等引用编号。"
+    },
+    "videos": {
+      "type": "array",
+      "required": false,
+      "maxItems": 10,
+      "ui_type": "upload",
+      "items": {
+        "type": "string",
+        "required": true,
+        "format": "uri"
+      },
+      "media": {
+        "kind": "video",
+        "accept": [
+          "video/*"
+        ],
+        "maxBytes": 20971520,
+        "referencePrefix": "Video"
+      },
+      "description": "参考视频通常每段 4–15 秒、合计不超过 15 秒；edit 模式页面声明 4–30 秒，需按实际渠道验证。",
+      "label": "参考视频"
+    },
+    "audios": {
+      "type": "array",
+      "required": false,
+      "maxItems": 10,
+      "ui_type": "upload",
+      "items": {
+        "type": "string",
+        "required": true,
+        "format": "uri"
+      },
+      "media": {
+        "kind": "audio",
+        "accept": [
+          "audio/*"
+        ],
+        "maxBytes": 20971520,
+        "referencePrefix": "Audio"
+      },
+      "label": "参考音频",
+      "description": "最多 10 个 HTTP(S) 音频 URL；可使用 @Audio1 等编号引用。媒体时长和格式由实际渠道校验。"
+    },
+    "prompt": {
+      "type": "string",
+      "required": false,
+      "ui_type": "textarea",
+      "description": "可使用 @Image1、@Video1、@Audio1 引用素材",
+      "label": "提示词"
+    },
+    "generate_audio": {
+      "type": "boolean",
+      "required": false,
+      "default": true,
+      "label": "生成音频",
+      "description": "是否同时生成音频，默认开启。"
+    },
+    "resolution": {
+      "type": "string",
+      "required": false,
+      "default": "720p",
+      "enum": [
+        "480p",
+        "720p"
+      ],
+      "label": "分辨率",
+      "description": "输出分辨率；可选值以管理员当前发布配置为准。"
+    },
+    "ratio": {
+      "type": "string",
+      "required": false,
+      "default": "adaptive",
+      "enum": [
+        "adaptive",
+        "16:9",
+        "4:3",
+        "1:1",
+        "3:4",
+        "9:16",
+        "21:9"
+      ],
+      "label": "画幅比例",
+      "description": "adaptive 自动选择画幅；edit 和 extend 模式必须为 adaptive。"
+    },
+    "duration": {
+      "type": "integer",
+      "required": true,
+      "default": 5,
+      "enum": [
+        -1,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ],
+      "description": "整数秒；-1 为自动时长。平台预冻结 30 秒，供应商未返回有效时长时暂按预冻结用量结算。",
+      "label": "视频时长（秒）"
+    },
+    "omni_reference_task_type": {
+      "type": "string",
+      "required": false,
+      "enum": [
+        "auto",
+        "reference",
+        "edit",
+        "extend"
+      ],
+      "label": "任务模式",
+      "description": "auto 自动选择、reference 参考生成、edit 编辑参考视频、extend 延长参考视频；不选择时不发送此字段。"
+    },
+    "seed": {
+      "type": "integer",
+      "required": false,
+      "default": -1,
+      "min": -1,
+      "max": 4294967295,
+      "label": "随机种子",
+      "description": "-1 使用随机种子；指定整数种子用于控制生成随机性。"
+    },
+    "return_last_frame": {
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "description": "返回生成视频的最后一帧（取决于渠道支持）",
+      "label": "返回尾帧"
+    },
+    "watermark": {
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "label": "水印",
+      "description": "是否添加水印，默认关闭。"
+    }
+  },
+  "params_rules": [
+    {
+      "when": [
+        {
+          "field": "omni_reference_task_type",
+          "operator": "eq",
+          "value": "edit"
+        }
+      ],
+      "require": [
+        "videos"
+      ],
+      "values": {
+        "ratio": [
+          "adaptive"
+        ],
+        "duration": [
+          -1
+        ]
+      },
+      "message": "编辑模式需要参考视频、adaptive 画幅和自适应时长"
+    },
+    {
+      "when": [
+        {
+          "field": "omni_reference_task_type",
+          "operator": "eq",
+          "value": "extend"
+        }
+      ],
+      "require": [
+        "videos"
+      ],
+      "values": {
+        "ratio": [
+          "adaptive"
+        ]
+      }
+    },
+    {
+      "when": [],
+      "maxTotalItems": {
+        "fields": [
+          "images",
+          "videos",
+          "audios"
+        ],
+        "max": 50
+      }
+    }
+  ],
+  "ui_schema": {
+    "order": [
+      "images",
+      "videos",
+      "audios",
+      "prompt",
+      "generate_audio",
+      "resolution",
+      "ratio",
+      "duration",
+      "omni_reference_task_type",
+      "return_last_frame",
+      "watermark",
+      "seed"
+    ],
+    "advanced": [
+      "return_last_frame",
+      "watermark",
+      "seed"
+    ],
+    "groups": {
+      "参考素材": [
+        "images",
+        "videos",
+        "audios"
+      ],
+      "生成设置": [
+        "prompt",
+        "omni_reference_task_type",
+        "resolution",
+        "ratio",
+        "duration",
+        "generate_audio"
+      ]
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": false,
+    "additionalProperties": true,
+    "properties": {
+      "videos": {
+        "type": "array",
+        "required": false,
+        "items": {
+          "type": "string",
+          "required": true,
+          "format": "uri",
+          "media": {
+            "kind": "video"
+          }
+        }
+      },
+      "video_url": {
+        "type": "string",
+        "required": false,
+        "format": "uri",
+        "media": {
+          "kind": "video"
+        }
+      },
+      "last_frame_url": {
+        "type": "string",
+        "required": false,
+        "format": "uri",
+        "media": {
+          "kind": "image"
+        }
+      }
+    }
+  },
+  "docs": {
+    "sections": [
+      {
+        "title": "模型接入",
+        "content": "本模型由 AKOOL MaaS 提供。对外仍调用本平台 POST /api/v1/tasks；供应商密钥由后台账号池管理。支持图片、视频、音频数组及 @Image1、@Video1、@Audio1 素材引用。"
+      },
+      {
+        "title": "任务模式",
+        "content": "auto 自动选择；reference 参考生成；edit 需要参考视频、ratio=adaptive、duration=-1；extend 需要参考视频和 ratio=adaptive。未选择模式时不发送此字段。"
+      },
+      {
+        "title": "素材与引用",
+        "content": "可混合提供图片、视频和音频 URL，合计最多 50 项。引用编号跟随各类素材的数组顺序，调整素材顺序后应同步检查提示词。示例中的媒体地址仅演示请求结构，运行前请替换为可访问的自有素材。"
+      },
+      {
+        "title": "费用预估",
+        "content": "按输出视频秒数与价格档位计算 credits。无参考视频时采用分辨率档位；存在参考视频时，480p/720p 分别采用 480p:video/720p:video。在线测试会根据当前输入更新预估。自动时长先预估 30 秒，最终结算沿用任务创建时锁定的单价。"
+      }
+    ],
+    "limitations": [
+      "平台上传限制 20 MiB；远程 URL 的媒体时长仍由供应商校验。",
+      "参考站 API 表列出 480p/720p/1080p，说明正文只列出 480p/720p；1080p 需通过实际渠道验证。",
+      "duration=-1 的实际时长与计费回传尚待 FAT 验证；若仅返回 URL 和 tokens，目前将使用 30 秒预冻结用量。",
+      "上游未公开取消接口；已提交任务不可在本平台取消。",
+      "当前保存配置沿用既有 Reference 模型价格，480p 为 4 credits/秒，720p 为 9.1 credits/秒；有参考视频时分别为 2.4 和 5.4 credits/秒。成本及售价单位沿用源配置，尚未进行渠道账单验证。",
+      "当前配置保持禁用，仅开放结构中的 480p/720p；1080p 暂不加入已保存价格配置。"
+    ]
+  },
+  "examples": [
+    {
+      "name": "单图参考生成",
+      "input": {
+        "images": [
+          "https://d1s3annbwribom.cloudfront.net/marketplace/examples/261025/default/cki5ekqnmv25.jpeg"
+        ],
+        "prompt": "让 @Image1 中的主体缓慢转身，镜头平稳推进。",
+        "duration": 5
+      },
+      "output": {
+        "video_url": "https://example.com/generated-video.mp4"
+      }
+    },
+    {
+      "name": "视频编辑（自动时长）",
+      "input": {
+        "videos": [
+          "https://example.com/reference.mp4"
+        ],
+        "prompt": "将 @Video1 的场景转换为水彩风格，保留主体运动。",
+        "omni_reference_task_type": "edit",
+        "ratio": "adaptive",
+        "duration": -1,
+        "resolution": "720p"
+      }
+    },
+    {
+      "name": "视频延长",
+      "input": {
+        "videos": [
+          "https://example.com/reference.mp4"
+        ],
+        "prompt": "延续 @Video1 的镜头运动。",
+        "omni_reference_task_type": "extend",
+        "ratio": "adaptive",
+        "duration": 5,
+        "resolution": "480p"
+      }
+    }
+  ],
+  "pricing": {
+    "usage_type": "duration",
+    "usage_param": "duration",
+    "tier_param": "resolution",
+    "auto_value": -1,
+    "auto_prelock_units": 30,
+    "tier_rules": [
+      {
+        "when": [
+          {
+            "field": "videos",
+            "operator": "present"
+          },
+          {
+            "field": "resolution",
+            "operator": "eq",
+            "value": "480p"
+          }
+        ],
+        "tier": "480p:video"
+      },
+      {
+        "when": [
+          {
+            "field": "videos",
+            "operator": "present"
+          },
+          {
+            "field": "resolution",
+            "operator": "eq",
+            "value": "720p"
+          }
+        ],
+        "tier": "720p:video"
+      }
+    ]
+  },
+  "unit_price_map": {
+    "default": {
+      "cost_unit_price": 0.1028,
+      "sale_unit_price": 0.03,
+      "unit_credit": 4,
+      "unit_duration": 1
+    },
+    "480p": {
+      "cost_unit_price": 0.1028,
+      "sale_unit_price": 0.03,
+      "unit_credit": 4,
+      "unit_duration": 1
+    },
+    "720p": {
+      "cost_unit_price": 0.2311,
+      "sale_unit_price": 0.03,
+      "unit_credit": 9.1,
+      "unit_duration": 1
+    },
+    "480p:video": {
+      "cost_unit_price": 0.0615,
+      "sale_unit_price": 0.03,
+      "unit_credit": 2.4,
+      "unit_duration": 1
+    },
+    "720p:video": {
+      "cost_unit_price": 0.1382,
+      "sale_unit_price": 0.03,
+      "unit_credit": 5.4,
+      "unit_duration": 1
+    }
+  }
+}

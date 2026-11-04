@@ -15,8 +15,17 @@ export class PortalUser {
   @Prop({ required: true, trim: true })
   username!: string;
 
-  @Prop({ required: true })
-  passwordHash!: string;
+  @Prop()
+  passwordHash?: string;
+
+  @Prop()
+  googleId?: string;
+
+  @Prop()
+  githubId?: string;
+
+  @Prop()
+  termsAcceptedAt?: Date;
 
   // Preserve stored types so invalid authentication versions fail closed.
   @Prop({ type: MongooseSchema.Types.Mixed, validate: (value: unknown) => Number.isSafeInteger(value) && Number(value) >= 0 })
@@ -65,6 +74,8 @@ export const PortalUserSchema = SchemaFactory.createForClass(PortalUser);
 
 // 索引
 PortalUserSchema.index({ email: 1 }, { unique: true });
+PortalUserSchema.index({ googleId: 1 }, { unique: true, sparse: true });
+PortalUserSchema.index({ githubId: 1 }, { unique: true, sparse: true });
 PortalUserSchema.index({ username: 1 });
 PortalUserSchema.index({ status: 1, deletedAt: 1 });
 PortalUserSchema.index({ createdAt: -1 });

@@ -24,6 +24,7 @@ import { computeActualUsageValue } from '../billing/actual-usage.util';
 import { UsageTrackerService } from '../api-client/usage-tracker.service';
 import { TaskResourceMetadataEnqueueService } from './task-resource-metadata-enqueue.service';
 import { normalizeTaskResultPayload } from '../task/task-result.util';
+import { ProviderConfigService } from '../provider/provider-config.service';
 
 @Injectable()
 export class FeatureQueueProcessor {
@@ -45,6 +46,7 @@ export class FeatureQueueProcessor {
     private readonly pricingService: PricingService,
     private readonly usageTracker: UsageTrackerService,
     private readonly resourceMetadataEnqueue: TaskResourceMetadataEnqueueService,
+    private readonly providerConfig: ProviderConfigService,
   ) {}
 
   async processJob(job: Job<TaskSubmitJobData>): Promise<void> {
@@ -67,6 +69,24 @@ export class FeatureQueueProcessor {
   }
 
   async submitToProvider(job: Job<TaskSubmitJobData>): Promise<void> {
+    try { await this.performProviderSubmission(job); }
+    catch (error: any) {
+      if (error?.definiteLocalRejection && job.attemptsMade + 1 >= (job.opts?.attempts ?? 1)) {
+        const task = await this.taskRepo.findByTaskId(job.data.taskId);
+        // A recorded acceptance must be reconciled against the supplier, never refunded as a local infrastructure failure.
+        if (task?.status === TaskStatus.PENDING && !(task.timeline || []).some(e => e.event === TimelineEvent.PROVIDER_SUBMIT_OK)) {
+          const closed = await this.taskRepo.updateStatus(task.taskId, TaskStatus.PENDING, TaskStatus.FAILED, { error: { code: 'SUBMISSION_RETRIES_EXHAUSTED', message: String(error.message || '提交重试耗尽').slice(0, 500), retryable: false } });
+          if (closed) {
+            await this.timelineService.addEvent(task.taskId, TimelineEvent.TASK_FAILED, { reason: 'submission_retries_exhausted' });
+            await this.billingAdapter.refund({ taskId: task.taskId, reason: 'submission_retries_exhausted' });
+          }
+        }
+      }
+      throw error;
+    }
+  }
+
+  private async performProviderSubmission(job: Job<TaskSubmitJobData>): Promise<void> {
     const { taskId, provider: providerName, featureType } = job.data;
     this.logger.log(`Submit: ${taskId} → ${providerName}`);
 
@@ -87,6 +107,10 @@ export class FeatureQueueProcessor {
     const task = await this.taskRepo.findByTaskId(taskId);
     if (!task) return;
     if (task.status !== TaskStatus.PENDING) return;
+    if ((task.timeline || []).some(e => e.event === TimelineEvent.PROVIDER_SUBMIT_OK)) {
+      this.logger.warn(`Task ${taskId} already has supplier acceptance; reconciliation required, submission skipped`);
+      return;
+    }
 
     const adapter = this.providerRegistry.getAdapter(providerName);
     if (!adapter) {
@@ -98,12 +122,32 @@ export class FeatureQueueProcessor {
         'Provider adapter not found',
       );
       
-      await this.taskRepo.updateStatus(taskId, TaskStatus.PENDING, TaskStatus.FAILED, {
+      const closed = await this.taskRepo.updateStatus(taskId, TaskStatus.PENDING, TaskStatus.FAILED, {
         error: { code: 'PROVIDER_NOT_FOUND', message: errorMsg, retryable: false },
       });
+      if (!closed) return;
+      await this.billingAdapter.refund({ taskId, reason: 'provider_not_found' });
       this.metrics.taskFailedTotal.inc({ feature_type: featureType, provider: providerName, error_code: 'PROVIDER_NOT_FOUND' });
       this.eventEmitter.emit('system.provider_error', buildProviderEvent(providerName, 'PROVIDER_NOT_FOUND', errorMsg));
       void this.resourceMetadataEnqueue.scheduleForTask(taskId).catch(() => undefined);
+      return;
+    }
+
+    if (!(await this.providerConfig.getResolved(providerName)).enabled) {
+      const error = { code: 'PROVIDER_DISABLED', message: `供应商已停用或未配置: ${providerName}`, retryable: false };
+      const failed = await this.taskRepo.updateStatus(taskId, TaskStatus.PENDING, TaskStatus.FAILED, { error });
+      if (failed) {
+        await this.timelineService.addEvent(taskId, TimelineEvent.PROVIDER_SUBMIT_FAIL, { errorCode: error.code, errorMsg: error.message, retryable: false });
+        try {
+          await this.billingAdapter.refund({ taskId, reason: 'provider_disabled' });
+        } catch (err) {
+          this.logger.error(`计费退款失败（供应商停用）：taskId=${taskId}`, err instanceof Error ? err.stack : err);
+        }
+        this.metrics.taskFailedTotal.inc({ feature_type: featureType, provider: providerName, error_code: error.code });
+        this.eventEmitter.emit('system.task_failed', buildTaskEvent(taskId, task.model, providerName, 'failed', Date.now() - (task as any).createdAt.getTime()));
+        void this.usageTracker.recordCompletion(task.apiKey, false).catch(() => undefined);
+        void this.resourceMetadataEnqueue.scheduleForTask(taskId).catch(() => undefined);
+      }
       return;
     }
 
@@ -117,7 +161,7 @@ export class FeatureQueueProcessor {
         `Rate limited, requeuing task`,
         context,
       );
-      throw new Error(`Rate limited by ${providerName}`);
+      throw Object.assign(new Error(`Rate limited by ${providerName}`), { definiteLocalRejection: true });
     }
 
     const concToken = await this.rateLimiter.acquireConcurrent(
@@ -129,7 +173,7 @@ export class FeatureQueueProcessor {
         `Concurrent limit reached, requeuing task`,
         context,
       );
-      throw new Error(`Concurrent limit for ${providerName}`);
+      throw Object.assign(new Error(`Concurrent limit for ${providerName}`), { definiteLocalRejection: true });
     }
 
     await this.timelineService.addEvent(taskId, TimelineEvent.PROVIDER_SUBMIT_START, { provider: providerName });
@@ -137,6 +181,7 @@ export class FeatureQueueProcessor {
     await this.timingService.recordTiming(taskId, 'submittedAt', submittedAt);
 
     const providerStart = Date.now();
+    let submissionAccepted = false;
     try {
       const result = await adapter.submitTask({
         taskId,
@@ -151,6 +196,7 @@ export class FeatureQueueProcessor {
         },
       });
 
+      submissionAccepted = true;
       const latencyMs = Date.now() - providerStart;
 
       this.metrics.providerRequestDuration.observe(
@@ -172,11 +218,12 @@ export class FeatureQueueProcessor {
 
         const normalizedResult = normalizeTaskResultPayload(result.result);
 
-        await this.taskRepo.updateStatus(taskId, TaskStatus.PENDING, TaskStatus.SUCCESS, {
+        const succeeded = await this.taskRepo.updateStatus(taskId, TaskStatus.PENDING, TaskStatus.SUCCESS, {
           providerTask: { providerTaskId: result.providerTaskId, rawMeta: result.rawResponse },
           resultPayload: normalizedResult,
         });
 
+        if (!succeeded) return;
         const e2eMs = completedAt.getTime() - (task as any).createdAt.getTime();
         this.metrics.taskCompletedTotal.inc({ feature_type: featureType, provider: providerName, status: 'SUCCESS' });
         this.metrics.taskDuration.observe({ feature_type: featureType, provider: providerName }, e2eMs);
@@ -185,7 +232,7 @@ export class FeatureQueueProcessor {
 
         // 计费结算：同步任务完成，从供应商结果中提取实际用量并结算
         try {
-          const actualUsage = await this.extractActualUsage(
+          const actualUsage = task.requestPayload?.billingInput ? { usageType: UsageType.COUNT, usageValue: 1 } : await this.extractActualUsage(
             task.model,
             normalizedResult,
             task.requestPayload?.input,
@@ -193,6 +240,9 @@ export class FeatureQueueProcessor {
           await this.billingAdapter.settle({
             taskId,
             actualUsage,
+            requestInput: task.requestPayload?.billingInput,
+            usageParam: task.requestPayload?.billingUsageParam,
+            rawUsageResult: result.rawResponse,
             resultPayload: normalizedResult,
           });
         } catch (billingErr: any) {
@@ -215,6 +265,10 @@ export class FeatureQueueProcessor {
         } as any);
       }
     } catch (err: any) {
+      if (submissionAccepted) {
+        this.logger.error(`Task ${taskId} was accepted by supplier but local completion failed; reconciliation required`, err?.stack);
+        throw err;
+      }
       const latencyMs = Date.now() - providerStart;
 
       this.metrics.providerRequestDuration.observe(
@@ -239,15 +293,19 @@ export class FeatureQueueProcessor {
         errorCode: mapped.code, errorMsg: mapped.message, retryable: mapped.retryable,
       });
 
-      if (!mapped.retryable) {
-        await this.taskRepo.updateStatus(taskId, TaskStatus.PENDING, TaskStatus.FAILED, {
+      // Bull has no further attempt after this invocation. A retryable provider
+      // error must still close the task and release its reservation at that point.
+      const exhausted = job.attemptsMade + 1 >= (job.opts?.attempts ?? 1);
+      if (!mapped.retryable || exhausted) {
+        const closed = await this.taskRepo.updateStatus(taskId, TaskStatus.PENDING, TaskStatus.FAILED, {
           error: { code: mapped.code, message: mapped.message, retryable: false },
         });
+        if (!closed) return;
         this.metrics.taskFailedTotal.inc({ feature_type: featureType, provider: providerName, error_code: mapped.code });
         this.eventEmitter.emit('system.task_failed', buildTaskEvent(taskId, task.model, providerName, 'failed', Date.now() - (task as any).createdAt.getTime()));
         this.eventEmitter.emit('system.provider_error', buildProviderEvent(providerName, mapped.code, mapped.message));
 
-        // 计费退款：不可重试的提交失败，退还预扣费用
+        // 计费退款：不可重试或重试耗尽的提交失败，退还预扣费用
         try {
           await this.billingAdapter.refund({ taskId, reason: 'provider_submit_failed' });
         } catch (billingErr: any) {
@@ -263,6 +321,7 @@ export class FeatureQueueProcessor {
         });
 
         void this.resourceMetadataEnqueue.scheduleForTask(taskId).catch(() => undefined);
+        if (mapped.retryable && exhausted) throw err;
         return;
       }
       throw err;

@@ -1,5 +1,5 @@
 import { Global, Module, Logger, OnModuleInit } from '@nestjs/common';
-import { EventEmitterModule } from '@nestjs/event-emitter';
+import { SystemEventsModule } from '../notification/events/system-events.module';
 import { DatabaseModule } from '../database/database.module';
 import { PricingService } from './pricing.service';
 import { BillingService } from './billing.service';
@@ -24,7 +24,7 @@ import { BillingAdapter } from './billing.adapter';
     // 获取 Mongoose Schema Models（BillingRecord, Wallet, WalletTransaction, ModelConfig, ApiClient 等）
     DatabaseModule,
     // WalletService 依赖 EventEmitter2 发射 wallet.low_balance 事件
-    EventEmitterModule.forRoot(),
+    SystemEventsModule,
   ],
   providers: [PricingService, BillingService, WalletService, BillingAdapter],
   exports: [BillingAdapter, PricingService, BillingService, WalletService],

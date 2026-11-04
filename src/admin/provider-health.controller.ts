@@ -23,6 +23,10 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Request } from 'express';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { ProviderRuntimeConfig, ProviderRuntimeConfigDocument } from '../database/schemas/provider-runtime-config.schema';
+import { REGISTERED_PROVIDER_NAMES } from '../queue/queue.constants';
 import { AdminJwtGuard } from './guards/admin-jwt.guard';
 import { PermissionGuard } from './guards/permission.guard';
 import { RolesGuard } from './guards/roles.guard';
@@ -53,6 +57,8 @@ export class ProviderHealthController {
     private readonly circuitBreakerService: CircuitBreakerService,
     private readonly configService: CircuitBreakerConfigService,
     private readonly metricsCollector: HealthMetricsCollector,
+    @InjectModel(ProviderRuntimeConfig.name)
+    private readonly runtimeModel: Model<ProviderRuntimeConfigDocument>,
   ) {}
 
   /**
@@ -63,13 +69,17 @@ export class ProviderHealthController {
   @ApiOperation({ summary: '获取所有供应商的健康概览' })
   @ApiResponse({ status: 200, description: '成功返回健康概览列表' })
   async getOverview() {
-    // 获取所有 Provider 的健康指标
-    const allMetrics = await this.metricsCollector.getAllMetrics();
-    // 获取所有 Provider 的熔断状态
-    const allStates = await this.circuitBreakerService.getAllStates();
-
-    const items = allMetrics.map((metrics) => {
-      const state = allStates.get(metrics.provider);
+    // Configuration owns membership; Redis history must not resurrect deleted providers.
+    const providers = await this.runtimeModel
+      .find({ provider_name: { $in: [...REGISTERED_PROVIDER_NAMES] } })
+      .select('provider_name')
+      .sort({ provider_name: 1 })
+      .lean();
+    const items = await Promise.all(providers.map(async ({ provider_name: provider }) => {
+      const [metrics, state] = await Promise.all([
+        this.metricsCollector.getMetrics(provider),
+        this.circuitBreakerService.getFullState(provider),
+      ]);
       return {
         provider: metrics.provider,
         circuitState: state?.state ?? CircuitState.CLOSED,
@@ -77,10 +87,10 @@ export class ProviderHealthController {
         avgLatencyMs: metrics.avgLatencyMs,
         errorRate: metrics.errorRate,
         sampleCount: metrics.sampleCount,
-        lastTransitionAt: state?.lastTransitionAt ?? new Date().toISOString(),
+        lastTransitionAt: state?.lastTransitionAt ?? null,
         hasManualOverride: state?.manualOverride !== null && state?.manualOverride !== undefined,
       };
-    });
+    }));
 
     return { code: 0, data: { items } };
   }
@@ -181,7 +191,7 @@ export class ProviderHealthController {
    */
   @Post(':provider/circuit-breaker/override')
   @RequirePermissions('provider:update')
-  @Roles('admin', 'operator')
+  @Roles('super_admin', 'admin', 'operator')
   @ApiOperation({ summary: '手动覆盖熔断器状态' })
   @ApiParam({ name: 'provider', description: '供应商标识（与路由中的 provider 名称一致）' })
   @ApiResponse({ status: 200, description: '覆盖成功' })
@@ -204,6 +214,8 @@ export class ProviderHealthController {
       decodedProvider,
       dto.state,
       operator,
+      dto.reason,
+      dto.ttlSeconds,
     );
 
     this.logger.log(
@@ -227,7 +239,7 @@ export class ProviderHealthController {
    */
   @Delete(':provider/circuit-breaker/override')
   @RequirePermissions('provider:update')
-  @Roles('admin', 'operator')
+  @Roles('super_admin', 'admin', 'operator')
   @ApiOperation({ summary: '清除熔断器手动覆盖' })
   @ApiParam({ name: 'provider', description: '供应商标识（与路由中的 provider 名称一致）' })
   @ApiResponse({ status: 200, description: '清除成功' })
@@ -255,7 +267,7 @@ export class ProviderHealthController {
    */
   @Put(':provider/circuit-breaker/config')
   @RequirePermissions('provider:update')
-  @Roles('admin')
+  @Roles('super_admin', 'admin')
   @ApiOperation({ summary: '更新供应商的熔断器配置' })
   @ApiParam({ name: 'provider', description: '供应商标识（与路由中的 provider 名称一致）' })
   @ApiResponse({ status: 200, description: '配置更新成功' })

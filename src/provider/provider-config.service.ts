@@ -21,6 +21,8 @@ const DEFAULT_LIMITS: Record<string, { maxConcurrent: number; maxPerSecond: numb
   akool: { maxConcurrent: 50, maxPerSecond: 20 },
   minimax: { maxConcurrent: 20, maxPerSecond: 10 },
   seedance: { maxConcurrent: 10, maxPerSecond: 5 },
+  'akool-maas': { maxConcurrent: 2, maxPerSecond: 1 },
+  'akool-openapi': { maxConcurrent: 2, maxPerSecond: 1 },
   alibaba: { maxConcurrent: 20, maxPerSecond: 10 },
   'tencent-cloud': { maxConcurrent: 20, maxPerSecond: 10 },
 };
@@ -31,6 +33,9 @@ const DEFAULT_BASE_URL: Record<string, string> = {
   akool: 'http://internal-algorithm-queue.akool.com',
   minimax: 'https://api.minimax.io',
   seedance: 'https://ark.cn-beijing.volces.com/api/v3',
+  // Select the environment explicitly in provider runtime / account pool configuration.
+  'akool-maas': '',
+  'akool-openapi': 'https://openapi.akool.com',
   alibaba: 'https://dashscope.aliyuncs.com',
   'tencent-cloud': 'https://api.cloudwise.ai/api',
 };
@@ -57,9 +62,8 @@ export class ProviderConfigService implements OnModuleInit, OnModuleDestroy {
     if (this.refreshTimer) clearInterval(this.refreshTimer);
   }
 
-  /** 管理端更新后调用，清空快照并异步刷新 */
+  /** 管理端更新后刷新快照，刷新期间保留上一份配置。 */
   async invalidateAndRefresh(): Promise<void> {
-    this.snapshot.clear();
     await this.refreshAll();
   }
 
@@ -77,14 +81,14 @@ export class ProviderConfigService implements OnModuleInit, OnModuleDestroy {
         .findOne({ provider_name: providerName })
         .lean()
         .exec();
-      if (doc && doc.enabled !== false) {
+      if (doc) {
         resolved = this.mergeDoc(defaults, doc);
       } else {
         resolved = { ...defaults, source: 'defaults' };
       }
     } catch (err: any) {
       this.logger.warn(`refreshOne ${providerName}: ${err.message}`);
-      resolved = { ...defaults, source: 'defaults' };
+      resolved = this.snapshot.get(providerName) || { ...defaults, source: 'defaults' };
     }
     this.snapshot.set(providerName, resolved);
   }
@@ -103,7 +107,7 @@ export class ProviderConfigService implements OnModuleInit, OnModuleDestroy {
       pollLimits: {
         maxPerSecond: def.maxPerSecond,
       },
-      enabled: true,
+      enabled: false,
       source: 'defaults',
     };
   }
@@ -145,7 +149,7 @@ export class ProviderConfigService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  /** 同步读取；无快照时用代码默认值（未落库或未启用 DB 行） */
+  /** 同步读取；未配置供应商默认停用，避免删除后回退为可调用状态。 */
   getResolvedSync(providerName: string): ResolvedProviderRuntime {
     const hit = this.snapshot.get(providerName);
     if (hit) return hit;

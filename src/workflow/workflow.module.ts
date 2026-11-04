@@ -5,6 +5,7 @@ import { WorkflowService } from './workflow.service';
 import { WorkflowController } from './workflow.controller';
 import { WorkflowRunController } from './workflow-run.controller';
 import { WorkflowTemplateController } from './workflow-template.controller';
+import { WorkflowTemplateCatalogController } from './workflow-template-catalog.controller';
 import { ExecutionGraphResolver } from './execution-graph.resolver';
 import { PortSchemaService } from './port-schema.service';
 import { WorkflowExecutionService } from './workflow-execution.service';
@@ -22,8 +23,14 @@ import { TaskModule } from '../task/task.module';
 import { WorkflowAsset, WorkflowAssetSchema } from '../database/schemas/workflow-asset.schema';
 import { WorkflowAssetController } from './workflow-asset.controller';
 import { WorkflowAssetService } from './workflow-asset.service';
-import { MinioWorkflowAssetStorageService } from './minio-workflow-asset-storage.service';
+import { S3WorkflowAssetStorageService } from './s3-workflow-asset-storage.service';
 import { LinkConversionConfigModule } from '../admin/link-conversion-config.module';
+import { ShortDramaProject, ShortDramaProjectSchema, ShortDramaCandidate, ShortDramaCandidateSchema, ShortDramaQuote, ShortDramaQuoteSchema } from '../short-drama/drama.schema';
+import { ShortDramaService } from '../short-drama/drama.service';
+import { ShortDramaRenderService } from '../short-drama/drama-render.service';
+import { ShortDramaController } from '../short-drama/drama.controller';
+import { ModelConfig, ModelConfigSchema } from '../database/schemas/model-config.schema';
+import { ProviderModule } from '../provider/provider.module';
 
 /**
  * Workflow 模块
@@ -37,19 +44,26 @@ import { LinkConversionConfigModule } from '../admin/link-conversion-config.modu
       { name: WorkflowTemplate.name, schema: WorkflowTemplateSchema },
       { name: PortalUser.name, schema: PortalUserSchema },
       { name: WorkflowAsset.name, schema: WorkflowAssetSchema },
+      { name: ShortDramaProject.name, schema: ShortDramaProjectSchema },
+      { name: ShortDramaCandidate.name, schema: ShortDramaCandidateSchema },
+      { name: ShortDramaQuote.name, schema: ShortDramaQuoteSchema },
+      { name: ModelConfig.name, schema: ModelConfigSchema },
     ]),
     BullModule.registerQueue({
       name: 'workflow-node',
-    }),
+    }, { name: 'short-drama-render' }),
     ApiClientModule,
     AuthModule,
     TaskModule,
     LinkConversionConfigModule,
+    ProviderModule,
   ],
-  controllers: [WorkflowController, WorkflowRunController, WorkflowTemplateController, WorkflowAssetController],
+  controllers: [WorkflowController, WorkflowRunController, WorkflowTemplateController, WorkflowTemplateCatalogController, WorkflowAssetController, ShortDramaController],
   providers: [
+    ShortDramaService,
+    ShortDramaRenderService,
     WorkflowAssetService,
-    MinioWorkflowAssetStorageService,
+    S3WorkflowAssetStorageService,
     WorkflowService,
     ExecutionGraphResolver,
     PortSchemaService,

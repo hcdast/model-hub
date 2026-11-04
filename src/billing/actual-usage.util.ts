@@ -40,6 +40,8 @@ export function extractDurationSecondsFromResult(result: unknown): number | unde
       o.metadata?.duration,
       o.meta?.duration,
       o.output?.duration,
+      o.content?.duration,
+      o.result?.duration,
       Array.isArray(o.outputs) ? o.outputs[0]?.duration : undefined,
     ];
     for (const c of candidates) {

@@ -8,6 +8,8 @@ import { CloudwiseAdapter } from './adapters/cloudwise.adapter';
 import { AkoolAdapter } from './adapters/akool.adapter';
 import { MiniMaxAdapter } from './adapters/minimax.adapter';
 import { SeedanceAdapter } from './adapters/seedance.adapter';
+import { AkoolMaasAdapter } from './adapters/akool-maas.adapter';
+import { AkoolOpenapiAdapter } from './adapters/akool-openapi.adapter';
 import { WanAdapter } from './adapters/wan.adapter';
 import { TencentAdapter } from './adapters/tencent.adapter';
 import { AccountPoolModule } from './account-pool/account-pool.module';
@@ -22,10 +24,12 @@ import { AccountPoolModule } from './account-pool/account-pool.module';
     AkoolAdapter,
     MiniMaxAdapter,
     SeedanceAdapter,
+    AkoolMaasAdapter,
+    AkoolOpenapiAdapter,
     WanAdapter,
     TencentAdapter,
   ],
-  exports: [ProviderRegistry, ProviderConfigService, AccountPoolModule],
+  exports: [ProviderRegistry, ProviderConfigService, AccountPoolModule, AkoolOpenapiAdapter],
 })
 export class ProviderModule implements OnModuleInit {
   constructor(
@@ -35,6 +39,8 @@ export class ProviderModule implements OnModuleInit {
     private readonly akool: AkoolAdapter,
     private readonly minimax: MiniMaxAdapter,
     private readonly seedance: SeedanceAdapter,
+    private readonly maas: AkoolMaasAdapter,
+    private readonly openapi: AkoolOpenapiAdapter,
     private readonly wan: WanAdapter,
     private readonly tencent: TencentAdapter,
   ) {}
@@ -45,6 +51,8 @@ export class ProviderModule implements OnModuleInit {
     this.registry.register(this.akool);
     this.registry.register(this.minimax);
     this.registry.register(this.seedance);
+    this.registry.register(this.maas);
+    this.registry.register(this.openapi);
     this.registry.register(this.wan);
     this.registry.register(this.tencent);
   }

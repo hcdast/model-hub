@@ -1,4 +1,6 @@
-import { Controller, Get, Post, Put, Param, Query, Body, UseGuards, Req, Logger } from '@nestjs/common';
+import { redactAdminData } from './utils/redact-admin-data';
+import { QueueRegistryService } from '../queue/queue-registry.service';
+import { BadRequestException, Controller, Get, Post, Put, Param, Query, Body, UseGuards, Req, Logger } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { InjectModel } from '@nestjs/mongoose';
 import { InjectQueue } from '@nestjs/bull';
@@ -19,6 +21,7 @@ import { TaskResourceMetadataEnqueueService } from '../queue/task-resource-metad
 import { TERMINAL_STATUSES } from '../common/constants/task-status';
 import { Request } from 'express';
 import { resolveUnitPriceMapTier, pickCreditReferenceUnitFromPriceMap } from '../billing/unit-price-map.util';
+import { withClientDisplay, resolveAdminClientKey } from './utils/client-display';
 import { roundMoney } from '../common/utils/money.util';
 
 @ApiTags('管理后台 - 任务记录')
@@ -39,6 +42,7 @@ export class AdminTaskController {
     private readonly timingService: TaskTimingService,
     private readonly taskService: TaskService,
     private readonly resourceMetadataEnqueue: TaskResourceMetadataEnqueueService,
+    private readonly queueRegistry: QueueRegistryService,
   ) {}
 
   @Get()
@@ -58,24 +62,40 @@ export class AdminTaskController {
     @Query('model') model?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
+    @Query('taskId') taskId?: string, @Query('client') client?: string, @Query('from') from?: string, @Query('to') to?: string, @Query('staleMinutes') staleMinutes?: string,
   ) {
     const query: any = {};
     if (status) query.status = status;
     if (provider) query.provider = provider;
     if (featureType) query.featureType = featureType;
     if (model) query.model = model;
+    if (taskId) query.taskId = taskId;
+    if (client) query.apiKey = await resolveAdminClientKey(this.apiClientModel, client);
+    if ((from && !Number.isFinite(Date.parse(from))) || (to && !Number.isFinite(Date.parse(to))) || (from && to && Date.parse(from) > Date.parse(to))) throw new BadRequestException('任务日期范围无效');
+    if (staleMinutes && (!Number.isFinite(Number(staleMinutes)) || Number(staleMinutes) <= 0)) throw new BadRequestException('超时分钟数必须为正数');
+    if (from || to) {
+      query.createdAt = {};
+      if (from && Number.isFinite(Date.parse(from))) query.createdAt.$gte = new Date(from);
+      if (to && Number.isFinite(Date.parse(to))) query.createdAt.$lte = new Date(to);
+    }
+    if (staleMinutes && Number(staleMinutes) > 0) {
+      query.status = { $in: ['PENDING', 'SUBMITTED', 'PROCESSING'] };
+      query.updatedAt = { $lt: new Date(Date.now() - Number(staleMinutes) * 60000) };
+    }
 
     const p = Math.max(1, parseInt(page, 10) || 1);
     const ps = Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20));
 
-    const [rawItems, total] = await Promise.all([
+    const [rawItems, total, staleCount] = await Promise.all([
       this.taskModel.find(query).sort({ createdAt: -1 }).skip((p - 1) * ps).limit(ps).lean(),
       this.taskModel.countDocuments(query),
+      this.taskModel.countDocuments({ status: { $in: ['PENDING', 'SUBMITTED', 'PROCESSING'] }, updatedAt: { $lt: new Date(Date.now() - 15 * 60000) } }),
     ]);
 
-    const items = await this.attachClientDisplayNames(rawItems);
+    const enrichedItems = await this.attachClientDisplayNames(rawItems);
+    const items = enrichedItems.map((item: any) => ({ ...item, canCancel: this.taskService.canCancel(item) }));
 
-    return { code: 0, data: { items, total, page: p, pageSize: ps } };
+    return { code: 0, data: { items, total, staleCount, page: p, pageSize: ps } };
   }
 
   @Get(':taskId')
@@ -100,7 +120,7 @@ export class AdminTaskController {
     const [enriched] = await this.attachClientDisplayNames([task]);
 
     // 附加计费信息
-    const data: Record<string, any> = { ...enriched };
+    const data: Record<string, any> = { ...enriched, canCancel: this.taskService.canCancel(task) };
     if (billingRecord) {
       const billing: Record<string, unknown> = {
         status: billingRecord.status,
@@ -137,10 +157,15 @@ export class AdminTaskController {
       billing.pricingTierKey = pricingTierKey ?? null;
 
       let cfg: Record<string, unknown> | null = null;
-      if (task.model) {
+      if (billingRecord.pricingSnapshot) {
+        cfg = billingRecord.pricingSnapshot as any;
+      } else if (task.model) {
         cfg = await this.resolveModelConfigRow(String(task.model), task.provider ? String(task.provider) : undefined);
       }
 
+      billing.pricingBasis = billingRecord.pricingSnapshot ? 'task_snapshot' : 'current_reference';
+      billing.pricingRevision = billingRecord.pricingSnapshot?.revision ?? null;
+      billing.pricingNote = billingRecord.pricingSnapshot ? '参考成本和美元换算基于任务创建时价格快照；实际扣费以结算记录为准' : '旧任务没有价格快照；参考成本、美元收益与毛利为当前配置估算，可能随调价变化，实际 credit 结算不变';
       let providerReferenceCost: number | undefined;
       if (cfg && typeof usageVal === 'number' && !Number.isNaN(usageVal)) {
         const unit = pickCreditReferenceUnitFromPriceMap(
@@ -236,13 +261,41 @@ export class AdminTaskController {
     return { code: 0, data };
   }
 
+  @Get(':taskId/diagnostics')
+  @RequirePermissions('task:read')
+  async diagnostics(@Param('taskId') taskId: string) {
+    const task: any = await this.taskModel.findOne({ taskId }).lean();
+    if (!task) return { code: 3001, message: '任务不存在' };
+    const events = task.timeline || [];
+    const queued = events.filter((e: any) => e.event === 'TASK_ENQUEUED').at(-1)?.detail;
+    const queue = queued?.queueName ? this.queueRegistry.getQueue(queued.queueName) : undefined;
+    const job = queue && queued.jobId ? await queue.getJob(String(queued.jobId)) : null;
+    const billing = await this.billingModel.findOne({ taskId }).lean();
+    return { code: 0, data: { taskId, status: task.status, updatedAt: task.updatedAt,
+      staleMinutes: Math.round((Date.now() - new Date(task.updatedAt).getTime()) / 60000),
+      providerTaskId: task.providerTask?.providerTaskId || null,
+      queue: { name: queued?.queueName || null, jobId: queued?.jobId || null, state: job ? await job.getState() : 'missing_or_removed', attemptsMade: job?.attemptsMade, maxAttempts: job?.opts.attempts, lastError: job?.failedReason },
+      submitFailures: events.filter((e: any) => e.event === 'PROVIDER_SUBMIT_FAIL').map((e: any) => ({ timestamp: e.timestamp, ...e.detail })),
+      billing: billing ? { status: billing.status, estimatedCost: billing.estimatedCost, actualCost: billing.actualCost, currency: billing.currency } : null,
+      recommendation: !TERMINAL_STATUSES.has(task.status) ? '先核对供应商实际执行结果。队列缺失不代表供应商失败，不能据此自动退款。' : '如任务失败但仍预扣，请通过受控修复核对并收尾。' } };
+  }
+
+  @Post(':taskId/reconcile-failure')
+  @RequirePermissions('task:update', 'billing:write')
+  async reconcileFailure(@Param('taskId') taskId: string, @Body() body: { expectedUpdatedAt: string; verificationReference: string; reason: string; confirmedFailure: boolean }, @Req() req: Request) {
+    const operator = (req as any).adminUser?.username || (req as any).user?.username || 'unknown';
+    const data = await this.taskService.reconcileVerifiedFailure(taskId, body, operator);
+    await this.auditLogService.log('TASK_RECONCILE_FAILURE', operator, { taskId, verificationReference: body.verificationReference, reason: body.reason }, req.ip);
+    return { code: 0, data };
+  }
+
   @Get(':taskId/timeline')
   @RequirePermissions('task:read')
   @ApiOperation({ summary: '任务时间线', description: '获取任务完整的生命周期事件时间线' })
   @ApiResponse({ status: 200, description: '查询成功' })
   async getTimeline(@Param('taskId') taskId: string) {
     const timeline = await this.timelineService.getTimeline(taskId);
-    return { code: 0, data: { taskId, timeline } };
+    return { code: 0, data: { taskId, timeline: redactAdminData(timeline) } };
   }
 
   @Get(':taskId/timing')
@@ -261,12 +314,13 @@ export class AdminTaskController {
   async replayCallback(@Param('taskId') taskId: string, @Req() req: Request) {
     const task = await this.taskModel.findOne({ taskId }).lean();
     if (!task) return { code: 3001, message: 'Task not found' };
+    if (!TERMINAL_STATUSES.has(task.status)) return { code: 1001, message: '任务尚未结束，不能重放回调' };
     if (!task.callback?.url) return { code: 1001, message: 'No callback URL configured' };
 
-    await this.callbackQueue.add('deliver', { taskId, callbackUrl: task.callback.url, callbackSecret: task.callback.secret });
+    const job = await this.callbackQueue.add('deliver', { taskId, callbackUrl: task.callback.url, callbackSecret: task.callback.secret }, { jobId: `admin-replay-${taskId}-${Math.floor(Date.now() / 60000)}`, attempts: 3, backoff: { type: 'exponential', delay: 2000 }, removeOnComplete: { age: 3600 }, removeOnFail: { age: 86400 } });
     const adminUser = (req as any).adminUser;
     await this.auditLogService.log('REPLAY_CALLBACK', adminUser?.username || 'unknown', { taskId });
-    return { code: 0, message: 'Callback replay enqueued' };
+    return { code: 0, message: 'Callback replay enqueued', data: { jobId: String(job.id), dedupWindowSeconds: 60 } };
   }
 
   @Post(':taskId/cancel')
@@ -377,22 +431,6 @@ export class AdminTaskController {
 
   /** 为任务列表/详情附加 api_clients.name，便于后台区分调用方 */
   private async attachClientDisplayNames<T extends { apiKey?: string }>(items: T[]): Promise<Array<T & { clientName: string | null }>> {
-    const ids = [...new Set(items.map((t) => t.apiKey).filter((id): id is string => Boolean(id)))];
-    const nameByApiKey = new Map<string, string | null>();
-    if (ids.length > 0) {
-      const clients = await this.apiClientModel
-        .find({ apiKey: { $in: ids } })
-        .select('apiKey name')
-        .lean();
-      for (const c of clients) {
-        nameByApiKey.set(c.apiKey, c.name?.trim() ? c.name.trim() : null);
-      }
-    }
-    return items.map((t) => {
-      if (!t.apiKey) return { ...t, clientName: null };
-      const hit = nameByApiKey.has(t.apiKey);
-      const clientName = hit ? (nameByApiKey.get(t.apiKey) ?? null) : null;
-      return { ...t, clientName };
-    });
+    return withClientDisplay(this.apiClientModel, items);
   }
 }

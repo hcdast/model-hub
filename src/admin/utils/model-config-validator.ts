@@ -73,7 +73,10 @@ export class ModelConfigValidator {
       });
     }
 
-    const upmCheck = validateMandatoryUnitPriceMap(config.unit_price_map);
+    // An explicitly disabled, empty-price configuration can be prepared before pricing is agreed.
+    // Partial/invalid prices remain invalid; enabling always requires complete prices.
+    const unpricedDraft = config.disabled === true && (config.unit_price_map === undefined || config.unit_price_map && typeof config.unit_price_map === 'object' && !Array.isArray(config.unit_price_map) && Object.keys(config.unit_price_map).length === 0);
+    const upmCheck = unpricedDraft ? { valid: true, errors: [] } : validateMandatoryUnitPriceMap(config.unit_price_map);
     if (!upmCheck.valid) {
       for (const msg of upmCheck.errors) {
         errors.push({ field: 'unit_price_map', message: msg, value: config.unit_price_map });

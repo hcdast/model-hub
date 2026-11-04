@@ -1,7 +1,7 @@
 // ===== 参数类型 =====
 
 /** 参数类型枚举 */
-export type ParamType = 'string' | 'number' | 'boolean' | 'array';
+export type ParamType = 'string' | 'number' | 'integer' | 'boolean' | 'array' | 'object';
 
 /** 客户端/管理端表单展示控件类型（可选；未设置时由运行时推断） */
 export type ParamUIType =
@@ -13,7 +13,9 @@ export type ParamUIType =
   | 'textarea'
   | 'tags'
   | 'radio'
-  | 'password';
+  | 'password'
+  | 'upload'
+  | 'json';
 
 /** 允许的 ui_type 白名单（与校验器一致） */
 export const ALLOWED_PARAM_UI_TYPES: readonly ParamUIType[] = [
@@ -26,6 +28,8 @@ export const ALLOWED_PARAM_UI_TYPES: readonly ParamUIType[] = [
   'tags',
   'radio',
   'password',
+  'upload',
+  'json',
 ] as const;
 
 /**
@@ -64,6 +68,26 @@ export interface ParamDefinition {
   extra_credit_multiplier?: number;
   /** 标记为 true 时，创建任务时跳过该字段的参数校验（直接透传） */
   skipValidation?: boolean;
+  items?: ParamDefinition;
+  properties?: ParamDefinitions;
+  additionalProperties?: boolean;
+  format?: 'uri';
+  multipleOf?: number;
+  example?: any;
+  media?: MediaConstraints;
+  sizeRules?: ImageSizeRules;
+}
+
+export interface NumericRange { min?: number; max?: number; exclusive?: boolean }
+export interface ImageSizeRules {
+  minSide?: number; maxSide?: number; minTotalPixels?: number; maxTotalPixels?: number;
+  minAspectRatio?: number; maxAspectRatio?: number; sizeSeparator?: 'x' | '*';
+}
+export interface MediaConstraints {
+  kind: 'image' | 'video' | 'audio'; accept?: string[]; maxBytes?: number; referencePrefix?: string;
+  width?: NumericRange; height?: NumericRange; resolution?: NumericRange; aspectRatio?: NumericRange;
+  duration?: NumericRange; totalDuration?: NumericRange;
+  maxInputOutputSeconds?: number; outputDurationField?: string;
 }
 
 /** 模型参数定义集合 */
@@ -113,6 +137,14 @@ export interface ParamDocItem {
   minItems?: number;
   maxItems?: number;
   enumDependsOn?: ParamEnumDependsOn;
+  items?: ParamDefinition;
+  properties?: ParamDefinitions;
+  additionalProperties?: boolean;
+  format?: 'uri';
+  multipleOf?: number;
+  example?: any;
+  media?: ParamDefinition['media'];
+  sizeRules?: ImageSizeRules;
 }
 
 /** 模型参数文档 */

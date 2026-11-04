@@ -1,8 +1,10 @@
-export interface WorkflowAssetMinioConfig {
+export interface WorkflowAssetS3Config {
   endPoint: string;
   port: number;
   useSSL: boolean;
   bucket: string;
+  accessKeyId: string;
+  secretAccessKey: string;
   region?: string;
   publicBaseUrl: string;
   pathPrefix?: string;
@@ -10,12 +12,34 @@ export interface WorkflowAssetMinioConfig {
   allowInsecureHttp?: boolean;
 }
 
+export type WorkflowAssetMinioConfig = WorkflowAssetS3Config;
+export type WorkflowAssetS3Provider = 'minio' | 'datacapsule' | 'qiniu';
+
 export interface WorkflowAssetStorageConfig {
-  provider: 'storagesvc' | 'minio';
+  provider: 'storagesvc' | WorkflowAssetS3Provider;
   minio?: WorkflowAssetMinioConfig;
+  datacapsule?: WorkflowAssetS3Config;
+  qiniu?: WorkflowAssetS3Config;
+}
+
+export interface PortalAuthConfig {
+  publicUrl?: string;
+  jwtSecret?: string;
+  accessTokenExpires?: string;
+  refreshTokenExpiresDays?: number;
+  google?: { clientId?: string; clientSecret?: string };
+  github?: { clientId?: string; clientSecret?: string };
+  smtp?: {
+    host?: string;
+    port?: number;
+    user?: string;
+    pass?: string;
+    from?: string;
+  };
 }
 
 export interface AppConfig {
+  portalAuth?: PortalAuthConfig;
   workflowAssetStorage?: WorkflowAssetStorageConfig;
   mongodb: {
     uri: string;

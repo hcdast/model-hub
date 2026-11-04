@@ -9,6 +9,7 @@ import {
   WorkflowTemplate,
   WorkflowTemplateDocument,
 } from '../database/schemas/workflow-template.schema';
+import { CreateWorkflowTemplateDto, UpdateWorkflowTemplateDto, ListTemplateCatalogDto } from './dto/workflow-template.dto';
 
 /**
  * 工作流模板服务
@@ -26,15 +27,7 @@ export class WorkflowTemplateService {
    * 创建模板
    */
   async create(
-    dto: {
-      name: string;
-      description?: string;
-      category: string;
-      tags?: string[];
-      thumbnail?: string;
-      workflowDefinition: any;
-      creatorId?: string;
-    },
+    dto: CreateWorkflowTemplateDto & { creatorId?: string },
   ): Promise<WorkflowTemplateDocument> {
     this.logger.log(`创建模板: name=${dto.name}`);
 
@@ -60,14 +53,7 @@ export class WorkflowTemplateService {
    */
   async update(
     id: string,
-    dto: Partial<{
-      name: string;
-      description: string;
-      category: string;
-      tags: string[];
-      thumbnail: string;
-      workflowDefinition: any;
-    }>,
+    dto: UpdateWorkflowTemplateDto,
   ): Promise<WorkflowTemplateDocument> {
     this.logger.log(`更新模板: id=${id}`);
 
@@ -96,8 +82,7 @@ export class WorkflowTemplateService {
   /**
    * 查询公开模板列表
    */
-  async listPublic(query: {
-    category?: string;
+  async listPublic(query: ListTemplateCatalogDto & {
     tags?: string[];
     page?: number;
     pageSize?: number;
@@ -121,14 +106,27 @@ export class WorkflowTemplateService {
       filter.category = category;
     }
 
+    if (query.source === 'official') {
+      filter.$or = [{ source: 'official' }, { source: { $exists: false } }];
+    } else if (query.source) {
+      filter.source = query.source;
+    }
+    if (query.scenario) filter.scenario = query.scenario;
+    if (query.search?.trim()) {
+      const search = query.search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter.$and = [{ $or: ['name', 'description', 'tags', 'authorName', 'workflowDefinition.nodes.data.modelId'].map(field => ({ [field]: { $regex: search, $options: 'i' } })) }];
+    }
+
     if (tags?.length) {
       filter.tags = { $all: tags.slice(0, 20) };
     }
 
     const skip = (page - 1) * pageSize;
 
+    const sort: Record<string, 1 | -1> = query.order === 'name' ? { name: 1, _id: 1 }
+      : query.order === 'updated' ? { updatedAt: -1, _id: -1 } : { createdAt: -1, _id: -1 };
     const [items, total] = await Promise.all([
-      this.templateModel.find(filter).sort({ createdAt: -1 }).skip(skip).limit(pageSize).exec(),
+      this.templateModel.find(filter).sort(sort).skip(skip).limit(pageSize).exec(),
       this.templateModel.countDocuments(filter).exec(),
     ]);
 

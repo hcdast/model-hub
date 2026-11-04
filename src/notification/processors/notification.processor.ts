@@ -61,8 +61,15 @@ export class NotificationProcessor {
       return;
     }
 
+    let channelResult;
+    try { channelResult = await channel.send(event, channelConfig, recipients); }
+    catch {
+      await this.createRecord({ ruleId, ruleName, eventType: event.type, severity: event.severity, channelType,
+        status: NotificationDispatchStatus.FAILED, attemptCount: attempt, error: '通知渠道执行异常', eventPayload: event.payload });
+      throw new Error('通知渠道执行异常');
+    }
     try {
-      const result = await channel.send(event, channelConfig, recipients);
+      const result = channelResult;
 
       if (result.success) {
         await this.createRecord({
@@ -87,6 +94,7 @@ export class NotificationProcessor {
           error: result.error,
           eventPayload: event.payload,
         });
+        if (result.retryable === false) return;
         // Throw to trigger Bull retry
         throw new Error(result.error ?? 'Channel send failed');
       }

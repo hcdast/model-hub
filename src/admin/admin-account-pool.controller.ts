@@ -1,3 +1,5 @@
+import { ConflictException } from '@nestjs/common';
+import { expectedRevision, revisionMatch, validateConfigInput } from './utils/config-input';
 import {
   Body,
   Controller,
@@ -155,6 +157,7 @@ export class AdminAccountPoolController {
     },
     @Req() req: Request,
   ) {
+    validateConfigInput(body);
     const admin = (req as any).adminUser as { username?: string };
     const operator = admin?.username || 'unknown';
 
@@ -233,6 +236,7 @@ export class AdminAccountPoolController {
     @Param('id') id: string,
     @Body()
     body: {
+      expected_revision?: number;
       account_alias?: string;
       api_key?: string;
       base_url?: string;
@@ -247,12 +251,14 @@ export class AdminAccountPoolController {
     },
     @Req() req: Request,
   ) {
+    validateConfigInput(body);
     const admin = (req as any).adminUser as { username?: string };
     const operator = admin?.username || 'unknown';
 
     const existing = await this.accountModel.findById(id).lean();
     if (!existing) return { code: 3001, message: 'Account not found' };
 
+    expectedRevision(existing, body.expected_revision);
     // Validate weight if provided
     if (body.weight !== undefined) {
       if (typeof body.weight !== 'number' || body.weight <= 0) {
@@ -277,9 +283,13 @@ export class AdminAccountPoolController {
 
     const setDoc: Record<string, unknown> = {};
     if (body.account_alias !== undefined) setDoc.account_alias = body.account_alias;
-    if (body.api_key !== undefined) setDoc.api_key = body.api_key;
+    if (body.api_key?.trim() && body.api_key !== maskApiKey(existing.api_key)) setDoc.api_key = body.api_key.trim();
     if (body.base_url !== undefined) setDoc.base_url = body.base_url;
-    if (body.extra_credentials !== undefined) setDoc.extra_credentials = body.extra_credentials;
+    if (body.extra_credentials !== undefined) {
+      const previous = existing.extra_credentials || {};
+      const masked = maskExtraCredentials(previous);
+      setDoc.extra_credentials = Object.fromEntries(Object.entries(body.extra_credentials).map(([key, value]) => [key, (value === '' || value === masked[key]) && previous[key] !== undefined ? previous[key] : value]));
+    }
     if (body.description !== undefined) setDoc.description = body.description;
     if (body.weight !== undefined) setDoc.weight = body.weight;
     if (body.enabled !== undefined) setDoc.enabled = body.enabled;
@@ -288,11 +298,13 @@ export class AdminAccountPoolController {
     if (body.tags !== undefined) setDoc.tags = body.tags;
     if (body.metadata !== undefined) setDoc.metadata = body.metadata;
 
-    const updated = await this.accountModel.findByIdAndUpdate(
-      id,
+    const updated = await this.accountModel.findOneAndUpdate(
+      { _id: id, ...revisionMatch(existing) },
       { $set: setDoc, $inc: { revision: 1 } },
       { new: true },
     );
+
+    if (!updated) throw new ConflictException('配置已被修改，请刷新后重试');
 
     // Refresh pool so changes take effect quickly
     await this.accountPoolService.refreshPool(existing.provider_name);
@@ -307,8 +319,6 @@ export class AdminAccountPoolController {
       },
       req.ip,
     );
-
-    if (!updated) return { code: 0, data: null };
 
     const plain = updated.toObject();
     return {

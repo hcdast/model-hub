@@ -1,5 +1,7 @@
 import {
   IsEnum,
+  IsString,
+  MaxLength,
   IsOptional,
   IsInt,
   Min,
@@ -30,8 +32,8 @@ export class ProviderHealthOverviewDto {
   @ApiProperty({ description: '滑动窗口样本数' })
   sampleCount!: number;
 
-  @ApiProperty({ description: '最后状态转换时间（ISO 8601）' })
-  lastTransitionAt!: string;
+  @ApiProperty({ description: '最后状态转换时间（ISO 8601），从未转换时为 null', nullable: true })
+  lastTransitionAt!: string | null;
 
   @ApiProperty({ description: '是否有手动覆盖' })
   hasManualOverride!: boolean;
@@ -41,6 +43,8 @@ export class ProviderHealthOverviewDto {
  * 熔断器手动覆盖请求 DTO
  */
 export class CircuitBreakerOverrideDto {
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
+  @IsOptional() @IsInt() @Min(60) @Max(86400) ttlSeconds?: number;
   @ApiProperty({
     description: '目标熔断状态（仅允许 OPEN 或 CLOSED）',
     enum: [CircuitState.OPEN, CircuitState.CLOSED],

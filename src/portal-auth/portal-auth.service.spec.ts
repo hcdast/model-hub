@@ -6,6 +6,7 @@ import { Types } from 'mongoose';
 import { PortalAuthService } from './portal-auth.service';
 import { PortalUser } from '../database/schemas/portal-user.schema';
 import { PortalRefreshToken } from '../database/schemas/portal-refresh-token.schema';
+import { APP_CONFIG } from '../config/config.module';
 
 describe('PortalAuthService resetPassword', () => {
   const userId = '507f1f77bcf86cd799439011';
@@ -13,30 +14,20 @@ describe('PortalAuthService resetPassword', () => {
   const userModel = { findById: jest.fn(), findOneAndUpdate: jest.fn() };
   const refreshTokenModel = { updateMany: jest.fn() };
   const save = jest.fn();
-  const envKeys = ['PORTAL_JWT_SECRET', 'PORTAL_ACCESS_TOKEN_EXPIRES', 'PORTAL_REFRESH_TOKEN_EXPIRES_DAYS'] as const;
-  const previousEnv = envKeys.map((key) => process.env[key]);
+  const config = { portalAuth: { jwtSecret: 'portal-password-reset-test-secret-32-bytes', accessTokenExpires: '15m', refreshTokenExpiresDays: 7 } };
   let service: PortalAuthService;
   let user: { _id: Types.ObjectId; passwordHash: string; authVersion?: number; deletedAt: Date | null; save: typeof save };
 
   beforeAll(async () => {
-    process.env.PORTAL_JWT_SECRET = 'portal-password-reset-test-secret-32-bytes';
-    process.env.PORTAL_ACCESS_TOKEN_EXPIRES = '15m';
-    process.env.PORTAL_REFRESH_TOKEN_EXPIRES_DAYS = '7';
     const module = await Test.createTestingModule({
       providers: [
         PortalAuthService,
+        { provide: APP_CONFIG, useValue: config },
         { provide: getModelToken(PortalUser.name), useValue: userModel },
         { provide: getModelToken(PortalRefreshToken.name), useValue: refreshTokenModel },
       ],
     }).compile();
     service = module.get(PortalAuthService);
-  });
-
-  afterAll(() => {
-    envKeys.forEach((key, index) => {
-      if (previousEnv[index] === undefined) delete process.env[key];
-      else process.env[key] = previousEnv[index];
-    });
   });
 
   beforeEach(async () => {

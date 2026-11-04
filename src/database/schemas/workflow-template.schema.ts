@@ -52,6 +52,21 @@ export class WorkflowTemplate {
   /** 模板版本号 */
   @Prop({ default: 1 })
   version!: number;
+
+  @Prop({ enum: ['official', 'community'], default: 'official' })
+  source!: 'official' | 'community';
+
+  @Prop({ enum: ['ecommerce', 'marketing', 'character', 'video', 'audio', 'image'] })
+  scenario?: string;
+
+  @Prop()
+  authorName?: string;
+
+  @Prop()
+  instructions?: string;
+
+  @Prop({ type: [MongooseSchema.Types.Mixed], default: [] })
+  examples!: Array<{ title: string; mediaType: 'image' | 'video' | 'audio'; inputUrl?: string; inputMediaType?: 'image' | 'video' | 'audio'; outputUrl: string; description?: string }>;
 }
 
 /**
@@ -81,3 +96,4 @@ export const WorkflowTemplateSchema = SchemaFactory.createForClass(WorkflowTempl
 
 /** 按分类和公开状态查询 */
 WorkflowTemplateSchema.index({ category: 1, isPublic: 1 });
+WorkflowTemplateSchema.index({ isPublic: 1, updatedAt: -1, _id: -1 });

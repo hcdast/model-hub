@@ -26,6 +26,7 @@ export function validateChannelConfig(
       if (!config.webhookUrl || typeof config.webhookUrl !== 'string' || config.webhookUrl.trim() === '') {
         errors.push('wecom channel requires a non-empty webhookUrl');
       }
+      if (config.webhookUrl) { try { const u = new URL(config.webhookUrl); if (u.protocol !== 'https:' || u.username || u.password) throw new Error(); } catch { errors.push('Webhook URL 必须为 HTTPS 地址'); } }
       break;
     }
     case NotificationChannelType.EMAIL: {
@@ -35,6 +36,8 @@ export function validateChannelConfig(
           errors.push(`email channel requires ${field}`);
         }
       }
+      if (!Number.isInteger(config.smtpPort) || config.smtpPort < 1 || config.smtpPort > 65535) errors.push('SMTP 端口必须为 1 至 65535 的整数');
+      if (typeof config.from !== 'string' || !config.from.includes('@')) errors.push('发件人邮箱无效');
       break;
     }
     case NotificationChannelType.IN_APP: {

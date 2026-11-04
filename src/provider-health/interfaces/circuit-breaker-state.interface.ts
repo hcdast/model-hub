@@ -21,7 +21,7 @@ export interface CircuitBreakerState {
   openedAt: string | null;
 
   /** 最后一次状态转换时间（ISO 8601） */
-  lastTransitionAt: string;
+  lastTransitionAt: string | null;
 
   /** 连续失败次数 */
   consecutiveFailures: number;
@@ -37,5 +37,7 @@ export interface CircuitBreakerState {
     operator: string;
     /** 操作时间（ISO 8601） */
     timestamp: string;
+    reason?: string;
+    expiresAt?: string;
   } | null;
 }

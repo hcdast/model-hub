@@ -1,7 +1,7 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { isValidObjectId, Model } from 'mongoose';
 import { ModelConfig, ModelConfigDocument } from '../database/schemas/model-config.schema';
 import { generateParamDoc } from '../common/utils/param-doc-generator';
 import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
@@ -57,10 +57,10 @@ export class ModelConfigController {
   })
   @ApiQuery({ name: 'model_id', required: true })
   @ApiResponse({ status: 200, description: '查询成功' })
-  async getModelByName(@Query('model_id') modelId?: string) {
+  async getModelByName(@Query('model_id') modelId?: string, @Query('model_type') modelType?: string, @Query('provider') provider?: string, @Query('config_id') configId?: string) {
     if (!modelId) return { code: 1001, message: 'model_id is required' };
-    const decoded = decodeURIComponent(modelId);
-    const model = await this.modelConfigModel.findOne({ model_id: decoded }).lean();
+    if ([modelId, modelType, provider, configId].some(v => v !== undefined && typeof v !== 'string') || (configId && !isValidObjectId(configId))) throw new BadRequestException('Invalid model selector');
+    const model = await this.modelConfigModel.findOne({ model_id: modelId, ...(modelType ? { model_type: modelType } : {}), ...(provider ? { provider } : {}), ...(configId ? { _id: configId } : {}) }).lean();
     if (!model) return { code: 3001, message: 'Model not found' };
     return { code: 0, data: model };
   }
@@ -76,12 +76,17 @@ export class ModelConfigController {
   async getParamsDoc(
     @Query('model_id') modelId?: string,
     @Query('model_type') modelType?: string,
+    @Query('provider') provider?: string,
+    @Query('config_id') configId?: string,
   ) {
     if (!modelId && !modelType) {
       return { code: 1001, message: 'model_id 或 model_type 至少提供一个' };
     }
 
     const query: any = { disabled: { $ne: true } };
+    if ([modelId, modelType, provider, configId].some(v => v !== undefined && typeof v !== 'string') || (configId && !isValidObjectId(configId))) throw new BadRequestException('Invalid model selector');
+    if (provider) query.provider = provider;
+    if (configId) query._id = configId;
     if (modelId) query.model_id = decodeURIComponent(modelId);
     if (modelType) {
       const t = modelType.trim();

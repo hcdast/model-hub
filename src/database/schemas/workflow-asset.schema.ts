@@ -13,7 +13,7 @@ export class WorkflowAsset {
   @Prop() text?: string;
   @Prop({ required: true }) mimeType!: string;
   @Prop() size?: number;
-  @Prop({ required: true, enum: ['upload', 'output-reference', 'output-text'] }) source!: string;
+  @Prop({ required: true, enum: ['upload', 'output-reference', 'output-text', 'drama-archive'] }) source!: string;
   @Prop() workflowId?: string;
   @Prop() runId?: string;
   @Prop() nodeId?: string;

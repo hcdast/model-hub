@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Body, Query, UseGuards, Req, Param } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Query, UseGuards, Req, Param, HttpException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -8,6 +8,7 @@ import { PermissionGuard } from './guards/permission.guard';
 import { RequirePermissions } from './decorators/require-permissions.decorator';
 import { CreateModelConfigDto } from './dto/create-model-config.dto';
 import { UpdateModelConfigDto } from './dto/update-model-config.dto';
+import { BulkDeleteModelConfigDto, DeleteModelConfigDto } from './dto/delete-model-config.dto';
 import { ModelConfigService } from './model-config.service';
 import { pickCreditReferenceUnitFromPriceMap, validateMandatoryUnitPriceMap } from '../billing/unit-price-map.util';
 
@@ -40,6 +41,7 @@ export class AdminModelConfigController {
   })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'pageSize', required: false })
+  @ApiQuery({ name: 'sort_order', required: false, enum: ['asc', 'desc'], description: '按更新时间排序，默认 desc（最新在前）' })
   @ApiResponse({ status: 200, description: '查询成功' })
   async list(
     @Query('provider') provider?: string,
@@ -49,6 +51,7 @@ export class AdminModelConfigController {
     @Query('includeDisabled') includeDisabled?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
+    @Query('sort_order') sortOrder = 'desc',
   ) {
     const query: Record<string, unknown> = {};
     if (provider) query.provider = provider;
@@ -74,7 +77,7 @@ export class AdminModelConfigController {
     const [items, total] = await Promise.all([
       this.modelConfigModel
         .find(query)
-        .sort({ sort: -1, model_id: 1 })
+        .sort({ update_time: sortOrder === 'asc' ? 1 : -1, model_id: 1, _id: 1 })
         .skip((p - 1) * ps)
         .limit(ps)
         .lean(),
@@ -84,12 +87,46 @@ export class AdminModelConfigController {
     return { code: 0, data: { items, total, page: p, pageSize: ps } };
   }
 
+  @Post('import/preview')
+  @RequirePermissions('model:read')
+  async previewImport(@Body() body: any, @Req() req: any) {
+    return { code: 0, data: await this.modelConfigService.previewImport(body, req.user?.id || req.user?.userId || req.user?.sub) };
+  }
+
+  @Post('import/commit')
+  @RequirePermissions('model:create', 'model:update')
+  async commitImport(@Body() body: { planId: string }, @Req() req: any) {
+    return { code: 0, data: await this.modelConfigService.commitImport(body.planId, req.user?.id || req.user?.userId || req.user?.sub) };
+  }
+
+  @Put('bulk')
+  @RequirePermissions('model:update')
+  async bulk(@Body() body: { items: Array<{ id: string; expected_revision: number }>; patch: Record<string, any> }, @Req() req: any) {
+    return { code: 0, data: await this.modelConfigService.bulkUpdate(body.items, body.patch, req.user?.id || req.user?.sub) };
+  }
+
+  @Delete('bulk')
+  @RequirePermissions('model:delete')
+  @ApiOperation({ summary: '批量删除模型配置（逐条返回结果）' })
+  async bulkDelete(@Body() body: BulkDeleteModelConfigDto) {
+    return { code: 0, data: await this.modelConfigService.bulkDelete(body.items) };
+  }
+
+  @Delete(':id')
+  @RequirePermissions('model:delete')
+  @ApiOperation({ summary: '删除模型配置' })
+  async remove(@Param('id') id: string, @Body() body: DeleteModelConfigDto) {
+    return { code: 0, data: await this.modelConfigService.deleteConfig(id, body.expected_revision) };
+  }
+
   @Get('templates')
   @RequirePermissions('model:read')
   @ApiOperation({ summary: '获取配置模板' })
   @ApiResponse({ status: 200, description: '查询成功' })
   async getTemplates() {
     const templates = [
+      { type: 'llm-generation', name: 'MaaS LLM · 编剧（待定价）', template: this.modelConfigService.getConfigTemplate('llm-generation') },
+      { type: 'voice-generation', name: 'AKOOL OpenAPI · TTS（待定价）', template: this.modelConfigService.getConfigTemplate('voice-generation') },
       {
         type: 'image-generation',
         name: '图像生成模型',
@@ -146,7 +183,7 @@ export class AdminModelConfigController {
   @ApiOperation({ summary: '启用/禁用模型' })
   @ApiResponse({ status: 200, description: '操作成功' })
   async toggle(
-    @Body() body: { id?: string; model_id?: string; provider?: string; disabled: boolean },
+    @Body() body: { id?: string; model_id?: string; provider?: string; disabled: boolean; expected_revision?: number },
   ) {
     if (typeof body.disabled !== 'boolean') return { code: 1001, message: 'disabled must be boolean' };
 
@@ -160,12 +197,17 @@ export class AdminModelConfigController {
       return { code: 1001, message: 'id or model_id is required' };
     }
 
-    const result = await this.modelConfigModel.findOneAndUpdate(
-      filter,
-      { $set: { disabled: body.disabled, update_time: Date.now() } },
-      { new: true },
-    );
-    if (!result) return { code: 3001, message: 'Model not found' };
+    const current = await this.modelConfigModel.findOne(filter).lean();
+    if (!current) return { code: 3001, message: 'Model not found' };
+    const validation = this.modelConfigService.validateConfig({ ...current, disabled: body.disabled });
+    if (!validation.valid) return {
+      code: 1001,
+      message: validation.errors.some(error => error.field === 'unit_price_map')
+        ? '启停失败：模型定价不完整，请先在“定价”中填写并保存价格表'
+        : '模型配置校验失败',
+      errors: validation.errors,
+    };
+    const result = await this.modelConfigService.updateConfig(String(current._id), { disabled: body.disabled, expected_revision: body.expected_revision }, 'admin');
     return { code: 0, data: result };
   }
 
@@ -239,7 +281,7 @@ export class AdminModelConfigController {
   @ApiResponse({ status: 404, description: '模型配置不存在' })
   async updatePricing(
     @Param('id') id: string,
-    @Body() body: { unit_price_map: Record<string, any> },
+    @Body() body: { unit_price_map: Record<string, any>; expected_revision?: number },
   ) {
     if (!body.unit_price_map || typeof body.unit_price_map !== 'object' || Object.keys(body.unit_price_map).length === 0) {
       return { code: 1001, message: 'unit_price_map 不能为空' };
@@ -249,15 +291,7 @@ export class AdminModelConfigController {
       return { code: 1001, message: upmCheck.errors.join('；') };
     }
 
-    const result = await this.modelConfigModel.findByIdAndUpdate(
-      id,
-      { $set: { unit_price_map: body.unit_price_map, update_time: Date.now() } },
-      { new: true },
-    );
-
-    if (!result) {
-      return { code: 3001, message: '模型配置不存在' };
-    }
+    const result = await this.modelConfigService.updateConfig(id, { unit_price_map: body.unit_price_map, expected_revision: body.expected_revision }, 'admin');
 
     return { code: 0, data: result, message: '定价更新成功' };
   }
@@ -296,6 +330,30 @@ export class AdminModelConfigController {
   @Put(':id')
   @RequirePermissions('model:update')
   @ApiOperation({ summary: '更新模型配置' })
+  async updateActive(@Param('id') id: string, @Body() dto: UpdateModelConfigDto, @Req() req: any) {
+    return this.update(id, dto, req);
+  }
+
+  @Put(':id/draft')
+  @RequirePermissions('model:update')
+  async saveDraft(@Param('id') id: string, @Body() body: { config: Record<string, any>; expected_revision: number; expected_draft_revision?: number }) {
+    return { code: 0, data: await this.modelConfigService.saveDraft(id, body.config || {}, body.expected_revision, body.expected_draft_revision) };
+  }
+
+  @Post(':id/publish')
+  @RequirePermissions('model:update')
+  async publish(@Param('id') id: string, @Body() body: { expected_revision: number; expected_draft_revision?: number }) {
+    return { code: 0, data: await this.modelConfigService.publish(id, body.expected_revision, false, body.expected_draft_revision) };
+  }
+
+  @Post(':id/rollback')
+  @RequirePermissions('model:update')
+  async rollback(@Param('id') id: string, @Body() body: { expected_revision: number; expected_draft_revision?: number; target_revision?: number }) {
+    return { code: 0, data: await this.modelConfigService.publish(id, body.expected_revision, true, body.expected_draft_revision, body.target_revision) };
+  }
+
+  @RequirePermissions('model:update')
+  @ApiOperation({ summary: '更新模型配置' })
   @ApiResponse({ status: 200, description: '更新成功' })
   @ApiResponse({ status: 400, description: '数据验证失败' })
   @ApiResponse({ status: 404, description: '模型配置不存在' })
@@ -314,6 +372,7 @@ export class AdminModelConfigController {
         message: '更新成功',
       };
     } catch (error: any) {
+      if (error instanceof HttpException) throw error;
       // 处理模型不存在错误
       if (error.message?.includes('模型配置不存在')) {
         return {

@@ -220,7 +220,7 @@ export class WaveSpeedAdapter implements IProviderAdapter {
   /** 仅转发 WaveSpeed 文档支持的 options 字段，避免把 featureType 等内部字段塞进请求体导致 400。 */
   private mergeWhitelistedWaveOptions(body: Record<string, any>, options?: Record<string, any>): void {
     if (!options || typeof options !== 'object') return;
-    const skip = new Set(['featureType', 'metadata', 'callbackUrl', 'callbackSecret', 'priority']);
+    const skip = new Set(['featureType', 'metadata', 'callbackUrl', 'callbackSecret', 'priority', 'configId', 'configRevision']);
     const allow = new Set([
       'size', 'quality', 'seed', 'enable_sync_mode', 'enable_base64_output',
       'negative_prompt', 'aspect_ratio', 'duration', 'generate_audio', 'cfg_scale', 'guidance_scale',

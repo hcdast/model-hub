@@ -18,6 +18,7 @@ import { resolveProcessType } from './common/process-type.util';
 async function bootstrap() {
   const processType = resolveProcessType(process.env.PROCESS_TYPE);
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  app.useBodyParser('json', { limit: '10mb' });
   const logger = new Logger('Bootstrap');
   const port = parseInt(process.env.PORT || '3000', 10);
 
@@ -44,6 +45,7 @@ async function bootstrap() {
       if (p.startsWith('/api/v1/') || p.startsWith('/apidoc') || p.startsWith('/health')) return next();
       if (/\.[a-zA-Z0-9]+$/.test(p)) return next();
       if (!existsSync(indexHtml)) return next();
+      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
       res.sendFile(indexHtml, (err) => (err ? next(err) : undefined));
     });
   }

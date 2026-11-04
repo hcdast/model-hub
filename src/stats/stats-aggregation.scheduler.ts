@@ -12,7 +12,7 @@ export class StatsAggregationScheduler {
     private readonly lockService: RedisLockService,
   ) {}
 
-  @Cron('0 1 * * *')
+  @Cron('0 1 * * *', { timeZone: 'UTC' })
   async aggregateDailyStats(): Promise<void> {
     const lockToken = await this.lockService.acquire(
       'stats:daily-aggregation',
@@ -33,7 +33,7 @@ export class StatsAggregationScheduler {
 
   private getYesterdayDateString(): string {
     const d = new Date();
-    d.setDate(d.getDate() - 1);
+    d.setUTCDate(d.getUTCDate() - 1);
     return d.toISOString().slice(0, 10);
   }
 }

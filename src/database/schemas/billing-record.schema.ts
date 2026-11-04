@@ -1,4 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Schema as MongooseSchema } from 'mongoose';
 import { HydratedDocument } from 'mongoose';
 
 export type BillingRecordDocument = HydratedDocument<BillingRecord>;
@@ -9,6 +10,11 @@ export type BillingRecordDocument = HydratedDocument<BillingRecord>;
  */
 @Schema({ timestamps: true, collection: 'billing_records' })
 export class BillingRecord {
+  @Prop() reservationTracked?: boolean;
+  @Prop({ type: MongooseSchema.Types.Mixed })
+  pricingSnapshot?: { revision: number; unit_price_map: Record<string, any>; pricing?: Record<string, any> };
+  @Prop({ enum: ['characters'] }) usageMeasure?: string;
+  @Prop({ min: 0 }) maxCharge?: number;
   /** 关联的任务 ID */
   @Prop({ required: true })
   taskId!: string;

@@ -6,6 +6,7 @@ export type TaskDocument = HydratedDocument<Task>;
 
 @Schema({ timestamps: true, collection: 'tasks' })
 export class Task {
+  @Prop({ type: Object }) reconciliation?: Record<string, any>;
   @Prop({ required: true })
   taskId!: string;
 

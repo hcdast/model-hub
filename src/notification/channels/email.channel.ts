@@ -9,6 +9,7 @@ import {
 
 const MAX_RETRIES = 3;
 const BACKOFF_BASE_MS = 1000;
+const escapeHtml = (value: unknown) => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
 
 @Injectable()
 export class EmailChannel implements INotificationChannel {
@@ -50,15 +51,15 @@ export class EmailChannel implements INotificationChannel {
     const rows = events
       .map((e) => {
         const payloadHtml = Object.entries(e.payload ?? {})
-          .map(([k, v]) => `<li><strong>${k}</strong>: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}</li>`)
+          .map(([k, v]) => `<li><strong>${escapeHtml(k)}</strong>: ${escapeHtml(typeof v === 'object' ? JSON.stringify(v) : v)}</li>`)
           .join('');
         const ts = e.timestamp instanceof Date && !isNaN(e.timestamp.getTime())
           ? e.timestamp.toISOString()
           : String(e.timestamp);
         return `<div style="margin-bottom:16px;padding:12px;border:1px solid #e0e0e0;border-radius:4px;">
-  <p><strong>事件类型:</strong> ${e.type}</p>
-  <p><strong>严重级别:</strong> ${e.severity}</p>
-  <p><strong>时间:</strong> ${ts}</p>
+  <p><strong>事件类型:</strong> ${escapeHtml(e.type)}</p>
+  <p><strong>严重级别:</strong> ${escapeHtml(e.severity)}</p>
+  <p><strong>时间:</strong> ${escapeHtml(ts)}</p>
   <ul>${payloadHtml}</ul>
 </div>`;
       })
@@ -80,6 +81,9 @@ ${rows}
       host: config.smtpHost,
       port: config.smtpPort,
       secure: config.smtpPort === 465,
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
       auth: { user: config.smtpUser, pass: config.smtpPass },
     });
 
@@ -92,9 +96,16 @@ ${rows}
           subject,
           html,
         });
+        if (Array.isArray(info.rejected) && info.rejected.length) {
+          // Do not retry recipients already accepted by SMTP, which would duplicate mail.
+          return { success: false, retryable: false, error: `SMTP 部分投递失败：${info.rejected.length} 个接收方被拒绝` };
+        }
+        if (!Array.isArray(info.accepted) || info.accepted.length === 0) return { success: false, error: 'SMTP 未接受任何接收方' };
         return { success: true, responseData: info };
       } catch (err: any) {
-        lastError = err.message ?? String(err);
+        const code = /^[A-Z_]{2,24}$/.test(err.code || '') ? err.code : 'UNKNOWN';
+        const responseCode = Number.isInteger(err.responseCode) ? ` / ${err.responseCode}` : '';
+        lastError = `SMTP 投递失败（${code}${responseCode}）`;
         this.logger.warn(`Email send attempt ${attempt}/${MAX_RETRIES} failed: ${lastError}`);
         if (attempt < MAX_RETRIES) {
           await this.sleep(BACKOFF_BASE_MS * Math.pow(2, attempt - 1));

@@ -5,13 +5,14 @@ import {
   ModelParamDoc,
 } from '../interfaces/param-definition.interface';
 import { ModelConfig } from '../../database/schemas/model-config.schema';
+import { publicDefinitions } from './model-contract';
 
 /**
  * 根据 ModelConfig 生成结构化参数文档（JSON 格式）。
  * 排除 hide === true 的参数。
  */
 export function generateParamDoc(modelConfig: ModelConfig): ModelParamDoc {
-  const definitions = (modelConfig.params ?? {}) as ParamDefinitions;
+  const definitions = publicDefinitions((modelConfig.params ?? {}) as ParamDefinitions);
   const params: ParamDocItem[] = [];
 
   for (const [name, def] of Object.entries(definitions)) {
@@ -35,6 +36,9 @@ export function generateParamDoc(modelConfig: ModelConfig): ModelParamDoc {
     if (def.minItems !== undefined) item.minItems = def.minItems;
     if (def.maxItems !== undefined) item.maxItems = def.maxItems;
     if (def.enumDependsOn !== undefined) item.enumDependsOn = def.enumDependsOn;
+    for (const key of ['items', 'properties', 'additionalProperties', 'format', 'multipleOf', 'example', 'media', 'sizeRules'] as const) {
+      if (def[key] !== undefined) (item as any)[key] = def[key];
+    }
 
     params.push(item);
   }

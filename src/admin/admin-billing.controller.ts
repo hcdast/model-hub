@@ -1,3 +1,6 @@
+import { BadRequestException } from '@nestjs/common';
+import { BillingQueryDto } from '../billing/dto/billing-query.dto';
+import { csvCell } from './utils/csv';
 import {
   Body,
   Controller,
@@ -20,6 +23,10 @@ import { PermissionGuard } from './guards/permission.guard';
 import { RequirePermissions } from './decorators/require-permissions.decorator';
 import { BillingService } from '../billing/billing.service';
 import { WalletService } from '../billing/wallet.service';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { ApiClient, ApiClientDocument } from '../database/schemas/api-client.schema';
+import { withClientDisplay, resolveAdminClientKey } from './utils/client-display';
 import { CreditWalletDto } from '../billing/dto/credit-wallet.dto';
 
 /**
@@ -36,6 +43,7 @@ export class AdminBillingController {
   constructor(
     private readonly billingService: BillingService,
     private readonly walletService: WalletService,
+    @InjectModel(ApiClient.name) private readonly clientModel?: Model<ApiClientDocument>,
   ) {}
 
   /**
@@ -43,6 +51,27 @@ export class AdminBillingController {
    *
    * 支持按 apiKey、model、billingPolicy、status、日期范围筛选，支持分页。
    */
+  @Post('records/export')
+  @RequirePermissions('billing:read')
+  async exportRecords(@Body() body: BillingQueryDto) {
+    const generatedAt = new Date().toISOString();
+    const endDate = body.endDate && body.endDate < generatedAt ? body.endDate : generatedAt;
+    const filters = { ...body, endDate, apiKey: await resolveAdminClientKey(this.clientModel!, body.apiKey), pageSize: 100 };
+    const rows: any[] = [];
+    let expectedTotal: number | undefined;
+    for (let page = 1; ; page++) {
+      const data = await this.billingService.listRecords({ ...filters, page });
+      expectedTotal ??= data.total;
+      if (data.total > 50000) throw new BadRequestException('导出上限为 50000 条，请缩小筛选范围');
+      if (data.total !== expectedTotal) throw new BadRequestException('导出期间记录数量变化，请重新导出');
+      rows.push(...await withClientDisplay(this.clientModel!, data.items as any[]));
+      if (rows.length >= data.total || !data.items.length) break;
+    }
+    const header = ['taskId', 'clientName', 'clientRef', 'maskedKey', 'model', 'provider', 'usageType', 'estimatedCost', 'actualCost', 'currency', 'billingPolicy', 'status', 'createdAt_UTC'];
+    const csv = '\uFEFF' + [header, ...rows.map(r => [r.taskId, r.clientName, r.clientRef, r.apiKey, r.model, r.provider, r.usageType, r.estimatedCost, r.actualCost, r.currency, r.billingPolicy, r.status, r.createdAt ? new Date(r.createdAt).toISOString() : ''])].map(row => row.map(csvCell).join(',')).join('\r\n');
+    return { code: 0, data: { csv, total: rows.length, generatedAt, timezone: 'UTC' } };
+  }
+
   @Get('records')
   @RequirePermissions('billing:read')
   @ApiOperation({ summary: '查询用量账单' })
@@ -64,12 +93,14 @@ export class AdminBillingController {
     @Query('end_date') endDate?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
+    @Query('taskId') taskId?: string,
   ) {
     const p = Math.max(1, parseInt(page, 10) || 1);
     const ps = Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20));
 
     const data = await this.billingService.listRecords({
-      apiKey,
+      taskId,
+      apiKey: await resolveAdminClientKey(this.clientModel!, apiKey),
       model,
       billingPolicy,
       status,
@@ -79,7 +110,7 @@ export class AdminBillingController {
       pageSize: ps,
     });
 
-    return { code: 0, data };
+    return { code: 0, data: { ...data, items: await withClientDisplay(this.clientModel!, data.items as any[]) } };
   }
 
   /**
@@ -108,6 +139,10 @@ export class AdminBillingController {
       endDate,
     });
 
+    if (groupBy === 'apiKey') {
+      const rows = await withClientDisplay(this.clientModel!, data.map(r => ({ ...r, apiKey: r._id })));
+      return { code: 0, data: rows.map((r: any) => ({ ...r, _id: r.clientName, apiKey: r.apiKey })) };
+    }
     return { code: 0, data };
   }
 
@@ -129,7 +164,8 @@ export class AdminBillingController {
     const p = Math.max(1, parseInt(page, 10) || 1);
     const ps = Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20));
     const data = await this.walletService.listWallets({ keyword, page: p, pageSize: ps });
-    return { code: 0, data };
+    const items = await withClientDisplay(this.clientModel!, data.items as any[]);
+    return { code: 0, data: { ...data, items: items.map((row: any) => ({ ...row, clientRef: row.clientRef || `wallet:${row._id}`, name: row.clientName })) } };
   }
 
   /**
@@ -141,6 +177,7 @@ export class AdminBillingController {
   @ApiParam({ name: 'apiKey', description: '客户端主键（apiKey）' })
   @ApiResponse({ status: 200, description: '成功' })
   async getWallet(@Param('apiKey') apiKey: string) {
+    apiKey = (await resolveAdminClientKey(this.clientModel!, apiKey))!;
     const data = await this.walletService.getBalance(apiKey);
     return { code: 0, data };
   }
@@ -165,13 +202,14 @@ export class AdminBillingController {
     const p = Math.max(1, parseInt(page, 10) || 1);
     const ps = Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20));
 
+    apiKey = (await resolveAdminClientKey(this.clientModel!, apiKey))!;
     const data = await this.walletService.listTransactions(apiKey, {
       page: p,
       pageSize: ps,
       type,
     });
 
-    return { code: 0, data };
+    return { code: 0, data: { ...data, items: await withClientDisplay(this.clientModel!, data.items as any[]) } };
   }
 
   /**
@@ -188,6 +226,7 @@ export class AdminBillingController {
     @Param('apiKey') apiKey: string,
     @Body() dto: CreditWalletDto,
   ) {
+    apiKey = (await resolveAdminClientKey(this.clientModel!, apiKey))!;
     await this.walletService.credit(apiKey, dto.amount, dto.reason);
     const balance = await this.walletService.getBalance(apiKey);
     return { code: 0, message: '充值成功', data: balance };

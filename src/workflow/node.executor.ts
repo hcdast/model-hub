@@ -148,6 +148,7 @@ export class NodeExecutor {
       {
         model: modelId,
         input: params,
+        ...(nodeData.modelSelection ? { options: { configId: nodeData.modelSelection.configId, configRevision: nodeData.modelSelection.configRevision, featureType: nodeData.modelSelection.featureType } } : {}),
         metadata: {
           workflowRunId: runId,
           workflowNodeId: nodeId,

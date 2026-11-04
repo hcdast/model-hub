@@ -340,7 +340,7 @@ export class AccountPoolService implements OnModuleInit, OnModuleDestroy {
         for (const [providerName] of grouped) {
           try {
             const providerConfig =
-              this.providerConfigService.getResolvedSync(providerName);
+              await this.providerConfigService.getResolved(providerName);
             if (!providerConfig.enabled) {
               await this.autoDisableByProvider(providerName);
             } else {

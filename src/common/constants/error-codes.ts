@@ -10,6 +10,7 @@ export enum ErrorCode {
   MISSING_REQUIRED_FIELD = 1006,
   INVALID_FIELD_TYPE = 1007,
   FIELD_OUT_OF_RANGE = 1008,
+  WORKFLOW_API_KEY_REQUIRED = 1009,
 
   // 认证授权错误 (2000-2999)
   UNAUTHORIZED = 2001,
@@ -63,6 +64,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.MISSING_REQUIRED_FIELD]: 'Missing required field',
   [ErrorCode.INVALID_FIELD_TYPE]: 'Invalid field type',
   [ErrorCode.FIELD_OUT_OF_RANGE]: 'Field value out of range',
+  [ErrorCode.WORKFLOW_API_KEY_REQUIRED]: 'Create or enable a Portal API Key before running model nodes',
 
   // 认证授权错误
   [ErrorCode.UNAUTHORIZED]: 'Unauthorized',

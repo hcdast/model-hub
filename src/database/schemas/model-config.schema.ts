@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Schema as MongooseSchema } from 'mongoose';
+import type { ModelContract } from '../../common/interfaces/model-contract.interface';
 
 export type ModelConfigDocument = HydratedDocument<ModelConfig>;
 
@@ -7,8 +8,10 @@ export type ModelConfigDocument = HydratedDocument<ModelConfig>;
  * 模型配置 Schema —— collection: model_configs。
  * 计费以 unit_price_map（含 mandatory default 档）为唯一来源。
  */
-@Schema({ timestamps: false, versionKey: false, collection: 'model_configs' })
+@Schema({ timestamps: false, versionKey: false, minimize: false, collection: 'model_configs' })
 export class ModelConfig {
+  @Prop()
+  icon?: string;
   /** 与创建任务请求体 `model` 一致（含 `/` 的路径） */
   @Prop({ required: true, index: true })
   model_id!: string;
@@ -45,6 +48,29 @@ export class ModelConfig {
 
   @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
   params!: Record<string, any>;
+
+  @Prop({ default: 1 })
+  contract_version?: number;
+  @Prop({ default: 0 })
+  revision?: number;
+  @Prop({ type: MongooseSchema.Types.Mixed })
+  params_rules?: ModelContract['params_rules'];
+  @Prop({ type: MongooseSchema.Types.Mixed })
+  ui_schema?: ModelContract['ui_schema'];
+  @Prop({ type: MongooseSchema.Types.Mixed })
+  output_schema?: ModelContract['output_schema'];
+  @Prop({ type: MongooseSchema.Types.Mixed })
+  docs?: ModelContract['docs'];
+  @Prop({ type: MongooseSchema.Types.Mixed })
+  examples?: ModelContract['examples'];
+  @Prop({ type: MongooseSchema.Types.Mixed })
+  pricing?: ModelContract['pricing'];
+  @Prop({ type: MongooseSchema.Types.Mixed })
+  draft?: Record<string, any>;
+  @Prop({ default: 0 })
+  draft_revision?: number;
+  @Prop({ type: [MongooseSchema.Types.Mixed], default: [] })
+  history?: Array<{ revision: number; config: Record<string, any>; saved_at: number }>;
 
   @Prop({ default: () => Date.now() })
   create_time!: number;

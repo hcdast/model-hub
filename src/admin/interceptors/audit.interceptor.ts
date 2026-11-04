@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto';
+import { auditContext } from '../audit-context';
 import {
   Injectable,
   NestInterceptor,
@@ -60,7 +62,8 @@ export class AuditInterceptor implements NestInterceptor {
     const operationKind = this.inferOperationKind(method, handlerName);
     const ipInfo = resolveClientIp(request);
 
-    return next.handle().pipe(
+    const correlationId = randomUUID();
+    return new Observable(subscriber => auditContext.run({ correlationId }, () => next.handle().pipe(
       tap({
         next: (data) => {
           if (!shouldAudit) return;
@@ -76,7 +79,7 @@ export class AuditInterceptor implements NestInterceptor {
             remoteAddress: ipInfo.remoteAddress,
           };
           if (isWriteOperation && data != null) {
-            detail.responseSummary = this.summarizeResponse(data);
+            detail.responseSummary = this.summarizeResponse(this.sanitizeParams(data));
           }
 
           if (Object.keys(request.params || {}).length > 0) {
@@ -92,7 +95,8 @@ export class AuditInterceptor implements NestInterceptor {
             operationKind,
             resource,
             resourceId: this.getResourceId(data, request),
-            result: 'success',
+            result: typeof data?.code === 'number' && data.code !== 0 ? 'failure' : 'success',
+            errorMessage: typeof data?.code === 'number' && data.code !== 0 ? data.message : undefined,
             requestParams,
             userAgent: request.headers['user-agent'],
             detail,
@@ -142,7 +146,7 @@ export class AuditInterceptor implements NestInterceptor {
 
         return throwError(() => error);
       }),
-    );
+    ).subscribe(subscriber)));
   }
 
   private inferOperationKind(method: string, handlerName: string): string {
@@ -219,7 +223,7 @@ export class AuditInterceptor implements NestInterceptor {
     ) {
       return true;
     }
-    return n.includes('password') || n.includes('secret') || n.endsWith('token');
+    return n === 'smtppass' || n === 'webhookurl' || n.includes('password') || n.includes('secret') || n.endsWith('token');
   }
 
   private resolveResourceType(controllerName: string): string {
@@ -270,24 +274,13 @@ export class AuditInterceptor implements NestInterceptor {
   private sanitizeParams(params: any): Record<string, any> | undefined {
     if (!params) return undefined;
 
-    const sanitized = { ...params };
-    const sensitiveFields = [
-      'password',
-      'passwordHash',
-      'oldPassword',
-      'newPassword',
-      'token',
-      'apiKey',
-      'plainKey',
-      'secret',
-    ];
-
-    for (const field of sensitiveFields) {
-      if (sanitized[field]) {
-        sanitized[field] = '***REDACTED***';
-      }
-    }
-
+    const visit = (value: any, depth = 0): any => {
+      if (depth > 20) return '[TRUNCATED]';
+      if (Array.isArray(value)) return value.map(v => visit(v, depth + 1));
+      if (!value || typeof value !== 'object' || value instanceof Date) return value;
+      return Object.fromEntries(Object.entries(value).map(([key, val]) => [key, this.isSensitiveSummaryKey(key) ? '***REDACTED***' : visit(val, depth + 1)]));
+    };
+    const sanitized = visit(params);
     return sanitized;
   }
 }

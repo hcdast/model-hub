@@ -1,3 +1,5 @@
+import { expectedRevision, revisionMatch } from './utils/config-input';
+import { ConflictException } from '@nestjs/common';
 import {
   Body,
   Controller,
@@ -158,7 +160,10 @@ export class AdminModelRoutingController {
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestException('Invalid id');
     }
-    this.validateUpsert(body, false);
+    const existing = await this.ruleModel.findById(id).lean();
+    if (!existing) return { code: 3001, message: 'Rule not found' };
+    expectedRevision(existing, body.expected_revision);
+    this.validateUpsert({ ...existing, ...body }, false);
     const $set: Record<string, unknown> = {};
     // 允许编辑 model_id
     if (body.model_id !== undefined) {
@@ -199,8 +204,8 @@ export class AdminModelRoutingController {
     if (body.cost_targets !== undefined) $set.cost_targets = body.cost_targets;
     if (body.note !== undefined) $set.note = body.note;
 
-    const doc = await this.ruleModel.findByIdAndUpdate(id, { $set }, { new: true }).lean();
-    if (!doc) return { code: 3001, message: 'Rule not found' };
+    const doc = await this.ruleModel.findOneAndUpdate({ _id: id, ...revisionMatch(existing) }, { $set, $inc: { revision: 1 } }, { new: true }).lean();
+    if (!doc) throw new ConflictException('配置已变化，请刷新');
     return { code: 0, data: doc };
   }
 

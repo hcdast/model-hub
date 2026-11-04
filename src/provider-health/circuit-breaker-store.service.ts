@@ -91,6 +91,8 @@ export class CircuitBreakerStore {
             state: state.manualOverride.state,
             operator: state.manualOverride.operator,
             timestamp: state.manualOverride.timestamp,
+            reason: state.manualOverride.reason,
+            expiresAt: state.manualOverride.expiresAt,
           }
         : null,
     };
@@ -119,8 +121,8 @@ export class CircuitBreakerStore {
         return null;
       }
 
-      // 校验 last_transition_at 必须存在
-      if (typeof last_transition_at !== 'string' || !last_transition_at) {
+      // null 表示从未发生状态转换；不能在读取时伪造转换时间。
+      if (last_transition_at !== null && (typeof last_transition_at !== 'string' || !last_transition_at)) {
         this.logger.warn(`反序列化失败：缺少 last_transition_at 字段，原始数据: ${json}`);
         return null;
       }
@@ -152,6 +154,8 @@ export class CircuitBreakerStore {
           state: manual_override.state,
           operator: manual_override.operator,
           timestamp: manual_override.timestamp,
+          reason: manual_override.reason,
+          expiresAt: manual_override.expiresAt,
         };
       }
 
@@ -220,6 +224,7 @@ export class CircuitBreakerStore {
     provider: string,
     state: CircuitBreakerState,
     ttlMs: number,
+    strict = false,
   ): Promise<void> {
     const redisKey = `${this.keyPrefix}${provider}`;
     const serialized = this.serialize(state);
@@ -230,6 +235,7 @@ export class CircuitBreakerStore {
       // 写入成功后更新本地缓存
       this.cache.set(provider, { state, cachedAt: Date.now() });
     } catch (err) {
+      if (strict) throw err;
       this.logger.warn(
         `Redis 不可用，Provider ${provider} 熔断状态写入失败: ${(err as Error).message}`,
       );

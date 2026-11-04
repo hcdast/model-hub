@@ -1,0 +1,21 @@
+{
+  "contract_version": 2,
+  "model_id": "REPLACE_WITH_VERIFIED_MODEL_ID",
+  "model_type": "textGenerate",
+  "provider": "akool-maas",
+  "model_name": "MaaS 短剧编剧",
+  "disabled": true,
+  "description": "通过 MaaS Chat Completions 生成故事、角色设定、分镜和旁白文本。",
+  "params": {
+    "maas_protocol": { "type": "string", "required": true, "hide": true, "default": "chat-completions", "enum": ["chat-completions"] },
+    "prompt": { "type": "string", "required": true, "minLength": 1, "maxLength": 20000, "label": "创作要求", "ui_type": "textarea" },
+    "max_tokens": { "type": "integer", "required": true, "default": 4096, "min": 256, "max": 8192, "label": "最大输出 token", "description": "需与所选模型上限匹配。输出过短可能无法完成分镜。" },
+    "temperature": { "type": "number", "required": false, "default": 0.7, "min": 0, "max": 2, "label": "创作变化程度" }
+  },
+  "ui_schema": { "order": ["prompt", "max_tokens", "temperature"], "advanced": ["max_tokens", "temperature"] },
+  "pricing": { "usage_type": "token", "usage_param": "max_tokens" },
+  "docs": {
+    "sections": [{ "title": "接口", "content": "https://maas-fat.akool.io/docs/llm；供应商 extra.llm_base_url 应配置到 LLM /v1 地址，与媒体 /api/v1 地址独立。" }],
+    "limitations": ["这是离线模板，模型标识必须来自当前凭证 GET /v1/models。", "缺少经过核实的 unit_price_map，不能直接导入或启用。", "Portal 当前使用统一积分/token；不等同于 MaaS 的输入、输出、缓存及推理 token 成本表。", "模型支持的 max_tokens 和 temperature 需要在启用前核对。", "生成文本不会生成配音、配乐或角色口型。"]
+  }
+}

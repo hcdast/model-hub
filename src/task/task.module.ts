@@ -1,6 +1,8 @@
+import { MetadataModule } from '../metadata/metadata.module';
 import { Module } from '@nestjs/common';
 import { TaskController } from './task.controller';
 import { ModelConfigController } from './model-config.controller';
+import { PublicModelCatalogController } from './public-model-catalog.controller';
 import { TaskService } from './task.service';
 import { TaskRepository } from './task.repository';
 import { IdempotencyService } from './idempotency.service';
@@ -16,6 +18,7 @@ import { ProviderRoutingService } from './provider-routing.service';
 import { RoutingPreviewService } from './routing-preview.service';
 @Module({
   imports: [
+    MetadataModule,
     DatabaseModule,
     ApiClientModule,
     AuthModule,
@@ -23,7 +26,7 @@ import { RoutingPreviewService } from './routing-preview.service';
     ProviderHealthModule,
     QueueModule,
   ],
-  controllers: [TaskController, ModelConfigController],
+  controllers: [TaskController, ModelConfigController, PublicModelCatalogController],
   providers: [
     ProviderRoutingService,
     RoutingPreviewService,

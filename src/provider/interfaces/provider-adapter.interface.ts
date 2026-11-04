@@ -35,6 +35,8 @@ export interface RateLimitConfig {
 
 export interface IProviderAdapter {
   readonly providerName: string;
+  /** false: submitted tasks cannot be cancelled locally without stopping the upstream job. */
+  readonly supportsCancellation?: boolean;
 
   submitTask(request: NormalizedTaskRequest): Promise<SubmitResult>;
   queryTask(providerTaskId: string, meta?: Record<string, any>): Promise<QueryResult>;

@@ -159,6 +159,8 @@ export class NodeDataDto {
   @IsString()
   @MaxLength(200)
   modelId?: string;
+  @IsOptional() @IsObject()
+  modelSelection?: { configId?: string; configRevision?: number; featureType?: string; provider?: string };
 
   @ApiPropertyOptional({ description: '参数配置' })
   @IsOptional()

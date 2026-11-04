@@ -5,9 +5,13 @@
  */
 
 import { UsageType } from './billing.interface';
+import type { ModelConfig } from '../../database/schemas/model-config.schema';
 
 /** 计费初始化上下文 —— 任务创建时传入 BillingAdapter.initBilling() */
 export interface BillingInitContext {
+  /** Trusted server-side authorization, never taken from public options/metadata. */
+  maxCharge?: number;
+  modelConfig?: ModelConfig;
   /** 任务 ID */
   taskId: string;
   /** API 客户端主键，用于查询计费策略 */
@@ -26,6 +30,9 @@ export interface BillingInitContext {
 
 /** 计费结算上下文 —— 任务成功完成时传入 BillingAdapter.settle() */
 export interface BillingSettleContext {
+  requestInput?: Record<string, any>;
+  usageParam?: string;
+  rawUsageResult?: unknown;
   /** 任务 ID */
   taskId: string;
   /** 实际用量信息 */

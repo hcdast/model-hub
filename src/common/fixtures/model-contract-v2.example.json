@@ -1,0 +1,290 @@
+{
+  "contract_version": 2,
+  "model_id": "replace/reference-to-video",
+  "model_type": "referenceToVideo",
+  "provider": "wavespeed-ai",
+  "provider_model_name": "replace/reference-to-video",
+  "model_name": "多模态参考视频配置模板（请替换供应商模型与价格）",
+  "disabled": true,
+  "description": "演示 API、文档和在线测试共用配置；不是已接入的真实供应商模型。",
+  "tags": [
+    "video",
+    "multimodal"
+  ],
+  "sort": 0,
+  "unit_price_map": {
+    "default": {
+      "cost_unit_price": 0,
+      "sale_unit_price": 1,
+      "unit_credit": 1
+    },
+    "1080p": {
+      "cost_unit_price": 0,
+      "sale_unit_price": 2,
+      "unit_credit": 2
+    }
+  },
+  "params": {
+    "images": {
+      "type": "array",
+      "required": false,
+      "maxItems": 30,
+      "ui_type": "upload",
+      "items": {
+        "type": "string",
+        "required": true,
+        "format": "uri"
+      },
+      "media": {
+        "kind": "image",
+        "accept": [
+          "image/*"
+        ],
+        "maxBytes": 20971520,
+        "referencePrefix": "Image"
+      }
+    },
+    "videos": {
+      "type": "array",
+      "required": false,
+      "maxItems": 10,
+      "ui_type": "upload",
+      "items": {
+        "type": "string",
+        "required": true,
+        "format": "uri"
+      },
+      "media": {
+        "kind": "video",
+        "accept": [
+          "video/*"
+        ],
+        "maxBytes": 20971520,
+        "referencePrefix": "Video"
+      }
+    },
+    "audios": {
+      "type": "array",
+      "required": false,
+      "maxItems": 10,
+      "ui_type": "upload",
+      "items": {
+        "type": "string",
+        "required": true,
+        "format": "uri"
+      },
+      "media": {
+        "kind": "audio",
+        "accept": [
+          "audio/*"
+        ],
+        "maxBytes": 20971520,
+        "referencePrefix": "Audio"
+      }
+    },
+    "prompt": {
+      "type": "string",
+      "required": true,
+      "ui_type": "textarea",
+      "minLength": 1,
+      "description": "可使用 @Image1、@Video1、@Audio1 引用素材"
+    },
+    "generate_audio": {
+      "type": "boolean",
+      "required": false,
+      "default": true
+    },
+    "resolution": {
+      "type": "string",
+      "required": false,
+      "default": "720p",
+      "enum": [
+        "480p",
+        "720p",
+        "1080p"
+      ]
+    },
+    "ratio": {
+      "type": "string",
+      "required": false,
+      "default": "adaptive",
+      "enum": [
+        "adaptive",
+        "16:9",
+        "9:16",
+        "1:1"
+      ]
+    },
+    "duration": {
+      "type": "integer",
+      "required": false,
+      "default": -1,
+      "enum": [
+        -1,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ],
+      "description": "-1 为自适应时长；预估冻结 30 秒，完成后以实际用量结算"
+    },
+    "omni_reference_task_type": {
+      "type": "string",
+      "required": false,
+      "enum": [
+        "auto",
+        "reference",
+        "edit",
+        "extend"
+      ]
+    },
+    "seed": {
+      "type": "integer",
+      "required": false,
+      "default": -1,
+      "min": -1,
+      "max": 4294967295
+    }
+  },
+  "params_rules": [
+    {
+      "when": [
+        {
+          "field": "omni_reference_task_type",
+          "operator": "eq",
+          "value": "edit"
+        }
+      ],
+      "require": [
+        "videos"
+      ],
+      "values": {
+        "ratio": [
+          "adaptive"
+        ],
+        "duration": [
+          -1
+        ]
+      },
+      "message": "编辑模式需要参考视频、adaptive 画幅和自适应时长"
+    },
+    {
+      "when": [
+        {
+          "field": "omni_reference_task_type",
+          "operator": "eq",
+          "value": "extend"
+        }
+      ],
+      "require": [
+        "videos"
+      ],
+      "values": {
+        "ratio": [
+          "adaptive"
+        ]
+      }
+    },
+    {
+      "when": [],
+      "maxTotalItems": {
+        "fields": [
+          "images",
+          "videos",
+          "audios"
+        ],
+        "max": 50
+      }
+    }
+  ],
+  "ui_schema": {
+    "order": [
+      "images",
+      "videos",
+      "audios",
+      "prompt",
+      "generate_audio",
+      "resolution",
+      "ratio",
+      "duration",
+      "omni_reference_task_type",
+      "seed"
+    ],
+    "advanced": [
+      "seed"
+    ]
+  },
+  "output_schema": {
+    "type": "array",
+    "required": false,
+    "items": {
+      "type": "string",
+      "required": true,
+      "format": "uri",
+      "media": {
+        "kind": "video"
+      }
+    }
+  },
+  "docs": {
+    "sections": [
+      {
+        "title": "接入说明",
+        "content": "替换 model_id、provider_model_name 与实际价格，确认该供应商 Adapter 支持参数后再启用。"
+      },
+      {
+        "title": "素材引用",
+        "content": "依序上传素材，提示词使用 @Image1、@Video1、@Audio1；调整顺序后请同步核对提示词。"
+      }
+    ],
+    "limitations": [
+      "上传沿用平台 20 MiB 限制。供应商的时长、格式等限制请按实际协议补充；本模板不承诺远程媒体时长校验。",
+      "价格为占位示例，启用前必须替换。"
+    ]
+  },
+  "examples": [
+    {
+      "name": "基础参考视频",
+      "input": {
+        "images": [
+          "https://cdn.example.com/reference.png"
+        ],
+        "prompt": "让 @Image1 中的主体缓慢转身",
+        "duration": 7
+      },
+      "output": [
+        "https://cdn.example.com/result.mp4"
+      ]
+    }
+  ],
+  "pricing": {
+    "usage_type": "duration",
+    "usage_param": "duration",
+    "tier_param": "resolution",
+    "auto_value": -1,
+    "auto_prelock_units": 30
+  }
+}

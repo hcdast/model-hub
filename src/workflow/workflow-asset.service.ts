@@ -7,7 +7,7 @@ import { WorkflowAsset, WorkflowAssetDocument } from '../database/schemas/workfl
 import { WorkflowRun, WorkflowRunDocument } from '../database/schemas/workflow-run.schema';
 import { LinkConversionConfigService } from '../admin/link-conversion-config.service';
 import { createLinkConversionStorageAdapter } from '../link-conversion/adapters/akool-storagesvc.adapter';
-import { MinioWorkflowAssetStorageService } from './minio-workflow-asset-storage.service';
+import { S3WorkflowAssetStorageService } from './s3-workflow-asset-storage.service';
 
 export const WORKFLOW_ASSET_MAX_BYTES = 20 * 1024 * 1024;
 export const WORKFLOW_ASSET_TEXT_MAX_BYTES = 1024 * 1024;
@@ -74,7 +74,7 @@ export class WorkflowAssetService {
     @InjectModel(WorkflowAsset.name) private readonly assets: Model<WorkflowAssetDocument>,
     @InjectModel(WorkflowRun.name) private readonly runs: Model<WorkflowRunDocument>,
     private readonly config: LinkConversionConfigService,
-    private readonly minioStorage: MinioWorkflowAssetStorageService,
+    private readonly s3Storage: S3WorkflowAssetStorageService,
   ) {}
 
   private view(asset: WorkflowAsset) {
@@ -98,8 +98,8 @@ export class WorkflowAssetService {
     const id = randomUUID();
     const ownerKey = createHash('sha256').update(ownerId).digest('hex');
     let url: string;
-    if (this.minioStorage.enabled) {
-      url = await this.minioStorage.upload(file.buffer, { assetId: id, ownerKey, fileExt: type.ext, contentType: file.mimetype });
+    if (this.s3Storage.enabled) {
+      url = await this.s3Storage.upload(file.buffer, { assetId: id, ownerKey, fileExt: type.ext, contentType: file.mimetype });
     } else {
       const config = await this.config.getEffectiveConfig();
       if (!config.storagesvc.host?.trim() || !config.storagesvc.jwt_secret?.trim() || !config.storage_config.bucket?.trim()) {
@@ -121,7 +121,7 @@ export class WorkflowAssetService {
     try {
       asset = await this.assets.create({ id, ownerId, name: safeName(file.originalname), kind: type.kind, url, text, mimeType: file.mimetype, size: file.buffer.length, source, ...origin });
     } catch {
-      if (this.minioStorage.enabled) this.minioStorage.logMetadataFailure({ assetId: id, ownerKey, fileExt: type.ext });
+      if (this.s3Storage.enabled) this.s3Storage.logMetadataFailure({ assetId: id, ownerKey, fileExt: type.ext });
       throw new ServiceUnavailableException('素材元数据保存失败，请稍后重试');
     }
     return this.view(asset);

@@ -38,6 +38,7 @@ import { ExecutionGraphResolver } from './execution-graph.resolver';
 import { ValidationResult } from './interfaces/execution-graph.interface';
 import { PortSchemaService } from './port-schema.service';
 import { WorkflowTemplateService } from './workflow-template.service';
+import { isValidObjectId } from 'mongoose';
 
 @ApiTags('工作流管理')
 @ApiSecurity('ApiKey')
@@ -206,6 +207,7 @@ export class WorkflowController {
     @Param('templateId') templateId: string,
     @ClientId() clientId: string,
   ) {
+    if (!isValidObjectId(templateId)) throw new NotFoundException('Template not found');
     const template = await this.templateService.findById(templateId);
     if (!template?.isPublic) {
       throw new NotFoundException('Template not found');

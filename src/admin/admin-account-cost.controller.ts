@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import {
   Controller,
   Get,
@@ -21,6 +22,7 @@ import { AdminJwtGuard } from './guards/admin-jwt.guard';
 import { PermissionGuard } from './guards/permission.guard';
 import { RequirePermissions } from './decorators/require-permissions.decorator';
 import { roundMoney } from '../common/utils/money.util';
+import { reportRange } from './utils/report-range';
 
 @ApiTags('管理后台 - 成本分析')
 @ApiBearerAuth('AdminJwt')
@@ -31,6 +33,25 @@ export class AdminAccountCostController {
     @InjectModel(AccountCostDaily.name)
     private readonly costModel: Model<AccountCostDailyDocument>,
   ) {}
+
+  @Get('summary')
+  @RequirePermissions('provider:read')
+  async rangeSummary(@Query('provider_name') provider?: string, @Query('account_id') account?: string,
+    @Query('start_date') start?: string, @Query('end_date') end?: string) {
+    const range = reportRange(start, end);
+    const match: Record<string, unknown> = { date: { $gte: range.start, $lte: range.end } };
+    if (provider) match.provider_name = provider;
+    if (account) match.account_id = account;
+    const [result] = await this.costModel.aggregate([
+      { $match: match },
+      { $facet: {
+        items: [{ $group: { _id: { account_id: '$account_id', provider_name: '$provider_name' }, total_cost: { $sum: '$total_cost' }, total_requests: { $sum: '$request_count' }, total_success: { $sum: '$success_count' }, total_failure: { $sum: '$failure_count' }, latency: { $sum: { $multiply: ['$avg_latency_ms', '$request_count'] } }, days: { $sum: 1 } } },
+          { $project: { _id: 0, account_id: '$_id.account_id', provider_name: '$_id.provider_name', total_cost: 1, total_requests: 1, total_success: 1, total_failure: 1, days: 1, avg_latency_ms: { $cond: [{ $gt: ['$total_requests', 0] }, { $divide: ['$latency', '$total_requests'] }, 0] } } }],
+        trend: [{ $group: { _id: { date: '$date', provider_name: '$provider_name' }, total_cost: { $sum: '$total_cost' } } }, { $project: { _id: 0, date: '$_id.date', provider_name: '$_id.provider_name', total_cost: 1 } }, { $sort: { date: 1 } }],
+      } },
+    ]);
+    return { code: 0, data: { items: result?.items || [], trend: result?.trend || [], dateFrom: range.start, dateTo: range.end, timezone: 'UTC', generatedAt: new Date().toISOString() } };
+  }
 
   @Get()
   @RequirePermissions('provider:read')
@@ -54,6 +75,7 @@ export class AdminAccountCostController {
     if (providerName) query.provider_name = providerName;
     if (accountId) query.account_id = accountId;
     if (startDate || endDate) {
+      reportRange(startDate, endDate);
       const dateFilter: Record<string, string> = {};
       if (startDate) dateFilter.$gte = startDate;
       if (endDate) dateFilter.$lte = endDate;
@@ -94,6 +116,7 @@ export class AdminAccountCostController {
     @Query('month') month?: string,
   ): Promise<{ code: number; data: { items: Record<string, unknown>[]; month: string } }> {
     const m = month || new Date().toISOString().slice(0, 7);
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(m)) throw new BadRequestException('月份必须为 YYYY-MM');
 
     const matchStage: Record<string, unknown> = {
       date: { $regex: `^${m}` },

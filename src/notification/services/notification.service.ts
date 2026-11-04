@@ -1,9 +1,11 @@
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { InjectQueue } from '@nestjs/bull';
 import { Model, FilterQuery } from 'mongoose';
 import { Queue } from 'bull';
-import { SystemEvent } from '../events/system-event.types';
+import { SystemEventType, EventSeverity, SystemEvent } from '../events/system-event.types';
 import {
   NotificationRule,
   NotificationRuleDocument,
@@ -149,6 +151,7 @@ export class NotificationService {
   // --- CRUD for notification rules ---
 
   async createRule(dto: Partial<NotificationRule>): Promise<NotificationRuleDocument> {
+    this.validateRuleInput(dto);
     const validation = validateChannelConfig(
       dto.channelType as string,
       dto.channelConfig ?? {},
@@ -163,19 +166,37 @@ export class NotificationService {
     id: string,
     dto: Partial<NotificationRule>,
   ): Promise<NotificationRuleDocument | null> {
-    if (dto.channelType || dto.channelConfig) {
-      const existing = await this.ruleModel.findById(id).lean().exec();
-      if (!existing) return null;
-      const channelType = (dto.channelType ?? existing.channelType) as string;
-      const channelConfig = dto.channelConfig ?? existing.channelConfig;
-      const validation = validateChannelConfig(channelType, channelConfig);
-      if (!validation.valid) {
-        throw new Error(`Invalid channel config: ${validation.errors.join(', ')}`);
-      }
-    }
+    this.validateRuleInput(dto);
+    const existing = await this.ruleModel.findById(id).lean().exec();
+    if (!existing) return null;
+    const channelType = (dto.channelType ?? existing.channelType) as string;
+    const channelConfig = { ...(channelType === existing.channelType ? existing.channelConfig : {}), ...dto.channelConfig };
+    for (const field of ['smtpPass', 'webhookUrl']) if (!dto.channelConfig?.[field] && channelType === existing.channelType) channelConfig[field] = existing.channelConfig?.[field];
+    const validation = validateChannelConfig(channelType, channelConfig);
+    if (!validation.valid) throw new Error(`Invalid channel config: ${validation.errors.join(', ')}`);
+    dto = { ...dto, channelConfig };
     return this.ruleModel
       .findByIdAndUpdate(id, { $set: dto }, { new: true })
       .exec();
+  }
+
+  private validateRuleInput(dto: Partial<NotificationRule>) {
+    const allowed = ['name', 'enabled', 'eventTypes', 'severities', 'channelType', 'channelConfig', 'recipients', 'cooldownMs', 'maxCountPerWindow', 'aggregationWindowMs'];
+    if (Object.keys(dto).some(k => !allowed.includes(k))) throw new BadRequestException('包含不允许修改的通知字段');
+    for (const field of ['cooldownMs', 'maxCountPerWindow', 'aggregationWindowMs'] as const) if (dto[field] !== undefined && (!Number.isSafeInteger(dto[field]) || dto[field] < 0 || dto[field] > 2147483647)) throw new BadRequestException(`${field} 必须为非负整数`);
+    if (dto.enabled !== undefined && typeof dto.enabled !== 'boolean') throw new BadRequestException('enabled 必须为布尔值');
+    if (dto.eventTypes && (!Array.isArray(dto.eventTypes) || dto.eventTypes.some(v => !Object.values(SystemEventType).includes(v as SystemEventType)))) throw new BadRequestException('通知事件类型无效');
+    if (dto.severities && (!Array.isArray(dto.severities) || dto.severities.some(v => !Object.values(EventSeverity).includes(v as EventSeverity)))) throw new BadRequestException('通知级别无效');
+    if (dto.recipients && (!Array.isArray(dto.recipients) || dto.recipients.some(v => typeof v !== 'string'))) throw new BadRequestException('接收者必须为文本数组');
+  }
+
+  async testRule(id: string) {
+    const rule = await this.ruleModel.findById(id).lean().exec();
+    if (!rule) throw new NotFoundException('通知规则不存在');
+    const testId = randomUUID();
+    const event: SystemEvent = { type: SystemEventType.PROVIDER_ERROR, severity: EventSeverity.INFO, timestamp: new Date(), source: 'admin_notification_test', payload: { test: true, testId, message: '管理员手动测试通知渠道', ruleName: rule.name } };
+    const job = await this.notificationQueue.add('dispatch', { event, ruleId: id, ruleName: rule.name, channelType: rule.channelType, channelConfig: rule.channelConfig, recipients: rule.recipients }, { attempts: 1, removeOnComplete: { age: 3600 }, removeOnFail: { age: 86400 } });
+    return { testId, jobId: String(job.id), queued: true };
   }
 
   async deleteRule(id: string): Promise<void> {

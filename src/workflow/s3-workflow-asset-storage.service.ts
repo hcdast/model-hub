@@ -5,7 +5,7 @@ import * as https from 'https';
 import { isIP } from 'net';
 import { Client } from 'minio';
 import { APP_CONFIG } from '../config/config.module';
-import { AppConfig, WorkflowAssetMinioConfig } from '../config/interfaces/config.interface';
+import { AppConfig, WorkflowAssetS3Config, WorkflowAssetS3Provider } from '../config/interfaces/config.interface';
 
 interface UploadScope {
   controller: AbortController;
@@ -21,50 +21,57 @@ function invalid(field: string): never {
   throw new Error(`Invalid workflowAssetStorage.${field}`);
 }
 
-function validateConfig(value: WorkflowAssetMinioConfig | undefined): WorkflowAssetMinioConfig {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) invalid('minio');
+function validateConfig(value: WorkflowAssetS3Config | undefined, provider: WorkflowAssetS3Provider): WorkflowAssetS3Config {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) invalid(provider);
   const host = value.endPoint;
   if (typeof host !== 'string' || host.length > 253 || (!isIP(host) &&
-    !host.split('.').every(label => /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(label)))) invalid('minio.endPoint');
-  if (!Number.isInteger(value.port) || value.port < 1 || value.port > 65535) invalid('minio.port');
-  if (typeof value.useSSL !== 'boolean') invalid('minio.useSSL');
+    !host.split('.').every(label => /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(label)))) invalid(`${provider}.endPoint`);
+  if (!Number.isInteger(value.port) || value.port < 1 || value.port > 65535) invalid(`${provider}.port`);
+  if (typeof value.useSSL !== 'boolean') invalid(`${provider}.useSSL`);
   if (typeof value.bucket !== 'string' || value.bucket.length < 3 || value.bucket.length > 63 ||
     !/^[a-z0-9][a-z0-9.-]*[a-z0-9]$/.test(value.bucket) || /\.\.|\.-|-\./.test(value.bucket) ||
-    /^\d+\.\d+\.\d+\.\d+$/.test(value.bucket)) invalid('minio.bucket');
-  if (value.region !== undefined && (typeof value.region !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(value.region))) invalid('minio.region');
-  if (value.allowInsecureHttp !== undefined && typeof value.allowInsecureHttp !== 'boolean') invalid('minio.allowInsecureHttp');
+    /^\d+\.\d+\.\d+\.\d+$/.test(value.bucket)) invalid(`${provider}.bucket`);
+  if (value.region !== undefined && (typeof value.region !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(value.region))) invalid(`${provider}.region`);
+  for (const field of ['accessKeyId', 'secretAccessKey'] as const) {
+    if (typeof value[field] !== 'string' || !value[field].trim()) invalid(`${provider}.${field}`);
+  }
+  if (value.allowInsecureHttp !== undefined && typeof value.allowInsecureHttp !== 'boolean') invalid(`${provider}.allowInsecureHttp`);
   const timeout = value.uploadTimeoutMs === undefined ? 60000 : value.uploadTimeoutMs;
-  if (!Number.isInteger(timeout) || timeout < 1000 || timeout > 300000) invalid('minio.uploadTimeoutMs');
+  if (!Number.isInteger(timeout) || timeout < 1000 || timeout > 300000) invalid(`${provider}.uploadTimeoutMs`);
   const prefix = value.pathPrefix === undefined ? 'workflow-assets' : value.pathPrefix;
-  if (typeof prefix !== 'string' || !prefix.split('/').every(segment => SAFE_SEGMENT.test(segment))) invalid('minio.pathPrefix');
+  if (typeof prefix !== 'string' || !prefix.split('/').every(segment => SAFE_SEGMENT.test(segment))) invalid(`${provider}.pathPrefix`);
   let base: URL;
   try {
-    if (typeof value.publicBaseUrl !== 'string' || value.publicBaseUrl.trim() !== value.publicBaseUrl || /[\\\s]/.test(value.publicBaseUrl)) invalid('minio.publicBaseUrl');
+    if (typeof value.publicBaseUrl !== 'string' || value.publicBaseUrl.trim() !== value.publicBaseUrl || /[\\\s]/.test(value.publicBaseUrl)) invalid(`${provider}.publicBaseUrl`);
     base = new URL(value.publicBaseUrl);
     if (!['http:', 'https:'].includes(base.protocol) || !base.hostname || base.username || base.password ||
-      value.publicBaseUrl.includes('?') || value.publicBaseUrl.includes('#')) invalid('minio.publicBaseUrl');
+      value.publicBaseUrl.includes('?') || value.publicBaseUrl.includes('#')) invalid(`${provider}.publicBaseUrl`);
     // Match WorkflowAssetService's resource URL boundary before writing an object.
     const publicHost = base.hostname.toLowerCase();
     if (!publicHost.includes('.') || publicHost.endsWith('.local') || publicHost.endsWith('.localhost') ||
-      /^(localhost|127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.)/.test(publicHost)) invalid('minio.publicBaseUrl');
+      /^(localhost|127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.)/.test(publicHost)) invalid(`${provider}.publicBaseUrl`);
     const rawPath = value.publicBaseUrl.replace(/^https?:\/\/[^/]+/, '');
     for (const segment of rawPath.split('/')) {
       const decoded = decodeURIComponent(segment);
-      if (decoded === '.' || decoded === '..' || /[\\/\x00-\x1f\x7f]/.test(decoded)) invalid('minio.publicBaseUrl');
+      if (decoded === '.' || decoded === '..' || /[\\/\x00-\x1f\x7f]/.test(decoded)) invalid(`${provider}.publicBaseUrl`);
     }
   } catch {
-    invalid('minio.publicBaseUrl');
+    invalid(`${provider}.publicBaseUrl`);
   }
-  if ((!value.useSSL || base.protocol === 'http:') && value.allowInsecureHttp !== true) invalid('minio.allowInsecureHttp');
+  if ((!value.useSSL || base.protocol === 'http:') && value.allowInsecureHttp !== true) {
+    const fields = [!value.useSSL && 'useSSL=false', base.protocol === 'http:' && 'publicBaseUrl uses HTTP'].filter(Boolean).join(', ');
+    throw new Error(`Invalid workflowAssetStorage.${provider}.allowInsecureHttp: ${fields}. Configure HTTPS with a valid certificate for uploads and public reads, or explicitly set allowInsecureHttp=true only for trusted test environments. Upload useSSL does not control publicBaseUrl.`);
+  }
   return { ...value, publicBaseUrl: base.href.replace(/\/+$/, ''), pathPrefix: prefix, uploadTimeoutMs: timeout };
 }
 
 @Injectable()
-export class MinioWorkflowAssetStorageService {
-  private readonly logger = new Logger(MinioWorkflowAssetStorageService.name);
+export class S3WorkflowAssetStorageService {
+  private readonly logger = new Logger(S3WorkflowAssetStorageService.name);
   readonly enabled: boolean;
+  readonly provider?: WorkflowAssetS3Provider;
   private readonly client?: Client;
-  private readonly config?: WorkflowAssetMinioConfig;
+  private readonly config?: WorkflowAssetS3Config;
   private readonly uploads = new AsyncLocalStorage<UploadScope>();
 
   constructor(@Inject(APP_CONFIG) appConfig: AppConfig) {
@@ -73,12 +80,10 @@ export class MinioWorkflowAssetStorageService {
       this.enabled = false;
       return;
     }
-    if (storage?.provider !== 'minio') invalid('provider');
+    if (storage?.provider !== 'minio' && storage?.provider !== 'datacapsule' && storage?.provider !== 'qiniu') invalid('provider');
     this.enabled = true;
-    this.config = validateConfig(storage.minio);
-    const accessKey = process.env.WORKFLOW_ASSET_MINIO_ACCESS_KEY_ID;
-    const secretKey = process.env.WORKFLOW_ASSET_MINIO_SECRET_ACCESS_KEY;
-    if (!accessKey?.trim() || !secretKey?.trim()) invalid('minio.credentials');
+    this.provider = storage.provider;
+    this.config = validateConfig(storage[this.provider], this.provider);
     const network = this.config.useSSL ? https : http;
     // The SDK custom transport keeps signing and region discovery in the SDK.
     const request = (options: http.RequestOptions, callback: (response: http.IncomingMessage) => void): http.ClientRequest => {
@@ -104,11 +109,12 @@ export class MinioWorkflowAssetStorageService {
     try {
       this.client = new Client({
         endPoint: this.config.endPoint, port: this.config.port, useSSL: this.config.useSSL,
-        region: this.config.region, accessKey, secretKey, pathStyle: true,
+        region: this.config.region, accessKey: this.config.accessKeyId,
+        secretKey: this.config.secretAccessKey, pathStyle: true,
         transport: { request: request as typeof http.request },
       });
     } catch {
-      invalid('minio.client');
+      invalid(`${this.provider}.client`);
     }
   }
 

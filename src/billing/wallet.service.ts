@@ -1,3 +1,5 @@
+import { moneyTransaction, moneyOptions, afterMoneyCommit } from './money-transaction';
+import { createHash } from 'crypto';
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -47,7 +49,7 @@ export class WalletService {
     const wallet = await this.walletModel.findOneAndUpdate(
       { apiKey },
       { $setOnInsert: { apiKey, balance: 0, frozenAmount: 0, lowBalanceThreshold: 0 } },
-      { upsert: true, new: true },
+      { upsert: true, new: true, ...moneyOptions() },
     );
     return wallet!;
   }
@@ -59,7 +61,7 @@ export class WalletService {
    * 钱包不存在时返回全零值。
    */
   async getBalance(apiKey: string): Promise<WalletBalance> {
-    const wallet = await this.walletModel.findOne({ apiKey }).lean();
+    const wallet = await this.walletModel.findOne({ apiKey }, null, moneyOptions()).lean();
     if (!wallet) {
       return { balance: 0, frozenAmount: 0, available: 0 };
     }
@@ -151,15 +153,22 @@ export class WalletService {
    * @returns true 冻结成功，false 余额不足
    */
   async freeze(apiKey: string, amount: number, taskId: string): Promise<boolean> {
+    return moneyTransaction(this.walletModel.db, () => this.freezeInTransaction(apiKey, amount, taskId));
+  }
+
+  private async freezeInTransaction(apiKey: string, amount: number, taskId: string): Promise<boolean> {
+    if (!Number.isFinite(amount) || amount < 0) throw new Error('Invalid reservation amount');
+    const reservation = `reservations.${createHash('sha256').update(taskId).digest('hex')}`;
     const wallet = await this.walletModel.findOneAndUpdate(
       {
         apiKey,
+        [reservation]: { $exists: false },
         $expr: {
           $gte: [{ $subtract: ['$balance', '$frozenAmount'] }, amount],
         },
       },
-      { $inc: { frozenAmount: amount } },
-      { new: true },
+      { $inc: { frozenAmount: amount }, $set: { [reservation]: amount } },
+      { new: true, ...moneyOptions() },
     );
 
     if (!wallet) {
@@ -188,19 +197,24 @@ export class WalletService {
    *
    * 原子操作：检查 frozenAmount >= amount，成功则减少 frozenAmount。
    */
-  async unfreeze(apiKey: string, amount: number, taskId: string): Promise<void> {
-    const wallet = await this.walletModel.findOneAndUpdate(
-      {
-        apiKey,
-        frozenAmount: { $gte: amount },
-      },
-      { $inc: { frozenAmount: -amount } },
-      { new: true },
-    );
+  async unfreeze(apiKey: string, amount: number, taskId: string, tracked = false): Promise<void> {
+    return moneyTransaction(this.walletModel.db, () => this.unfreezeInTransaction(apiKey, amount, taskId, tracked));
+  }
 
+  private async unfreezeInTransaction(apiKey: string, amount: number, taskId: string, tracked = false): Promise<void> {
+    if (!Number.isFinite(amount) || amount < 0) throw new Error('Invalid release amount');
+    const reservation = `reservations.${createHash('sha256').update(taskId).digest('hex')}`;
+    const wallet = await this.walletModel.findOneAndUpdate(
+      { apiKey, frozenAmount: { $gte: amount }, ...(tracked ? { [reservation]: amount } : { legacyReleasedTasks: { $ne: taskId } }) },
+      { $inc: { frozenAmount: -amount }, ...(tracked ? { $unset: { [reservation]: 1 } } : { $addToSet: { legacyReleasedTasks: taskId } }) },
+      { new: true, ...moneyOptions() },
+    );
     if (!wallet) {
-      this.logger.warn(`解冻失败：apiKey=${apiKey}, amount=${amount}, taskId=${taskId}，冻结金额不足`);
-      return;
+      const existing = await this.walletModel.findOne({ apiKey }, null, moneyOptions()).lean();
+      const receipt = await this.txModel.findOne({ apiKey, relatedTaskId: taskId, type: TransactionType.UNFREEZE }, null, moneyOptions()).lean();
+      const alreadyReleased = receipt?.amount === amount || (!tracked && existing?.legacyReleasedTasks?.includes(taskId));
+      if (alreadyReleased) return;
+      throw new Error(`Cannot release reservation for task ${taskId}: wallet missing or frozen amount inconsistent`);
     }
 
     // 记录解冻交易流水
@@ -226,8 +240,15 @@ export class WalletService {
    * @returns true 扣费成功，false 余额不足
    */
   async debit(apiKey: string, amount: number, taskId: string): Promise<boolean> {
+    return moneyTransaction(this.walletModel.db, () => this.debitInTransaction(apiKey, amount, taskId));
+  }
+
+  private async debitInTransaction(apiKey: string, amount: number, taskId: string): Promise<boolean> {
+    if (!Number.isFinite(amount) || amount < 0) throw new Error('Invalid debit amount');
+    const receipt = await this.txModel.findOne({ apiKey, relatedTaskId: taskId, type: TransactionType.DEBIT }, null, moneyOptions()).lean();
+    if (receipt) { if (receipt.amount !== amount) throw new Error('Conflicting task debit'); return true; }
     // 先获取扣费前的余额（用于记录 balanceBefore）
-    const walletBefore = await this.walletModel.findOne({ apiKey }).lean();
+    const walletBefore = await this.walletModel.findOne({ apiKey }, null, moneyOptions()).lean();
     const balanceBefore = walletBefore?.balance ?? 0;
 
     const wallet = await this.walletModel.findOneAndUpdate(
@@ -238,7 +259,7 @@ export class WalletService {
         },
       },
       { $inc: { balance: -amount } },
-      { new: true },
+      { new: true, ...moneyOptions() },
     );
 
     if (!wallet) {
@@ -262,11 +283,7 @@ export class WalletService {
       ?? wallet.lowBalanceThreshold
       ?? 0;
     if (threshold > 0 && wallet.balance < threshold) {
-      this.eventEmitter.emit('wallet.low_balance', {
-        apiKey,
-        balance: wallet.balance,
-        threshold,
-      });
+      afterMoneyCommit(() => this.eventEmitter.emit('wallet.low_balance', { apiKey, balance: wallet.balance, threshold }));
       this.logger.warn(`低余额告警：apiKey=${apiKey}, balance=${wallet.balance}, threshold=${threshold}`);
     }
 
@@ -285,18 +302,27 @@ export class WalletService {
     reason: string,
     taskId?: string,
   ): Promise<void> {
+    return moneyTransaction(this.walletModel.db, () => this.creditInTransaction(apiKey, amount, reason, taskId));
+  }
+
+  private async creditInTransaction(apiKey: string, amount: number, reason: string, taskId?: string): Promise<void> {
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error('Invalid credit amount');
+    if (taskId) {
+      const receipt = await this.txModel.findOne({ apiKey, relatedTaskId: taskId, type: TransactionType.CREDIT }, null, moneyOptions()).lean();
+      if (receipt) { if (receipt.amount !== amount) throw new Error('Conflicting task credit'); return; }
+    }
     // 确保钱包存在
     await this.ensureWallet(apiKey);
 
     // 获取充值前余额
-    const walletBefore = await this.walletModel.findOne({ apiKey }).lean();
+    const walletBefore = await this.walletModel.findOne({ apiKey }, null, moneyOptions()).lean();
     const balanceBefore = walletBefore?.balance ?? 0;
 
     // 原子增加余额
     const wallet = await this.walletModel.findOneAndUpdate(
       { apiKey },
       { $inc: { balance: amount } },
-      { new: true },
+      { new: true, ...moneyOptions() },
     );
 
     // 记录充值交易流水
@@ -364,21 +390,7 @@ export class WalletService {
     relatedTaskId?: string;
     reason?: string;
   }): Promise<void> {
-    try {
-      await this.txModel.create({
-        apiKey: params.apiKey,
-        type: params.type,
-        amount: params.amount,
-        balanceBefore: params.balanceBefore,
-        balanceAfter: params.balanceAfter,
-        relatedTaskId: params.relatedTaskId,
-        reason: params.reason,
-      });
-    } catch (err: any) {
-      // 交易流水记录失败不应阻断主流程，仅记录错误日志
-      this.logger.error(
-        `记录交易流水失败：apiKey=${params.apiKey}, type=${params.type}, error=${err.message}`,
-      );
-    }
+    // A ledger failure aborts the enclosing transaction, including wallet and bill writes.
+    await this.txModel.create([{ ...params }], moneyOptions());
   }
 }

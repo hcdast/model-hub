@@ -14,6 +14,8 @@ export const REGISTERED_PROVIDER_NAMES = [
   'akool',
   'minimax',
   'seedance',
+  'akool-maas',
+  'akool-openapi',
   'alibaba',
   'tencent-cloud',
 ] as const;

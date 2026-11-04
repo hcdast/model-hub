@@ -28,6 +28,7 @@ import { PermissionGuard } from './guards/permission.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { Roles } from './decorators/roles.decorator';
 import { RequirePermissions } from './decorators/require-permissions.decorator';
+import { CreateWorkflowTemplateDto, UpdateWorkflowTemplateDto } from '../workflow/dto/workflow-template.dto';
 
 @ApiTags('管理后台 - 工作流管理')
 @ApiBearerAuth()
@@ -145,14 +146,7 @@ export class AdminWorkflowController {
   @ApiResponse({ status: 201, description: '创建成功' })
   async createTemplate(
     @Body()
-    dto: {
-      name: string;
-      description?: string;
-      category: string;
-      tags?: string[];
-      thumbnail?: string;
-      workflowDefinition: any;
-    },
+    dto: CreateWorkflowTemplateDto,
   ) {
     const data = await this.templateService.create(dto);
     return { code: 0, message: 'Template created', data };
@@ -167,14 +161,7 @@ export class AdminWorkflowController {
   @ApiResponse({ status: 200, description: '更新成功' })
   async updateTemplate(
     @Param('id') id: string,
-    @Body() dto: Partial<{
-      name: string;
-      description: string;
-      category: string;
-      tags: string[];
-      thumbnail: string;
-      workflowDefinition: any;
-    }>,
+    @Body() dto: UpdateWorkflowTemplateDto,
   ) {
     const data = await this.templateService.update(id, dto);
     return { code: 0, message: 'Template updated', data };

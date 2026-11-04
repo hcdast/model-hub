@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { reportRange } from '../admin/utils/report-range';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Task, TaskDocument } from '../database/schemas/task.schema';
@@ -135,7 +136,7 @@ export class StatsService {
     successRate: number;
   }> {
     const now = new Date();
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfDay = new Date(`${now.toISOString().slice(0, 10)}T00:00:00Z`);
     const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000 - 1);
 
     const pipeline = [
@@ -262,25 +263,28 @@ export class StatsService {
     page = 1,
     pageSize = 50,
   ) {
-    const query: any = {};
-    if (filters.dateFrom || filters.dateTo) {
-      query.date = {};
-      if (filters.dateFrom) query.date.$gte = filters.dateFrom;
-      if (filters.dateTo) query.date.$lte = filters.dateTo;
-    }
-    if (filters.featureType) query.featureType = filters.featureType;
-    if (filters.provider) query.provider = filters.provider;
-
-    const [items, total] = await Promise.all([
-      this.dailyModel
-        .find(query)
-        .sort({ date: -1 })
-        .skip((page - 1) * pageSize)
-        .limit(pageSize)
-        .lean(),
-      this.dailyModel.countDocuments(query),
+    const range = reportRange(filters.dateFrom, filters.dateTo);
+    const match: Record<string, any> = { createdAt: { $gte: range.from, $lt: range.until } };
+    if (filters.featureType) match.featureType = filters.featureType;
+    if (filters.provider) match.provider = filters.provider;
+    const count = (status: string) => ({ $sum: { $cond: [{ $eq: ['$status', status] }, 1, 0] } });
+    const [result] = await this.taskModel.aggregate([
+      { $match: match },
+      { $group: {
+        _id: { date: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt', timezone: 'UTC' } }, featureType: '$featureType', provider: '$provider', model: '$model' },
+        totalCount: { $sum: 1 }, successCount: count('SUCCESS'), failedCount: count('FAILED'), timeoutCount: count('TIMEOUT'), cancelledCount: count('CANCELLED'),
+        avgQueueWaitMs: { $avg: '$timing.queueWaitMs' }, avgProviderProcessMs: { $avg: '$timing.providerProcessMs' }, avgTotalE2eMs: { $avg: '$timing.totalE2eMs' },
+      } },
+      { $project: { _id: 0, date: '$_id.date', featureType: '$_id.featureType', provider: '$_id.provider', model: '$_id.model', totalCount: 1, successCount: 1, failedCount: 1, timeoutCount: 1, cancelledCount: 1, avgQueueWaitMs: 1, avgProviderProcessMs: 1, avgTotalE2eMs: 1 } },
+      { $facet: {
+        items: [{ $sort: { date: -1, provider: 1, featureType: 1, model: 1 } }, { $skip: (Math.max(1, page) - 1) * pageSize }, { $limit: pageSize }],
+        total: [{ $count: 'value' }],
+        summary: [{ $group: { _id: null, totalCount: { $sum: '$totalCount' }, successCount: { $sum: '$successCount' }, failedCount: { $sum: '$failedCount' }, timeoutCount: { $sum: '$timeoutCount' }, cancelledCount: { $sum: '$cancelledCount' } } }],
+        trend: [{ $group: { _id: '$date', totalCount: { $sum: '$totalCount' }, successCount: { $sum: '$successCount' }, failedCount: { $sum: '$failedCount' } } }, { $project: { _id: 0, date: '$_id', totalCount: 1, successCount: 1, failedCount: 1 } }, { $sort: { date: 1 } }],
+      } },
     ]);
-
-    return { items, total, page, pageSize };
+    return { items: result?.items || [], total: result?.total?.[0]?.value || 0, page, pageSize,
+      summary: result?.summary?.[0] || { totalCount: 0, successCount: 0, failedCount: 0 }, trend: result?.trend || [],
+      source: 'tasks', timezone: 'UTC', generatedAt: new Date().toISOString(), dateFrom: range.start, dateTo: range.end };
   }
 }

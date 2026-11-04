@@ -25,6 +25,7 @@ export interface NodeExecutionState {
   startedAt?: Date;
   /** 完成时间 */
   completedAt?: Date;
+
   /** 重试次数 */
   retryCount: number;
   /** 当前执行尝试，从 0 开始 */
@@ -108,6 +109,10 @@ export class WorkflowRun {
   @Prop()
   completedAt?: Date;
 
+  /** Completion acknowledged by the owner. A later completion after retry is unread again. */
+  @Prop()
+  notificationReadAt?: Date;
+
   /** 工作流输入 */
   @Prop({ type: Object })
   input?: Record<string, any>;
@@ -137,6 +142,7 @@ WorkflowRunSchema.index({ workflowId: 1, createdAt: -1 });
 /** runId 唯一索引 */
 WorkflowRunSchema.index({ runId: 1 }, { unique: true });
 WorkflowRunSchema.index({ triggerId: 1, createdAt: -1 });
+WorkflowRunSchema.index({ triggerId: 1, completedAt: -1, runId: 1 });
 
 /** 按父任务 ID 查询 */
 WorkflowRunSchema.index({ parentTaskId: 1 });

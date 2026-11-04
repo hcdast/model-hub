@@ -41,6 +41,7 @@ export interface WorkflowNode {
     label?: string;
     /** type=model 时必填 */
     modelId?: string;
+    modelSelection?: { configId?: string; configRevision?: number; featureType?: string; provider?: string };
     parameters?: Record<string, any>;
     textDocument?: {
       blocks: Array<{

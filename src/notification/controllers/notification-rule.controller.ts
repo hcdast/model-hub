@@ -1,3 +1,4 @@
+import { adminRuleDisplay } from '../services/admin-rule-display';
 import {
   Controller,
   Get,
@@ -46,7 +47,7 @@ export class NotificationRuleController {
     if (channelType) filters.channelType = channelType;
 
     const items = await this.notificationService.listRules(filters);
-    return { code: 0, data: { items } };
+    return { code: 0, data: { items: items.map(adminRuleDisplay) } };
   }
 
   @Get(':id')
@@ -58,7 +59,7 @@ export class NotificationRuleController {
     if (!rule) {
       throw new NotFoundException('通知规则不存在');
     }
-    return { code: 0, data: rule };
+    return { code: 0, data: adminRuleDisplay(rule) };
   }
 
   @Post()
@@ -68,7 +69,7 @@ export class NotificationRuleController {
   async create(@Body() body: Record<string, any>) {
     try {
       const rule = await this.notificationService.createRule(body);
-      return { code: 0, data: rule };
+      return { code: 0, data: adminRuleDisplay(rule) };
     } catch (error) {
       throw new BadRequestException((error as Error).message);
     }
@@ -84,11 +85,17 @@ export class NotificationRuleController {
       if (!rule) {
         throw new NotFoundException('通知规则不存在');
       }
-      return { code: 0, data: rule };
+      return { code: 0, data: adminRuleDisplay(rule) };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
       throw new BadRequestException((error as Error).message);
     }
+  }
+
+  @Post(':id/test')
+  @RequirePermissions('notification:update')
+  async test(@Param('id') id: string) {
+    return { code: 0, data: await this.notificationService.testRule(id) };
   }
 
   @Delete(':id')
