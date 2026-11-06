@@ -44,6 +44,20 @@ describe('Isolated Redis routing recovery and queue backlog', () => {
     if (process?.exitCode === null) await new Promise<void>(resolve => { process.once('exit', () => resolve()); process.kill(); });
     if (folder) await rm(folder, { recursive: true, force: true });
   });
+  it('atomically admits only the configured count across concurrent limiter instances and expires the window', async () => {
+    const a = new NotificationRateLimiterService(redis), b = new NotificationRateLimiterService(redis);
+    const results = await Promise.all(Array.from({ length: 200 }, (_, i) => (i % 2 ? a : b).checkAndIncrement('concurrent', 'burst', 5000, 7)));
+    expect(results.filter(result => !result.suppressed)).toHaveLength(7);
+    expect(await redis.zcard('notify:rate:concurrent:burst')).toBe(7);
+    expect(await redis.pttl('notify:rate:concurrent:burst')).toBeGreaterThan(0);
+    expect((await a.checkAndIncrement('other-rule', 'burst', 5000, 7)).suppressed).toBe(false);
+    await a.checkAndIncrement('expired', 'burst', 30, 1);
+    expect((await b.checkAndIncrement('expired', 'burst', 30, 1)).suppressed).toBe(true);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect((await b.checkAndIncrement('expired', 'burst', 30, 1)).suppressed).toBe(false);
+    const broken = new NotificationRateLimiterService({ eval: async () => { throw new Error('private redis address'); } } as any);
+    await expect(broken.checkAndIncrement('test', 'burst', 1000, 1)).rejects.toThrow('未放行投递');
+  });
   it('opens, switches to fallback, probes and recovers to primary with transition events', async () => {
     const store = new CircuitBreakerStore(redis), events = new EventEmitter2(), received: string[] = [];
     for (const name of ['system.provider_circuit_open', 'system.provider_circuit_half_open', 'system.provider_circuit_closed']) events.on(name, () => received.push(name));
@@ -102,6 +116,23 @@ describe('Isolated Redis routing recovery and queue backlog', () => {
       const sent = await records.find({ status: 'success' }).lean();
       expect(sent.map(row => row.eventType).sort()).toEqual(['provider_circuit_closed', 'provider_circuit_half_open', 'provider_circuit_open']);
       expect(deliveries).toHaveLength(3); expect(await queue.getFailedCount()).toBe(0);
+      // Inject an actual audit-model write failure, using real Mongo/Bull and webhook delivery.
+      const originalUpdate = records.updateOne.bind(records);
+      let fail = true;
+      const update = jest.spyOn(records, 'updateOne').mockImplementation(((filter: any, change: any, options: any) => {
+        if (fail && change.$set?.status === 'success') return Promise.reject(new Error('injected audit outage'));
+        return originalUpdate(filter, change, options);
+      }) as any);
+      const rule: any = await rules.findOne().lean();
+      const recovery = await queue.add('dispatch', { event: { type: 'provider_circuit_open', severity: 'critical', timestamp: new Date(), payload: { test: 'audit-recovery' } }, ruleId: String(rule._id), ruleName: rule.name, channelType: rule.channelType, channelConfig: rule.channelConfig, recipients: [] }, { attempts: 2, backoff: 20 });
+      await expect(recovery.finished()).rejects.toThrow('通知审计记录写入失败');
+      const failed = await queue.getJob(recovery.id);
+      expect(await failed!.getState()).toBe('failed'); expect(failed!.data.delivery.phase).toBe('receipt');
+      expect(deliveries).toHaveLength(4); expect(await records.countDocuments({ status: 'pending' })).toBe(1);
+      fail = false; await failed!.retry(); await failed!.finished();
+      expect(deliveries).toHaveLength(4); expect(await records.countDocuments({ status: 'success' })).toBe(4);
+      expect(await records.countDocuments({ status: 'pending' })).toBe(0); update.mockRestore();
+
     } finally {
       await app.close(); await queue.close();
       webhook.closeAllConnections(); await new Promise<void>(resolve => webhook.close(() => resolve()));

@@ -1,5 +1,6 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import Redis from 'ioredis';
+import { randomUUID } from 'crypto';
 import { REDIS_CLIENT } from '../../redis/redis.constants';
 
 export interface RateLimitResult {
@@ -15,7 +16,7 @@ export class NotificationRateLimiterService {
 
   /**
    * Check whether a notification should be suppressed based on sliding window rate limiting.
-   * Uses Redis sorted sets with MULTI/EXEC for atomic sliding window counting.
+   * Uses one Lua script and Redis server time for atomic sliding window admission.
    *
    * @param ruleId - The notification rule ID
    * @param eventType - The system event type
@@ -35,43 +36,22 @@ export class NotificationRateLimiterService {
     }
 
     const key = `notify:rate:${ruleId}:${eventType}`;
-    const now = Date.now();
-    const windowStart = now - windowMs;
-    const member = `${now}-${Math.random().toString(36).slice(2, 10)}`;
-
     try {
-      const pipeline = this.redis.multi();
-      // Remove entries outside the sliding window
-      pipeline.zremrangebyscore(key, 0, windowStart);
-      // Count current entries in the window
-      pipeline.zcard(key);
-
-      const results = await pipeline.exec();
-      if (!results) {
-        this.logger.warn('Redis MULTI/EXEC returned null, allowing notification');
-        return { suppressed: false, currentCount: 0 };
-      }
-
-      const currentCount = results[1]?.[1] as number;
-
-      if (currentCount >= maxCount) {
-        // Suppressed — do not add to the set
-        return { suppressed: true, currentCount };
-      }
-
-      // Under the limit — add the entry and set TTL
-      const addPipeline = this.redis.multi();
-      addPipeline.zadd(key, now.toString(), member);
-      addPipeline.pexpire(key, windowMs);
-      await addPipeline.exec();
-
-      return { suppressed: false, currentCount: currentCount + 1 };
-    } catch (error) {
-      // Degrade gracefully: allow notification through if Redis is unavailable
-      this.logger.warn(
-        `Rate limiter Redis error, allowing notification: ${(error as Error).message}`,
-      );
-      return { suppressed: false, currentCount: 0 };
+      const result = await this.redis.eval(`
+        local time = redis.call('TIME')
+        local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+        redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now - tonumber(ARGV[1]))
+        local count = redis.call('ZCARD', KEYS[1])
+        if count >= tonumber(ARGV[2]) then return {1, count} end
+        redis.call('ZADD', KEYS[1], now, ARGV[3])
+        redis.call('PEXPIRE', KEYS[1], ARGV[1])
+        return {0, count + 1}
+      `, 1, key, windowMs, maxCount, randomUUID()) as [number, number];
+      return { suppressed: result[0] === 1, currentCount: result[1] };
+    } catch {
+      // An unavailable limiter must not admit an unbounded burst.
+      this.logger.error('Notification rate limiter unavailable; dispatch was not admitted');
+      throw new Error('通知限流状态不可用，未放行投递');
     }
   }
 

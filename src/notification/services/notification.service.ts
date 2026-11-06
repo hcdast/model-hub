@@ -22,7 +22,15 @@ import {
   validateChannelConfig,
 } from './channel-config-validator';
 
+export interface DeliveryCheckpoint {
+  recordId: string;
+  attempt: number;
+  phase: 'prepared' | 'sending' | 'receipt';
+  result?: { success: boolean; retryable?: boolean; error?: string };
+}
+
 export interface NotificationJobData {
+  delivery?: DeliveryCheckpoint;
   event: SystemEvent;
   ruleId: string;
   ruleName: string;

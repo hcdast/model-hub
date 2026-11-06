@@ -1,7 +1,7 @@
 import { Process, Processor } from '@nestjs/bull';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Job } from 'bull';
 import {
   NotificationRecord,
@@ -42,92 +42,66 @@ export class NotificationProcessor {
   @Process('dispatch')
   async handleDispatch(job: Job<NotificationJobData>): Promise<void> {
     const { event, ruleId, ruleName, channelType, channelConfig, recipients } = job.data;
-    const attempt = job.attemptsMade + 1;
-
-    const channel = this.channelMap.get(channelType as NotificationChannelType);
-    if (!channel) {
-      this.logger.error(`Unknown channel type: ${channelType}`);
-      await this.createRecord({
-        ruleId,
-        ruleName,
-        eventType: event.type,
-        severity: event.severity,
-        channelType,
-        status: NotificationDispatchStatus.FAILED,
-        attemptCount: attempt,
-        error: `Unknown channel type: ${channelType}`,
-        eventPayload: event.payload,
-      });
-      return;
+    let checkpoint = job.data.delivery;
+    if (!checkpoint) {
+      checkpoint = { recordId: new Types.ObjectId().toHexString(), attempt: job.attemptsMade + 1, phase: 'prepared' };
+      await job.update({ ...job.data, delivery: checkpoint });
     }
-
-    let channelResult;
-    try { channelResult = await channel.send(event, channelConfig, recipients); }
-    catch {
-      await this.createRecord({ ruleId, ruleName, eventType: event.type, severity: event.severity, channelType,
-        status: NotificationDispatchStatus.FAILED, attemptCount: attempt, error: '通知渠道执行异常', eventPayload: event.payload });
-      throw new Error('通知渠道执行异常');
+    const filter = { _id: new Types.ObjectId(checkpoint.recordId) };
+    if (checkpoint.phase === 'sending') {
+      // A worker may have died after the external side effect. Never blindly resend.
+      await this.writeRecord(() => this.recordModel.updateOne(filter, { $set: {
+        status: NotificationDispatchStatus.UNKNOWN, error: '投递过程被中断，结果待核验；已停止自动重发',
+      } }));
+      job.discard();
+      throw new Error('通知投递结果待核验，禁止自动重发');
     }
-    try {
-      const result = channelResult;
-
-      if (result.success) {
-        await this.createRecord({
-          ruleId,
-          ruleName,
-          eventType: event.type,
-          severity: event.severity,
-          channelType,
-          status: NotificationDispatchStatus.SUCCESS,
-          attemptCount: attempt,
-          eventPayload: event.payload,
-        });
-      } else {
-        await this.createRecord({
-          ruleId,
-          ruleName,
-          eventType: event.type,
-          severity: event.severity,
-          channelType,
-          status: NotificationDispatchStatus.FAILED,
-          attemptCount: attempt,
-          error: result.error,
-          eventPayload: event.payload,
-        });
-        if (result.retryable === false) return;
-        // Throw to trigger Bull retry
-        throw new Error(result.error ?? 'Channel send failed');
-      }
-    } catch (error) {
-      const errMsg = (error as Error).message;
-      this.logger.warn(
-        `Notification dispatch failed: rule=${ruleName} channel=${channelType} attempt=${attempt} error=${errMsg}`,
-      );
-      throw error;
+    if (checkpoint.phase === 'prepared') {
+      // Persist an audit anchor before any external side effect; failure prevents sending.
+      await this.writeRecord(() => this.recordModel.updateOne(filter, { $setOnInsert: {
+        ruleId, ruleName, eventType: event.type, severity: event.severity, channelType,
+        queueJobId: job.id == null ? undefined : String(job.id), queueName: job.queue?.name,
+        status: NotificationDispatchStatus.PENDING, attemptCount: checkpoint!.attempt,
+        eventPayload: event.payload, suppressedCount: 0,
+        error: '尚未确认投递结果；队列异常中断时需核验',
+      } }, { upsert: true }));
+      checkpoint = { ...checkpoint, phase: 'sending' };
+      await job.update({ ...job.data, delivery: checkpoint });
+      const channel = this.channelMap.get(channelType as NotificationChannelType);
+      let result: { success: boolean; retryable?: boolean; error?: string };
+      try {
+        if (!channel) result = { success: false, retryable: false, error: '未知通知渠道' };
+        else {
+          const response = await channel.send(event, channelConfig, recipients);
+          result = { success: response.success, retryable: response.retryable, error: response.error };
+        }
+      } catch { result = { success: false, error: '通知渠道执行异常' }; }
+      // Keep only the receipt, never channel responses/addresses/credentials.
+      checkpoint = { ...checkpoint, phase: 'receipt', result };
+      await job.update({ ...job.data, delivery: checkpoint });
+    }
+    const result = checkpoint.result!;
+    // A DB outage retries this write using the durable receipt, without calling the channel.
+    await this.writeRecord(async () => {
+      const updated = await this.recordModel.updateOne(filter, { $set: {
+        status: result.success ? NotificationDispatchStatus.SUCCESS : NotificationDispatchStatus.FAILED,
+        error: result.error || '',
+      } });
+      if (updated.matchedCount !== 1) throw new Error('Missing notification audit anchor');
+    });
+    if (!result.success && result.retryable !== false) {
+      // The previous attempt is durably recorded before admitting another delivery attempt.
+      const { delivery: _, ...data } = job.data;
+      await job.update(data);
+      throw new Error(result.error || '通知渠道投递失败');
     }
   }
 
-  private async createRecord(data: {
-    ruleId: string;
-    ruleName: string;
-    eventType: string;
-    severity: string;
-    channelType: string;
-    status: NotificationDispatchStatus;
-    attemptCount: number;
-    error?: string;
-    eventPayload?: Record<string, any>;
-    suppressedCount?: number;
-  }): Promise<void> {
-    try {
-      await this.recordModel.create({
-        ...data,
-        suppressedCount: data.suppressedCount ?? 0,
-      });
-    } catch (err) {
-      this.logger.error(
-        `Failed to create notification record: ${(err as Error).message}`,
-      );
+  private async writeRecord(write: () => PromiseLike<unknown>): Promise<void> {
+    try { await write(); }
+    catch {
+      this.logger.error('Notification audit write failed; job must not complete');
+      throw new Error('通知审计记录写入失败，等待队列重试');
     }
   }
 }

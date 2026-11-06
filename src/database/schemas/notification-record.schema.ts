@@ -9,6 +9,8 @@ import { NotificationChannelType } from './notification-rule.schema';
 export type NotificationRecordDocument = HydratedDocument<NotificationRecord>;
 
 export enum NotificationDispatchStatus {
+  PENDING = 'pending',
+  UNKNOWN = 'unknown',
   SUCCESS = 'success',
   FAILED = 'failed',
   SUPPRESSED = 'suppressed',
@@ -16,6 +18,12 @@ export enum NotificationDispatchStatus {
 
 @Schema({ timestamps: true, collection: 'notification_records' })
 export class NotificationRecord {
+  @Prop()
+  queueJobId?: string;
+
+  @Prop()
+  queueName?: string;
+
   @Prop({ required: true })
   ruleId!: string;
 

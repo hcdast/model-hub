@@ -4,6 +4,19 @@ import { EmailChannel } from './email.channel';
 import { WeComChannel } from './wecom.channel';
 import { NotificationProcessor } from '../processors/notification.processor';
 
+function auditModel() {
+  const rows: any[] = [];
+  const updateOne = jest.fn(async (filter: any, update: any, options?: any) => {
+    let row = rows.find(item => String(item._id) === String(filter._id));
+    if (!row && options?.upsert) { row = { _id: filter._id, ...update.$setOnInsert }; rows.push(row); }
+    if (row && update.$set) Object.assign(row, update.$set);
+    return { matchedCount: row ? 1 : 0 };
+  });
+  return { rows, updateOne };
+}
+function fixtureJob(data: any): any {
+  return { data, attemptsMade: 0, update: jest.fn(async function(data: any) { this.data = JSON.parse(JSON.stringify(data)); }), discard: jest.fn() };
+}
 const event: any = { type: 'provider_circuit_open', severity: 'critical', timestamp: new Date(), payload: { model: '<img src=x onerror=alert(1)>', provider: 'fixture' } };
 describe('Notification delivery against local protocol servers', () => {
   it('requires enterprise WeChat business acknowledgement and records failure after HTTP 200 rejection', async () => {
@@ -11,9 +24,9 @@ describe('Notification delivery against local protocol servers', () => {
     const server = httpServer((_req, res) => { calls++; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ errcode: code, errmsg: 'credential must never appear in logs' })); });
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
     const channel = new WeComChannel(); jest.spyOn(channel as any, 'sleep').mockResolvedValue(undefined);
-    const records: any[] = [], model: any = { create: async (record: any) => records.push(record) };
-    const processor = new NotificationProcessor(model, channel, new EmailChannel(), {} as any);
-    const job: any = { attemptsMade: 0, data: { event, ruleId: 'test', ruleName: 'local-test', channelType: 'wecom', channelConfig: { webhookUrl: `http://127.0.0.1:${(server.address() as any).port}/?key=local-only-secret` }, recipients: [] } };
+    const model = auditModel(), records = model.rows;
+    const processor = new NotificationProcessor(model as any, channel, new EmailChannel(), {} as any);
+    const job = fixtureJob({ event, ruleId: 'test', ruleName: 'local-test', channelType: 'wecom', channelConfig: { webhookUrl: `http://127.0.0.1:${(server.address() as any).port}/?key=local-only-secret` }, recipients: [] });
     try {
       await expect(processor.handleDispatch(job)).rejects.toThrow('业务码 93000');
       expect(calls).toBe(3); expect(records).toHaveLength(1); expect(records[0].status).toBe('failed');
@@ -55,16 +68,54 @@ describe('Notification delivery against local protocol servers', () => {
     } finally { sockets.forEach(socket => socket.destroy()); await new Promise<void>(resolve => server.close(() => resolve())); }
   });
   it('records thrown channel errors without retaining secrets', async () => {
-    const create = jest.fn(); const channel: any = { send: async () => { throw new Error('secret-token'); } };
-    const processor = new NotificationProcessor({ create } as any, channel, {} as any, {} as any);
-    await expect(processor.handleDispatch({ attemptsMade: 0, data: { event, ruleId: 'test', ruleName: 'fixture', channelType: 'wecom', channelConfig: {}, recipients: [] } } as any)).rejects.toThrow('通知渠道执行异常');
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed', attemptCount: 1 }));
-    expect(JSON.stringify(create.mock.calls)).not.toContain('secret-token');
+    const model = auditModel(); const channel: any = { send: async () => { throw new Error('secret-token'); } };
+    const processor = new NotificationProcessor(model as any, channel, {} as any, {} as any);
+    await expect(processor.handleDispatch(fixtureJob({ event, ruleId: 'test', ruleName: 'fixture', channelType: 'wecom', channelConfig: {}, recipients: [] }))).rejects.toThrow('通知渠道执行异常');
+    expect(model.rows[0]).toMatchObject({ status: 'failed', attemptCount: 1 });
+    expect(JSON.stringify(model.rows)).not.toContain('secret-token');
   });
   it('does not ask Bull to repeat a partially accepted SMTP delivery', async () => {
-    const create = jest.fn(); const channel: any = { send: jest.fn(async () => ({ success: false, retryable: false, error: 'SMTP 部分投递失败' })) };
-    const processor = new NotificationProcessor({ create } as any, {} as any, channel, {} as any);
-    await processor.handleDispatch({ attemptsMade: 0, data: { event, ruleId: 'test', ruleName: 'fixture', channelType: 'email', channelConfig: {}, recipients: [] } } as any);
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed' })); expect(channel.send).toHaveBeenCalledTimes(1);
+    const model = auditModel(); const channel: any = { send: jest.fn(async () => ({ success: false, retryable: false, error: 'SMTP 部分投递失败' })) };
+    const processor = new NotificationProcessor(model as any, {} as any, channel, {} as any);
+    await processor.handleDispatch(fixtureJob({ event, ruleId: 'test', ruleName: 'fixture', channelType: 'email', channelConfig: {}, recipients: [] }));
+    expect(model.rows[0]).toMatchObject({ status: 'failed' }); expect(channel.send).toHaveBeenCalledTimes(1);
   });
+  it('does not send when the initial audit write fails, then safely resumes after recovery', async () => {
+    const model = auditModel(); const channel: any = { send: jest.fn(async () => ({ success: true })) };
+    const processor = new NotificationProcessor(model as any, channel, {} as any, {} as any);
+    const job = fixtureJob({ event, ruleId: 'test', ruleName: 'fixture', channelType: 'wecom', channelConfig: {}, recipients: [] });
+    model.updateOne.mockRejectedValueOnce(new Error('private-database-address'));
+    await expect(processor.handleDispatch(job)).rejects.toThrow('通知审计记录写入失败');
+    expect(channel.send).not.toHaveBeenCalled(); expect(job.data.delivery.phase).toBe('prepared');
+    job.attemptsMade++;
+    await processor.handleDispatch(job); expect(channel.send).toHaveBeenCalledTimes(1);
+    expect(model.rows).toHaveLength(1); expect(model.rows[0].status).toBe('success');
+  });
+  it('keeps the delivery receipt on final write failure and retries only the audit write', async () => {
+    const model = auditModel(); const channel: any = { send: jest.fn(async () => ({ success: true, responseData: { credential: 'never-store' } })) };
+    const processor = new NotificationProcessor(model as any, channel, {} as any, {} as any);
+    const job = fixtureJob({ event, ruleId: 'test', ruleName: 'fixture', channelType: 'wecom', channelConfig: {}, recipients: [] });
+    const write = model.updateOne.getMockImplementation()!;
+    model.updateOne.mockImplementationOnce(write).mockRejectedValueOnce(new Error('write unavailable'));
+    await expect(processor.handleDispatch(job)).rejects.toThrow('通知审计记录写入失败');
+    expect(job.data.delivery.phase).toBe('receipt'); expect(JSON.stringify(job.data.delivery)).not.toContain('never-store');
+    expect(model.rows[0].status).toBe('pending'); job.attemptsMade++;
+    await processor.handleDispatch(job); await processor.handleDispatch(job);
+    expect(channel.send).toHaveBeenCalledTimes(1); expect(model.rows).toHaveLength(1); expect(model.rows[0].status).toBe('success');
+  });
+  it('stops automatic delivery on an interrupted sending checkpoint with no receipt', async () => {
+    const model = auditModel(); const channel: any = { send: jest.fn(async () => ({ success: true })) };
+    const processor = new NotificationProcessor(model as any, channel, {} as any, {} as any);
+    const job = fixtureJob({ event, ruleId: 'test', ruleName: 'fixture', channelType: 'wecom', channelConfig: {}, recipients: [] });
+    const update = job.update.getMockImplementation();
+    job.update.mockImplementation(async function(this: any, data: any) {
+      if (data.delivery?.phase === 'receipt') throw new Error('Receipt checkpoint unavailable');
+      await update.call(this, data);
+    });
+    await expect(processor.handleDispatch(job)).rejects.toThrow('Receipt checkpoint unavailable');
+    expect(job.data.delivery.phase).toBe('sending');
+    await expect(processor.handleDispatch(job)).rejects.toThrow('禁止自动重发');
+    expect(job.discard).toHaveBeenCalled(); expect(channel.send).toHaveBeenCalledTimes(1); expect(model.rows[0].status).toBe('unknown');
+  });
+
 });

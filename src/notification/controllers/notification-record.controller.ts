@@ -28,7 +28,7 @@ export class NotificationRecordController {
   @ApiOperation({ summary: '通知记录列表' })
   @ApiQuery({ name: 'eventType', required: false })
   @ApiQuery({ name: 'channelType', required: false })
-  @ApiQuery({ name: 'status', required: false, description: 'success/failed/suppressed' })
+  @ApiQuery({ name: 'status', required: false, description: 'pending/unknown/success/failed/suppressed' })
   @ApiQuery({ name: 'startTime', required: false, description: 'ISO date string' })
   @ApiQuery({ name: 'endTime', required: false, description: 'ISO date string' })
   @ApiQuery({ name: 'page', required: false })
