@@ -79,11 +79,56 @@ describe('Financial atomicity on a disposable replica set', () => {
     expect(await wallet.getBalance('client')).toMatchObject({ balance: 100, frozenAmount: 100 });
     expect(await ledger.countDocuments({ type: 'unfreeze' })).toBe(0);
   });
+  it('releases the last fractional hold despite binary residue and still rejects genuine shortages or wrong owners', async () => {
+    await wallet.freeze('client', 0.55, 'first-fraction');
+    await wallet.freeze('client', 0.22, 'last-fraction');
+    await wallet.unfreeze('client', 0.55, 'first-fraction', true);
+    expect((await wallets.findOne({ apiKey: 'client' })).frozenAmount).toBeLessThan(0.22);
+    await expect(wallet.unfreeze('client', 0.22, 'wrong-task', true)).rejects.toThrow('inconsistent');
+    await wallet.unfreeze('client', 0.22, 'last-fraction', true);
+    await wallet.unfreeze('client', 0.22, 'last-fraction', true);
+    expect((await wallets.findOne({ apiKey: 'client' })).frozenAmount).toBe(0);
+    expect(await ledger.countDocuments({ relatedTaskId: 'last-fraction', type: 'unfreeze' })).toBe(1);
+    await wallet.freeze('client', 0.22, 'genuine-shortage');
+    await wallets.updateOne({ apiKey: 'client' }, { $set: { frozenAmount: 0.22 - 1e-10 } });
+    await expect(wallet.unfreeze('client', 0.22, 'genuine-shortage', true)).rejects.toThrow('inconsistent');
+    expect(await ledger.countDocuments({ relatedTaskId: 'genuine-shortage', type: 'unfreeze' })).toBe(0);
+  });
   it('records repeated direct debit and credit requests once', async () => {
     await Promise.all(Array.from({ length: 6 }, () => wallet.debit('client', 10, 'same')));
     await Promise.all(Array.from({ length: 6 }, () => wallet.credit('client', 3, 'retry', 'same-credit')));
     expect((await wallet.getBalance('client')).balance).toBe(93);
     expect(await ledger.countDocuments()).toBe(2);
+  });
+  it('deduplicates concurrent manual-credit retries and later retries with one durable receipt', async () => {
+    await Promise.all(Array.from({ length: 10 }, () => wallet.creditManually('client', 5, 'manual topup', 'operation-one')));
+    await wallet.creditManually('client', 5, 'manual topup', 'operation-one');
+    expect((await wallet.getBalance('client')).balance).toBe(105);
+    expect(await ledger.countDocuments({ operationId: 'operation-one' })).toBe(1);
+    expect((await ledger.findOne({ operationId: 'operation-one' })).relatedTaskId).toBeUndefined();
+  });
+  it('rejects reuse with a different amount or reason; different operation IDs remain separate topups', async () => {
+    await wallet.creditManually('client', 5, 'first', 'manual-id');
+    await expect(wallet.creditManually('client', 6, 'first', 'manual-id')).rejects.toThrow('不同的充值');
+    await expect(wallet.creditManually('client', 5, 'changed', 'manual-id')).rejects.toThrow('不同的充值');
+    await wallet.creditManually('client', 5, 'first', 'another-id');
+    expect((await wallet.getBalance('client')).balance).toBe(110);
+    expect(await ledger.countDocuments()).toBe(2);
+  });
+  it('rolls back a failed manual receipt and allows retry of that exact operation', async () => {
+    jest.spyOn(ledger, 'create').mockRejectedValueOnce(new Error('injected manual receipt failure'));
+    await expect(wallet.creditManually('client', 5, 'retry', 'receipt-failure')).rejects.toThrow('injected');
+    expect((await wallet.getBalance('client')).balance).toBe(100);
+    expect(await ledger.countDocuments()).toBe(0);
+    await wallet.creditManually('client', 5, 'retry', 'receipt-failure');
+    expect((await wallet.getBalance('client')).balance).toBe(105);
+  });
+  it('survives an interrupted manual-credit commit response without crediting twice', async () => {
+    await db.db!.admin().command({ configureFailPoint: 'failCommand', mode: { times: 1 }, data: { failCommands: ['commitTransaction'], closeConnection: true } });
+    await wallet.creditManually('client', 5, 'lost response', 'lost-response');
+    await wallet.creditManually('client', 5, 'lost response', 'lost-response');
+    expect((await wallet.getBalance('client')).balance).toBe(105);
+    expect(await ledger.countDocuments()).toBe(1);
   });
   it('retries an interrupted commit response without duplicating a financial write', async () => {
     await db.db!.admin().command({ configureFailPoint: 'failCommand', mode: { times: 1 }, data: { failCommands: ['commitTransaction'], closeConnection: true } });

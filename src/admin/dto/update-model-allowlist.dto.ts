@@ -5,11 +5,12 @@ import {
   MaxLength,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { ExpectedClientRevisionDto } from './expected-client-revision.dto';
 
 /**
  * 更新 API 客户端模型白名单 DTO
  */
-export class UpdateModelAllowlistDto {
+export class UpdateModelAllowlistDto extends ExpectedClientRevisionDto {
   @ApiProperty({
     description: '模型白名单，支持通配符模式（如 wavespeed-ai/*）；空数组表示允许所有模型',
     example: ['wavespeed-ai/*', 'openai/gpt-4'],

@@ -137,13 +137,13 @@ export class AdminApiClientController {
   @ApiResponse({ status: 200, description: '成功' })
   async patchEnabled(
     @Param('id') id: string,
-    @Body() body: { enabled?: boolean },
+    @Body() body: { enabled?: boolean; expected_revision?: number },
   ) {
     if (typeof body?.enabled !== 'boolean') {
       throw new BadRequestException('enabled must be a boolean');
     }
     const apiKey = await this.apiClients.getCredentialKeyForAdmin(id);
-    await this.apiClients.setEnabled(apiKey, body.enabled);
+    await this.apiClients.setEnabled(apiKey, body.enabled, this.apiClients.assertExpectedRevision(body.expected_revision));
     return { code: 0, message: 'Updated' };
   }
 
@@ -169,13 +169,13 @@ export class AdminApiClientController {
   @ApiResponse({ status: 200, description: '成功' })
   async updateDefaultPriority(
     @Param('id') id: string,
-    @Body() body: { defaultPriority?: number },
+    @Body() body: { defaultPriority?: number; expected_revision?: number },
   ) {
     if (body?.defaultPriority == null || typeof body.defaultPriority !== 'number') {
       throw new BadRequestException('defaultPriority must be a number');
     }
     const apiKey = await this.apiClients.getCredentialKeyForAdmin(id);
-    await this.apiClients.updateDefaultPriority(apiKey, body.defaultPriority);
+    await this.apiClients.updateDefaultPriority(apiKey, body.defaultPriority, this.apiClients.assertExpectedRevision(body.expected_revision));
     return { code: 0, message: 'Updated' };
   }
 
@@ -185,13 +185,13 @@ export class AdminApiClientController {
   @ApiResponse({ status: 200, description: '成功' })
   async updateBillingPolicy(
     @Param('id') id: string,
-    @Body() body: { billingPolicy?: string },
+    @Body() body: { billingPolicy?: string; expected_revision?: number },
   ) {
     if (!body?.billingPolicy || typeof body.billingPolicy !== 'string') {
       throw new BadRequestException('billingPolicy must be a string');
     }
     const apiKey = await this.apiClients.getCredentialKeyForAdmin(id);
-    await this.apiClients.updateBillingPolicy(apiKey, body.billingPolicy);
+    await this.apiClients.updateBillingPolicy(apiKey, body.billingPolicy, this.apiClients.assertExpectedRevision(body.expected_revision));
     return { code: 0, message: 'Updated' };
   }
 
@@ -213,7 +213,7 @@ export class AdminApiClientController {
       maxQps: dto.maxQps,
       maxConcurrent: dto.maxConcurrent,
       maxDailyRequests: dto.maxDailyRequests,
-    });
+    }, this.apiClients.assertExpectedRevision(dto.expected_revision));
     return { code: 0, message: 'Rate limits updated' };
   }
 
@@ -229,7 +229,7 @@ export class AdminApiClientController {
     @Body() dto: UpdateModelAllowlistDto,
   ) {
     const apiKey = await this.apiClients.getCredentialKeyForAdmin(id);
-    await this.apiClients.updateModelAllowlist(apiKey, dto.modelAllowlist);
+    await this.apiClients.updateModelAllowlist(apiKey, dto.modelAllowlist, this.apiClients.assertExpectedRevision(dto.expected_revision));
     return { code: 0, message: 'Model allowlist updated' };
   }
 
@@ -277,6 +277,13 @@ export class AdminApiClientController {
   }
 
   /** 获取当天日期字符串 YYYYMMDD */
+  @Get(':id')
+  @RequirePermissions('api-client:read')
+  @ApiOperation({ summary: '读取最新客户端配置（不返回完整凭据）' })
+  async getDetail(@Param('id') id: string) {
+    return { code: 0, data: await this.apiClients.getForAdmin(id) };
+  }
+
   private getTodayStr(): string {
     const now = new Date();
     const year = now.getFullYear();

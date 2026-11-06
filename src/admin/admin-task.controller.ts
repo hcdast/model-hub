@@ -23,6 +23,7 @@ import { Request } from 'express';
 import { resolveUnitPriceMapTier, pickCreditReferenceUnitFromPriceMap } from '../billing/unit-price-map.util';
 import { withClientDisplay, resolveAdminClientKey } from './utils/client-display';
 import { roundMoney } from '../common/utils/money.util';
+import { taskRepairGuidance } from '../common/utils/task-repair-guidance';
 
 @ApiTags('管理后台 - 任务记录')
 @ApiBearerAuth('AdminJwt')
@@ -63,25 +64,9 @@ export class AdminTaskController {
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
     @Query('taskId') taskId?: string, @Query('client') client?: string, @Query('from') from?: string, @Query('to') to?: string, @Query('staleMinutes') staleMinutes?: string,
+    @Query('errorCode') errorCode?: string, @Query('failureOnly') failureOnly?: string,
   ) {
-    const query: any = {};
-    if (status) query.status = status;
-    if (provider) query.provider = provider;
-    if (featureType) query.featureType = featureType;
-    if (model) query.model = model;
-    if (taskId) query.taskId = taskId;
-    if (client) query.apiKey = await resolveAdminClientKey(this.apiClientModel, client);
-    if ((from && !Number.isFinite(Date.parse(from))) || (to && !Number.isFinite(Date.parse(to))) || (from && to && Date.parse(from) > Date.parse(to))) throw new BadRequestException('任务日期范围无效');
-    if (staleMinutes && (!Number.isFinite(Number(staleMinutes)) || Number(staleMinutes) <= 0)) throw new BadRequestException('超时分钟数必须为正数');
-    if (from || to) {
-      query.createdAt = {};
-      if (from && Number.isFinite(Date.parse(from))) query.createdAt.$gte = new Date(from);
-      if (to && Number.isFinite(Date.parse(to))) query.createdAt.$lte = new Date(to);
-    }
-    if (staleMinutes && Number(staleMinutes) > 0) {
-      query.status = { $in: ['PENDING', 'SUBMITTED', 'PROCESSING'] };
-      query.updatedAt = { $lt: new Date(Date.now() - Number(staleMinutes) * 60000) };
-    }
+    const query = await this.buildTaskFilter({ status, provider, featureType, model, taskId, client, from, to, staleMinutes, errorCode, failureOnly });
 
     const p = Math.max(1, parseInt(page, 10) || 1);
     const ps = Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20));
@@ -96,6 +81,52 @@ export class AdminTaskController {
     const items = enrichedItems.map((item: any) => ({ ...item, canCancel: this.taskService.canCancel(item) }));
 
     return { code: 0, data: { items, total, staleCount, page: p, pageSize: ps } };
+  }
+
+  private async buildTaskFilter({ status, provider, featureType, model, taskId, client, from, to, staleMinutes, errorCode, failureOnly }: Record<string, string | undefined>) {
+    const query: Record<string, any> = {};
+    if (status) query.status = status;
+    else if (failureOnly === '1') query.status = { $in: ['FAILED', 'TIMEOUT'] };
+    if (provider) query.provider = provider;
+    if (featureType) query.featureType = featureType;
+    if (model) query.model = model;
+    if (taskId) query.taskId = taskId;
+    if (errorCode) query.$expr = { $eq: [{ $ifNull: ['$error.code', { $ifNull: ['$error.providerCode', 'UNKNOWN'] }] }, { $literal: errorCode }] };
+    if (client) query.apiKey = await resolveAdminClientKey(this.apiClientModel, client);
+    if ((from && !Number.isFinite(Date.parse(from))) || (to && !Number.isFinite(Date.parse(to))) || (from && to && Date.parse(from) > Date.parse(to))) throw new BadRequestException('任务日期范围无效');
+    if (staleMinutes && (!Number.isFinite(Number(staleMinutes)) || Number(staleMinutes) <= 0)) throw new BadRequestException('超时分钟数必须为正数');
+    if (from || to) {
+      query.createdAt = {};
+      if (from && Number.isFinite(Date.parse(from))) query.createdAt.$gte = new Date(from);
+      if (to && Number.isFinite(Date.parse(to))) query.createdAt.$lte = new Date(to);
+    }
+    if (staleMinutes && Number(staleMinutes) > 0) {
+      query.status = { $in: ['PENDING', 'SUBMITTED', 'PROCESSING'] };
+      query.updatedAt = { $lt: new Date(Date.now() - Number(staleMinutes) * 60000) };
+    }
+
+    return query;
+  }
+
+  @Get('failure-summary')
+  @RequirePermissions('task:read')
+  @ApiOperation({ summary: '按供应商、模型、错误码聚合失败及超时任务（前 30 组）' })
+  async failureSummary(@Query() params: Record<string, string>) {
+    const query = await this.buildTaskFilter(params);
+    query.$and = [{ status: { $in: ['FAILED', 'TIMEOUT'] } }];
+    const [result] = await this.taskModel.aggregate([
+      { $match: query },
+      { $facet: {
+        items: [
+          { $group: { _id: { provider: '$provider', model: '$model', errorCode: { $ifNull: ['$error.code', { $ifNull: ['$error.providerCode', 'UNKNOWN'] }] } }, count: { $sum: 1 }, lastFailureAt: { $max: '$createdAt' } } },
+          { $sort: { count: -1, lastFailureAt: -1, '_id.provider': 1, '_id.model': 1, '_id.errorCode': 1 } },
+          { $limit: 30 },
+          { $project: { _id: 0, provider: '$_id.provider', model: '$_id.model', errorCode: '$_id.errorCode', count: 1, lastFailureAt: 1 } },
+        ],
+        summary: [{ $count: 'total' }],
+      } },
+    ]).option({ maxTimeMS: 10000 });
+    return { code: 0, data: { items: result?.items || [], total: result?.summary?.[0]?.total || 0 } };
   }
 
   @Get(':taskId')
@@ -126,6 +157,7 @@ export class AdminTaskController {
         status: billingRecord.status,
         billingPolicy: billingRecord.billingPolicy,
         usageType: billingRecord.usageType,
+        usageMeasure: billingRecord.usageMeasure ?? billingRecord.pricingSnapshot?.pricing?.usage_measure,
         estimatedUsage: billingRecord.estimatedUsage,
         estimatedCost:
           typeof billingRecord.estimatedCost === 'number'
@@ -276,8 +308,8 @@ export class AdminTaskController {
       providerTaskId: task.providerTask?.providerTaskId || null,
       queue: { name: queued?.queueName || null, jobId: queued?.jobId || null, state: job ? await job.getState() : 'missing_or_removed', attemptsMade: job?.attemptsMade, maxAttempts: job?.opts.attempts, lastError: job?.failedReason },
       submitFailures: events.filter((e: any) => e.event === 'PROVIDER_SUBMIT_FAIL').map((e: any) => ({ timestamp: e.timestamp, ...e.detail })),
-      billing: billing ? { status: billing.status, estimatedCost: billing.estimatedCost, actualCost: billing.actualCost, currency: billing.currency } : null,
-      recommendation: !TERMINAL_STATUSES.has(task.status) ? '先核对供应商实际执行结果。队列缺失不代表供应商失败，不能据此自动退款。' : '如任务失败但仍预扣，请通过受控修复核对并收尾。' } };
+      billing: billing ? { status: billing.status, billingPolicy: billing.billingPolicy, estimatedCost: billing.estimatedCost, actualCost: billing.actualCost, currency: billing.currency } : null,
+      ...taskRepairGuidance(task.status, billing) } };
   }
 
   @Post(':taskId/reconcile-failure')

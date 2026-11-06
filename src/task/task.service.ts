@@ -29,6 +29,7 @@ import { validateParams } from '../common/utils/param-validator';
 import { transformParams } from '../common/utils/param-transformer';
 import { ParamDefinitions } from '../common/interfaces/param-definition.interface';
 import { roundMoney } from '../common/utils/money.util';
+import { taskRepairGuidance } from '../common/utils/task-repair-guidance';
 import { normalizeTaskResultPayload } from './task-result.util';
 import { BillingAdapter } from '../billing/billing.adapter';
 import { BillingService } from '../billing/billing.service';
@@ -342,6 +343,8 @@ export class TaskService {
     }
     const bill = await this.billingService.getRecord(taskId);
     if (bill?.status === 'settled') throw new ConflictException('已结算账单不能通过失败修复退款，请走对账流程');
+    const guidance = taskRepairGuidance(task.status, bill);
+    if (!guidance.canReconcileFailure) throw new ConflictException(guidance.recommendation);
     const closed = await this.taskRepo.updateIfUnchanged(taskId, task.status, new Date(body.expectedUpdatedAt), { status: TaskStatus.FAILED, error: { code: 'ADMIN_VERIFIED_FAILURE', message: body.reason, retryable: false }, reconciliation: { operator, verificationReference: body.verificationReference, reason: body.reason, verifiedAt: new Date() } });
     if (!closed) throw new ConflictException('任务已变化，请重新核验');
     await this.billingAdapter.refund({ taskId, reason: 'admin_verified_failure' });

@@ -87,6 +87,8 @@ export class ProviderHealthController {
         avgLatencyMs: metrics.avgLatencyMs,
         errorRate: metrics.errorRate,
         sampleCount: metrics.sampleCount,
+        windowDurationMs: metrics.windowDurationMs,
+        computedAt: metrics.computedAt,
         lastTransitionAt: state?.lastTransitionAt ?? null,
         hasManualOverride: state?.manualOverride !== null && state?.manualOverride !== undefined,
       };

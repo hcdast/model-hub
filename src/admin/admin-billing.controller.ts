@@ -227,7 +227,7 @@ export class AdminBillingController {
     @Body() dto: CreditWalletDto,
   ) {
     apiKey = (await resolveAdminClientKey(this.clientModel!, apiKey))!;
-    await this.walletService.credit(apiKey, dto.amount, dto.reason);
+    await this.walletService.creditManually(apiKey, dto.amount, dto.reason, dto.operationId);
     const balance = await this.walletService.getBalance(apiKey);
     return { code: 0, message: '充值成功', data: balance };
   }

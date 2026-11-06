@@ -280,7 +280,7 @@ export class StatsService {
         items: [{ $sort: { date: -1, provider: 1, featureType: 1, model: 1 } }, { $skip: (Math.max(1, page) - 1) * pageSize }, { $limit: pageSize }],
         total: [{ $count: 'value' }],
         summary: [{ $group: { _id: null, totalCount: { $sum: '$totalCount' }, successCount: { $sum: '$successCount' }, failedCount: { $sum: '$failedCount' }, timeoutCount: { $sum: '$timeoutCount' }, cancelledCount: { $sum: '$cancelledCount' } } }],
-        trend: [{ $group: { _id: '$date', totalCount: { $sum: '$totalCount' }, successCount: { $sum: '$successCount' }, failedCount: { $sum: '$failedCount' } } }, { $project: { _id: 0, date: '$_id', totalCount: 1, successCount: 1, failedCount: 1 } }, { $sort: { date: 1 } }],
+        trend: [{ $group: { _id: '$date', totalCount: { $sum: '$totalCount' }, successCount: { $sum: '$successCount' }, failedCount: { $sum: '$failedCount' }, timeoutCount: { $sum: '$timeoutCount' }, cancelledCount: { $sum: '$cancelledCount' } } }, { $project: { _id: 0, date: '$_id', totalCount: 1, successCount: 1, failedCount: 1, timeoutCount: 1, cancelledCount: 1 } }, { $sort: { date: 1 } }],
       } },
     ]);
     return { items: result?.items || [], total: result?.total?.[0]?.value || 0, page, pageSize,

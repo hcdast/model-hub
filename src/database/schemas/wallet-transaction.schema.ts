@@ -33,6 +33,10 @@ export class WalletTransaction {
   @Prop()
   relatedTaskId?: string;
 
+  /** 手动充值的幂等操作编号，与任务标识分开保存。 */
+  @Prop()
+  operationId?: string;
+
   /** 交易原因说明 */
   @Prop()
   reason?: string;
@@ -45,3 +49,6 @@ export const WalletTransactionSchema =
 WalletTransactionSchema.index({ apiKey: 1, createdAt: -1 });
 // 按关联任务 ID 查询
 WalletTransactionSchema.index({ relatedTaskId: 1 });
+WalletTransactionSchema.index({ apiKey: 1, operationId: 1 }, {
+  unique: true, partialFilterExpression: { operationId: { $type: 'string' } },
+});

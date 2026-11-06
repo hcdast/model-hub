@@ -95,4 +95,11 @@ describe('Verified historical failure repair', () => {
     await service.reconcileVerifiedFailure('test-task', body, 'test');
     expect(service.billingAdapter.refund).toHaveBeenCalledTimes(1);
   });
+  it('refuses to rewrite or refund a terminal task whose bill is already refunded', async () => {
+    task.status = TaskStatus.FAILED;
+    service.billingService.getRecord.mockResolvedValue({ status: 'refunded', billingPolicy: 'internal' });
+    await expect(service.reconcileVerifiedFailure('test-task', body, 'test')).rejects.toThrow('无需重复修复');
+    expect(service.taskRepo.updateIfUnchanged).not.toHaveBeenCalled();
+    expect(service.billingAdapter.refund).not.toHaveBeenCalled();
+  });
 });

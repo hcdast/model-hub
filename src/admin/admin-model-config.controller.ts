@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Query, UseGuards, Req, Param, HttpException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Query, UseGuards, Req, Param, HttpException, BadRequestException, ConflictException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -11,6 +11,7 @@ import { UpdateModelConfigDto } from './dto/update-model-config.dto';
 import { BulkDeleteModelConfigDto, DeleteModelConfigDto } from './dto/delete-model-config.dto';
 import { ModelConfigService } from './model-config.service';
 import { pickCreditReferenceUnitFromPriceMap, validateMandatoryUnitPriceMap } from '../billing/unit-price-map.util';
+import { pickModelConfig } from '../common/utils/model-contract';
 
 @ApiTags('管理后台 - 模型配置')
 @ApiBearerAuth('AdminJwt')
@@ -53,6 +54,25 @@ export class AdminModelConfigController {
     @Query('pageSize') pageSize = '20',
     @Query('sort_order') sortOrder = 'desc',
   ) {
+    const query = this.listFilter({ provider, model_type: modelType, keyword, status });
+
+    const p = Math.max(1, parseInt(page, 10) || 1);
+    const ps = Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20));
+
+    const [items, total] = await Promise.all([
+      this.modelConfigModel
+        .find(query)
+        .sort({ update_time: sortOrder === 'asc' ? 1 : -1, model_id: 1, _id: 1 })
+        .skip((p - 1) * ps)
+        .limit(ps)
+        .lean(),
+      this.modelConfigModel.countDocuments(query),
+    ]);
+
+    return { code: 0, data: { items, total, page: p, pageSize: ps } };
+  }
+
+  private listFilter({ provider, model_type: modelType, keyword, status }: Record<string, string | undefined>) {
     const query: Record<string, unknown> = {};
     if (provider) query.provider = provider;
     if (modelType !== undefined && modelType !== '') {
@@ -71,20 +91,25 @@ export class AdminModelConfigController {
       query.$or = [{ model_id: re }, { model_name: re }];
     }
 
-    const p = Math.max(1, parseInt(page, 10) || 1);
-    const ps = Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20));
+    return query;
+  }
 
-    const [items, total] = await Promise.all([
-      this.modelConfigModel
-        .find(query)
-        .sort({ update_time: sortOrder === 'asc' ? 1 : -1, model_id: 1, _id: 1 })
-        .skip((p - 1) * ps)
-        .limit(ps)
-        .lean(),
-      this.modelConfigModel.countDocuments(query),
-    ]);
-
-    return { code: 0, data: { items, total, page: p, pageSize: ps } };
+  @Get('export')
+  @RequirePermissions('model:read')
+  @ApiOperation({ summary: '导出全部筛选模型（固定记录集合并校验版本，最多 10000 条）' })
+  async exportModels(@Query() params: Record<string, string>) {
+    const exported_at = new Date().toISOString();
+    const manifest = await this.modelConfigModel.find(this.listFilter(params))
+      .select('_id revision update_time').sort({ _id: 1 }).limit(10001).maxTimeMS(10000).lean();
+    if (manifest.length > 10000) throw new BadRequestException('超过 10000 条，请缩小筛选范围');
+    // Read by immutable IDs, never by offsets in a changing update_time ordering.
+    const rows = manifest.length ? await this.modelConfigModel.find({ _id: { $in: manifest.map(row => row._id) } }).maxTimeMS(10000).lean() : [];
+    const byId = new Map(rows.map(row => [String(row._id), row]));
+    if (byId.size !== manifest.length || manifest.some(entry => {
+      const row = byId.get(String(entry._id));
+      return !row || (row.revision || 0) !== (entry.revision || 0) || row.update_time !== entry.update_time;
+    })) throw new ConflictException('导出期间配置已变化，请重试');
+    return { code: 0, data: { version: 2, exported_at, total: manifest.length, items: manifest.map(entry => pickModelConfig(byId.get(String(entry._id))!)) } };
   }
 
   @Post('import/preview')

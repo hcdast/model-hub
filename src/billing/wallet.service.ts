@@ -1,6 +1,6 @@
 import { moneyTransaction, moneyOptions, afterMoneyCommit } from './money-transaction';
 import { createHash } from 'crypto';
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -204,8 +204,11 @@ export class WalletService {
   private async unfreezeInTransaction(apiKey: string, amount: number, taskId: string, tracked = false): Promise<void> {
     if (!Number.isFinite(amount) || amount < 0) throw new Error('Invalid release amount');
     const reservation = `reservations.${createHash('sha256').update(taskId).digest('hex')}`;
+    // BSON doubles can leave 0.21999999999999997 after releasing other holds.
+    // Allow only machine rounding noise; the exact per-task reservation still owns the release.
+    const tolerance = Number.EPSILON * 16 * Math.max(1, amount);
     const wallet = await this.walletModel.findOneAndUpdate(
-      { apiKey, frozenAmount: { $gte: amount }, ...(tracked ? { [reservation]: amount } : { legacyReleasedTasks: { $ne: taskId } }) },
+      { apiKey, frozenAmount: { $gte: amount - tolerance }, ...(tracked ? { [reservation]: amount } : { legacyReleasedTasks: { $ne: taskId } }) },
       { $inc: { frozenAmount: -amount }, ...(tracked ? { $unset: { [reservation]: 1 } } : { $addToSet: { legacyReleasedTasks: taskId } }) },
       { new: true, ...moneyOptions() },
     );
@@ -215,6 +218,9 @@ export class WalletService {
       const alreadyReleased = receipt?.amount === amount || (!tracked && existing?.legacyReleasedTasks?.includes(taskId));
       if (alreadyReleased) return;
       throw new Error(`Cannot release reservation for task ${taskId}: wallet missing or frozen amount inconsistent`);
+    }
+    if (wallet.frozenAmount < 0) {
+      await this.walletModel.updateOne({ _id: wallet._id, frozenAmount: wallet.frozenAmount }, { $set: { frozenAmount: 0 } }, moneyOptions());
     }
 
     // 记录解冻交易流水
@@ -305,7 +311,32 @@ export class WalletService {
     return moneyTransaction(this.walletModel.db, () => this.creditInTransaction(apiKey, amount, reason, taskId));
   }
 
-  private async creditInTransaction(apiKey: string, amount: number, reason: string, taskId?: string): Promise<void> {
+  /** An operation receipt and its balance increment commit together, including concurrent retries. */
+  async creditManually(apiKey: string, amount: number, reason: string, operationId: string): Promise<void> {
+    if (!operationId || !Number.isFinite(amount) || amount <= 0 || !reason?.trim()) {
+      throw new BadRequestException('充值参数或操作编号无效');
+    }
+    reason = reason.trim();
+    const assertSame = (receipt: any) => {
+      if (receipt.type !== TransactionType.CREDIT || receipt.amount !== amount || receipt.reason !== reason) {
+        throw new ConflictException('操作编号已用于不同的充值，请核对原操作结果');
+      }
+    };
+    try {
+      await moneyTransaction(this.walletModel.db, async () => {
+        const receipt = await this.txModel.findOne({ apiKey, operationId }, null, moneyOptions()).lean();
+        if (receipt) { assertSame(receipt); return; }
+        await this.creditInTransaction(apiKey, amount, reason, undefined, operationId);
+      });
+    } catch (error: any) {
+      if (error.code !== 11000) throw error;
+      const receipt = await this.txModel.findOne({ apiKey, operationId }).lean();
+      if (!receipt) throw error;
+      assertSame(receipt);
+    }
+  }
+
+  private async creditInTransaction(apiKey: string, amount: number, reason: string, taskId?: string, operationId?: string): Promise<void> {
     if (!Number.isFinite(amount) || amount <= 0) throw new Error('Invalid credit amount');
     if (taskId) {
       const receipt = await this.txModel.findOne({ apiKey, relatedTaskId: taskId, type: TransactionType.CREDIT }, null, moneyOptions()).lean();
@@ -333,6 +364,7 @@ export class WalletService {
       balanceBefore,
       balanceAfter: wallet!.balance,
       relatedTaskId: taskId,
+      ...(operationId ? { operationId } : {}),
       reason,
     });
 
@@ -388,6 +420,7 @@ export class WalletService {
     balanceBefore: number;
     balanceAfter: number;
     relatedTaskId?: string;
+    operationId?: string;
     reason?: string;
   }): Promise<void> {
     // A ledger failure aborts the enclosing transaction, including wallet and bill writes.

@@ -5,11 +5,12 @@ import {
   Max,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ExpectedClientRevisionDto } from './expected-client-revision.dto';
 
 /**
  * 更新 API 客户端限流配置 DTO
  */
-export class UpdateRateLimitsDto {
+export class UpdateRateLimitsDto extends ExpectedClientRevisionDto {
   @ApiPropertyOptional({ description: '每秒最大请求数', example: 10, minimum: 1, maximum: 1000 })
   @IsOptional()
   @IsInt()

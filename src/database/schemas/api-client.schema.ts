@@ -5,6 +5,9 @@ export type ApiClientDocument = HydratedDocument<ApiClient>;
 
 @Schema({ timestamps: true, collection: 'api_clients' })
 export class ApiClient {
+  @Prop({ default: 0, min: 0 })
+  revision!: number;
+
   /** 客户端主键，形如 mh_<ULID>；新版与请求头 X-API-Key 相同；旧版复合密钥为 `${apiKey}.${secret}` 前缀 */
   @Prop({ required: true, unique: true })
   apiKey!: string;

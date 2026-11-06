@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import * as bcrypt from 'bcrypt';
@@ -11,6 +11,7 @@ const SECRET_MIN_LEN = 16;
 
 /** 列表接口返回的单行（不含 secretHash） */
 export type ApiClientListRow = {
+  revision: number;
   id: string;
   apiKey: string;
   name?: string;
@@ -130,7 +131,7 @@ export class ApiClientService {
     const rows = await this.apiClientModel
       .find()
       .select(
-        'apiKey clientId name enabled defaultPriority billingPolicy rateLimits modelAllowlist createdAt updatedAt +secretHash',
+        'apiKey clientId name enabled defaultPriority billingPolicy rateLimits modelAllowlist revision createdAt updatedAt +secretHash',
       )
       .sort({ createdAt: -1 })
       .skip(Math.max(0, offset))
@@ -170,9 +171,8 @@ export class ApiClientService {
     );
   }
 
-  async setEnabled(apiKey: string, enabled: boolean): Promise<void> {
-    const res = await this.apiClientModel.updateOne({ apiKey }, { $set: { enabled } });
-    if (res.matchedCount === 0) throw new NotFoundException(`Api client not found: ${apiKey}`);
+  async setEnabled(apiKey: string, enabled: boolean, expectedRevision?: number): Promise<void> {
+    await this.updateConfig(apiKey, { enabled }, expectedRevision);
   }
 
   async rotateSecret(apiKey: string): Promise<{ plainKey: string }> {
@@ -193,12 +193,11 @@ export class ApiClientService {
     return { plainKey };
   }
 
-  async updateDefaultPriority(apiKey: string, defaultPriority: number): Promise<void> {
+  async updateDefaultPriority(apiKey: string, defaultPriority: number, expectedRevision?: number): Promise<void> {
     if (!Number.isInteger(defaultPriority) || defaultPriority < 0 || defaultPriority > 100) {
       throw new BadRequestException('defaultPriority must be an integer between 0 and 100');
     }
-    const res = await this.apiClientModel.updateOne({ apiKey }, { $set: { defaultPriority } });
-    if (res.matchedCount === 0) throw new NotFoundException(`Api client not found: ${apiKey}`);
+    await this.updateConfig(apiKey, { defaultPriority }, expectedRevision);
   }
 
   async getDefaultPriority(apiKey: string): Promise<number> {
@@ -207,18 +206,18 @@ export class ApiClientService {
     return doc.defaultPriority ?? 50;
   }
 
-  async updateBillingPolicy(apiKey: string, billingPolicy: string): Promise<void> {
+  async updateBillingPolicy(apiKey: string, billingPolicy: string, expectedRevision?: number): Promise<void> {
     const validPolicies = ['internal', 'external', 'exempt'];
     if (!validPolicies.includes(billingPolicy)) {
       throw new BadRequestException(`billingPolicy must be one of: ${validPolicies.join(', ')}`);
     }
-    const res = await this.apiClientModel.updateOne({ apiKey }, { $set: { billingPolicy } });
-    if (res.matchedCount === 0) throw new NotFoundException(`Api client not found: ${apiKey}`);
+    await this.updateConfig(apiKey, { billingPolicy }, expectedRevision);
   }
 
   async updateRateLimits(
     apiKey: string,
     rateLimits: { maxQps?: number; maxConcurrent?: number; maxDailyRequests?: number },
+    expectedRevision?: number,
   ): Promise<void> {
     const updateFields: Record<string, number> = {};
     if (rateLimits.maxQps !== undefined) updateFields['rateLimits.maxQps'] = rateLimits.maxQps;
@@ -229,13 +228,37 @@ export class ApiClientService {
       throw new BadRequestException('至少需要提供一个限流参数');
     }
 
-    const res = await this.apiClientModel.updateOne({ apiKey }, { $set: updateFields });
-    if (res.matchedCount === 0) throw new NotFoundException(`Api client not found: ${apiKey}`);
+    await this.updateConfig(apiKey, updateFields, expectedRevision);
   }
 
-  async updateModelAllowlist(apiKey: string, modelAllowlist: string[]): Promise<void> {
-    const res = await this.apiClientModel.updateOne({ apiKey }, { $set: { modelAllowlist } });
-    if (res.matchedCount === 0) throw new NotFoundException(`Api client not found: ${apiKey}`);
+  async updateModelAllowlist(apiKey: string, modelAllowlist: string[], expectedRevision?: number): Promise<void> {
+    await this.updateConfig(apiKey, { modelAllowlist }, expectedRevision);
+  }
+
+  assertExpectedRevision(value: unknown): number {
+    if (!Number.isSafeInteger(value) || (value as number) < 0) throw new BadRequestException('缺少有效的配置版本，请刷新后重试');
+    return value as number;
+  }
+
+  private async updateConfig(apiKey: string, fields: Record<string, unknown>, expectedRevision?: number): Promise<void> {
+    const filter: Record<string, unknown> = { apiKey };
+    if (expectedRevision !== undefined) {
+      this.assertExpectedRevision(expectedRevision);
+      if (expectedRevision === 0) filter.$or = [{ revision: 0 }, { revision: { $exists: false } }];
+      else filter.revision = expectedRevision;
+    }
+    const res = await this.apiClientModel.updateOne(filter, { $set: fields, $inc: { revision: 1 } });
+    if (!res.matchedCount) {
+      if (!await this.apiClientModel.exists({ apiKey })) throw new NotFoundException('客户端不存在');
+      throw new ConflictException('配置已被其他管理员修改，请查看最新配置后重新确认');
+    }
+  }
+
+  async getForAdmin(id: string): Promise<ApiClientListRow> {
+    this.assertManagementId(id);
+    const row = await this.apiClientModel.findById(id).select('+secretHash').lean();
+    if (!row) throw new NotFoundException('客户端不存在');
+    return this.toListRow({ ...row });
   }
 
   assertApiKeyParam(apiKey: string): void {
@@ -263,6 +286,7 @@ export class ApiClientService {
       : undefined;
     return {
       id: String(row._id),
+      revision: typeof row.revision === 'number' ? row.revision : 0,
       apiKey: this.maskCredential(key),
       name: typeof row.name === 'string' ? row.name : undefined,
       enabled: row.enabled !== false,
