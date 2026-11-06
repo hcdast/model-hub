@@ -116,4 +116,12 @@ async function bootstrap() {
   logger.log(`Swagger docs: http://localhost:${port}/apidoc`);
 }
 
-bootstrap();
+void bootstrap().catch((error: unknown) => {
+  const logger = new Logger('Bootstrap');
+  logger.error(
+    'Application startup failed; exiting so the process supervisor can retry.',
+    error instanceof Error ? error.stack : String(error),
+  );
+  // Open DB/Redis connections can keep an unsuccessful bootstrap alive indefinitely.
+  process.exit(1);
+});
