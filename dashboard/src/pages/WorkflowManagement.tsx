@@ -1,10 +1,10 @@
+import Table from '../components/AdminTable';
 /*
  * 工作流管理页面
  * 提供工作流列表、详情、执行历史查看功能
  */
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Table,
   Card,
   Button,
   Space,

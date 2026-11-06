@@ -8,6 +8,8 @@ export interface ProviderHealthOverview {
   avgLatencyMs: number;
   errorRate: number;
   sampleCount: number;
+  windowDurationMs?: number;
+  computedAt?: string;
   lastTransitionAt: string | null;
   hasManualOverride: boolean;
 }

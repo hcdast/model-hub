@@ -1,7 +1,8 @@
+import Table from '../components/AdminTable';
 import { usePermission } from '../hooks/usePermission';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Card, Table, Button, Space, Typography, message, Modal, Form,
+  Card, Button, Space, Typography, message, Modal, Form,
   Input, InputNumber, Switch, Tag, Select, Popconfirm, Tooltip,
   Divider,
 } from 'antd';
@@ -448,7 +449,6 @@ export default function AccountPoolPage() {
             loading={loading}
             dataSource={displayItems}
             columns={columns}
-            scroll={{ x: showAccountBaseUrlCol ? 1480 : 1320 }}
             pagination={false}
             size="small"
             onRow={(record, index) => {

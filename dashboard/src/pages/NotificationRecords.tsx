@@ -1,14 +1,15 @@
+import Table from '../components/AdminTable';
 import { useRequest } from '../hooks/useRequest';
 import { Drawer, Space } from 'antd';
 import { NOTIFICATION_EVENTS, EVENT_LABELS, SEVERITY_LABELS } from '../constants/notification-events';
 import { useEffect, useState } from 'react';
-import { Table, Card, Tag, Select, DatePicker, Button } from 'antd';
+import { Card, Tag, Select, DatePicker, Button } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import PageHeader from '../components/PageHeader';
 import { notificationRecordApi } from '../services/api';
 
-const statusColor: Record<string, string> = { success: 'green', failed: 'red', suppressed: 'orange' };
-const statusLabel: Record<string, string> = { success: '成功', failed: '失败', suppressed: '已抑制' };
+const statusColor: Record<string, string> = { pending: 'blue', unknown: 'gold', success: 'green', failed: 'red', suppressed: 'orange' };
+const statusLabel: Record<string, string> = { pending: '待确认', unknown: '结果待核验', success: '成功', failed: '失败', suppressed: '已抑制' };
 
 export default function NotificationRecordsPage() {
   const [params, setParams] = useState<Record<string, any>>({ page: 1, pageSize: 20 });
@@ -45,7 +46,7 @@ export default function NotificationRecordsPage() {
               onChange={(v) => setParams({ ...params, channelType: v, page: 1 })}
             />
             <Select allowClear placeholder="状态" style={{ width: 120 }}
-              options={[{ value: 'success', label: '成功' }, { value: 'failed', label: '失败' }, { value: 'suppressed', label: '已抑制' }]}
+              options={[{ value: 'pending', label: '待确认' }, { value: 'unknown', label: '结果待核验' }, { value: 'success', label: '成功' }, { value: 'failed', label: '失败' }, { value: 'suppressed', label: '已抑制' }]}
               value={params.status}
               onChange={(v) => setParams({ ...params, status: v, page: 1 })}
             />
@@ -66,7 +67,7 @@ export default function NotificationRecordsPage() {
       <Drawer title="通知投递详情" open={!!detail} onClose={() => setDetail(undefined)} width={760}><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(detail, null, 2)}</pre></Drawer>
       <Card>
         <Table
-          columns={columns} dataSource={data.items} rowKey="_id" loading={loading} size="small" scroll={{ x: 1200 }}
+          columns={columns} dataSource={data.items} rowKey="_id" loading={loading} size="small"
           pagination={{
             current: params.page, pageSize: params.pageSize, total: data.total,
             showTotal: (t) => `共 ${t} 条`,

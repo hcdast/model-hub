@@ -13,6 +13,8 @@ import StatusTag from '../components/StatusTag';
 import { taskApi, modelApi } from '../services/api';
 import { priorityToLabel, formatDateTime } from '../utils/format-helpers';
 import { usePermission } from '../hooks/usePermission';
+import { billingUsageSuffix, formatBillingUsageValue } from '../utils/billing-units';
+import { taskRepairGuidance } from '@model-hub/common/utils/task-repair-guidance';
 
 /** 计费状态中文映射 */
 const BILLING_STATUS_MAP: Record<string, { label: string; color: string }> = {
@@ -114,20 +116,6 @@ function formatTimelineDetailValue(v: unknown): ReactNode {
   return String(v);
 }
 
-/** 与 billing.usageType 对齐的用量单位后缀（视频按时长→秒，图像按次→张） */
-function billingUsageSuffix(usageType?: string): string {
-  if (usageType === 'duration') return '秒';
-  if (usageType === 'count') return '张';
-  if (usageType === 'token') return 'Token';
-  return '';
-}
-
-function formatBillingUsageValue(value: unknown, usageType?: string): string {
-  if (value === undefined || value === null) return '—';
-  const suf = billingUsageSuffix(usageType);
-  return suf ? `${value} ${suf}` : String(value);
-}
-
 function formatUsd(value?: number | null): string {
   if (value == null || Number.isNaN(value)) return '—';
   return new Intl.NumberFormat('en-US', {
@@ -148,7 +136,8 @@ export default function TaskDetailPage() {
   const canMutateTask = hasPermission('task:update');
   const canReadModel = hasPermission('model:read');
   const [diagnostics, setDiagnostics] = useState<any>();
-  const inspectTask = async () => { try { const res: any = await taskApi.diagnostics(taskId!); setDiagnostics(res.data); } catch (err) { ErrorHandler.handleApiError(err, '诊断失败'); } };
+  const [diagnosing, setDiagnosing] = useState(false);
+  const inspectTask = async () => { setDiagnosing(true); try { const res: any = await taskApi.diagnostics(taskId!); setDiagnostics(res.data); } catch (err) { ErrorHandler.handleApiError(err, '诊断失败'); } finally { setDiagnosing(false); } };
   const reconcileTask = () => { let reference = '', reason = '', confirmed = false;
     Modal.confirm({ title: '按已核验的失败结果修复任务', width: 700, content: <Space direction="vertical" style={{ width: '100%' }}><Alert type="warning" message="此操作将终结任务并解冻预扣款。请先在供应商后台核对实际结果，队列缺失或 HTTP 错误不能作为唯一依据。" /><Input placeholder="供应商查询记录、工单或核验编号（必填）" onChange={e => { reference = e.target.value; }} /><Input.TextArea placeholder="修复原因（必填）" onChange={e => { reason = e.target.value; }} /><Checkbox onChange={e => { confirmed = e.target.checked; }}>已核对供应商实际失败或取消，确认没有成功结果</Checkbox></Space>, onOk: async () => { if (!confirmed || !reference.trim() || !reason.trim()) { message.warning('请完整填写核验信息并确认'); throw new Error('未完成核验'); } await taskApi.reconcileFailure(taskId!, { expectedUpdatedAt: diagnostics.updatedAt, verificationReference: reference, reason, confirmedFailure: confirmed }); setDiagnostics(undefined); await reloadTaskData({ mode: 'manual' }); } });
   };
@@ -400,9 +389,23 @@ export default function TaskDetailPage() {
             marginBottom: 16,
           }}
         >
-          <Modal title="任务与队列、计费诊断" open={!!diagnostics} onCancel={() => setDiagnostics(undefined)} width={900} footer={<Space><Button onClick={() => setDiagnostics(undefined)}>关闭</Button>{hasPermission('task:update') && hasPermission('billing:write') && !['SUCCESS', 'CANCELLED'].includes(diagnostics?.status) && <Button danger onClick={reconcileTask}>已核验失败后修复</Button>}</Space>}><Alert type="info" message={diagnostics?.recommendation} /><pre style={{ maxHeight: 500, overflow: 'auto', whiteSpace: 'pre-wrap' }}>{JSON.stringify(diagnostics, null, 2)}</pre></Modal>
+          <Modal title="任务与队列、计费诊断" open={!!diagnostics} onCancel={() => setDiagnostics(undefined)} width={900} footer={<Space><Button onClick={() => setDiagnostics(undefined)}>关闭</Button>{hasPermission('task:update') && hasPermission('billing:write') && diagnostics && taskRepairGuidance(diagnostics.status, diagnostics.billing).canReconcileFailure && diagnostics.canReconcileFailure !== false && <Button danger onClick={reconcileTask}>已核验失败后修复</Button>}</Space>}>
+            {diagnostics && <Space direction="vertical" style={{ width: '100%' }} size="middle">
+              <Alert showIcon type={taskRepairGuidance(diagnostics.status, diagnostics.billing).canReconcileFailure ? 'warning' : 'info'} message={taskRepairGuidance(diagnostics.status, diagnostics.billing).recommendation} />
+              <Descriptions bordered size="small" column={2}>
+                <Descriptions.Item label="任务状态"><StatusTag status={diagnostics.status} /></Descriptions.Item>
+                <Descriptions.Item label="计费状态">{BILLING_STATUS_MAP[diagnostics.billing?.status]?.label || '无计费记录'}</Descriptions.Item>
+                <Descriptions.Item label="队列状态">{({ completed: '队列作业已完成', failed: '队列作业失败', active: '处理中', waiting: '等待中', delayed: '延迟重试', missing_or_removed: '未找到或已移除，需核对供应商结果' } as Record<string, string>)[diagnostics.queue?.state] || diagnostics.queue?.state || '—'}</Descriptions.Item>
+                <Descriptions.Item label="供应商任务 ID">{diagnostics.providerTaskId || '尚未取得'}</Descriptions.Item>
+                <Descriptions.Item label="最近提交异常" span={2}>{diagnostics.submitFailures?.at(-1)?.errorMsg || '未记录提交异常'}</Descriptions.Item>
+                <Descriptions.Item label="队列最近异常" span={2}>{diagnostics.queue?.lastError || '无'}</Descriptions.Item>
+              </Descriptions>
+              {hasPermission('billing:read') && <Button onClick={() => navigate(`/billing/records?taskId=${encodeURIComponent(taskId!)}`)}>查看关联账单</Button>}
+              <details><summary style={{ cursor: 'pointer' }}>原始诊断数据</summary><pre style={{ maxHeight: 400, overflow: 'auto', whiteSpace: 'pre-wrap' }}>{JSON.stringify(diagnostics, null, 2)}</pre></details>
+            </Space>}
+          </Modal>
           <Space wrap>
-            <Button onClick={inspectTask}>运行诊断</Button>
+            <Button loading={diagnosing} onClick={inspectTask}>运行诊断</Button>
             <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>
               返回
             </Button>
@@ -523,22 +526,22 @@ export default function TaskDetailPage() {
               </Tag>
             </Descriptions.Item>
             <Descriptions.Item label="用量类型">
-              {USAGE_TYPE_MAP[task.billing.usageType] || task.billing.usageType}
+              {task.billing.usageMeasure === 'characters' ? '按字符' : USAGE_TYPE_MAP[task.billing.usageType] || task.billing.usageType}
             </Descriptions.Item>
             <Descriptions.Item label="unit_price_map 命中">{task.billing.unitPriceTierUsed ?? '—'}</Descriptions.Item>
               <Descriptions.Item label="单价">
                 {task.billing.unitPrice} {task.billing.currency}
-                {billingUsageSuffix(task.billing.usageType)
-                  ? ` / ${billingUsageSuffix(task.billing.usageType)}`
+                {billingUsageSuffix(task.billing, task.featureType)
+                  ? ` / ${billingUsageSuffix(task.billing, task.featureType)}`
                   : ''}
               </Descriptions.Item>
               <Descriptions.Item label="预估用量">
-                {formatBillingUsageValue(task.billing.estimatedUsage, task.billing.usageType)}
+                {formatBillingUsageValue(task.billing.estimatedUsage, task.billing, task.featureType)}
               </Descriptions.Item>
               <Descriptions.Item label="预估费用">{task.billing.estimatedCost} {task.billing.currency}</Descriptions.Item>
               {task.billing.actualUsage !== undefined && task.billing.actualUsage !== null && (
                 <Descriptions.Item label="实际用量">
-                  {formatBillingUsageValue(task.billing.actualUsage, task.billing.usageType)}
+                  {formatBillingUsageValue(task.billing.actualUsage, task.billing, task.featureType)}
                 </Descriptions.Item>
               )}
               {(task.billing.actualCost !== undefined && task.billing.actualCost !== null) && (

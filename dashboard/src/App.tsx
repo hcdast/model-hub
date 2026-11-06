@@ -20,6 +20,7 @@ import RouteErrorBoundary from './components/RouteErrorBoundary';
 import { BrandMark } from './components/BrandMark';
 import { buildAntdTheme } from './theme/antd-theme';
 import { useAuthStore } from './store/auth';
+import { safeReturnTo } from './utils/login-return';
 import { usePermission } from './hooks/usePermission';
 import { useMenuStore, type MenuGroup, type MenuItem as SidebarMenuItem } from './store/menu';
 import { useThemeStore } from './store/theme';
@@ -213,7 +214,8 @@ function findOpenKeys(groups: MenuGroup[], pathname: string): string[] {
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  const location = useLocation();
+  if (!isAuthenticated) return <Navigate to={`/login?returnTo=${encodeURIComponent(location.pathname + location.search + location.hash)}`} replace />;
   return <>{children}</>;
 }
 
@@ -553,7 +555,8 @@ function AppLayout() {
  */
 function GuestGuard({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  if (isAuthenticated) return <Navigate to="/" replace />;
+  const location = useLocation();
+  if (isAuthenticated) return <Navigate to={safeReturnTo(new URLSearchParams(location.search).get('returnTo'))} replace />;
   return <>{children}</>;
 }
 

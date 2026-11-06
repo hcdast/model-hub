@@ -25,13 +25,7 @@ interface AuthState {
  * 使用 localStorage 持久化登录状态、角色和权限
  */
 export const useAuthStore = create<AuthState>((set) => ({
-  // 从 localStorage 恢复认证状态
-  token: localStorage.getItem('token'),
-  username: localStorage.getItem('username'),
-  roles: JSON.parse(localStorage.getItem('roles') || '[]'),
-  permissions: JSON.parse(localStorage.getItem('permissions') || '[]'),
-  menus: JSON.parse(localStorage.getItem('menus') || '[]'),
-  isAuthenticated: !!localStorage.getItem('token'),
+  ...readSession(),
   login: (token, username, roles = [], permissions = [], menus = []) => {
     // 持久化到 localStorage
     localStorage.setItem('token', token);
@@ -51,3 +45,30 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ token: null, username: null, roles: [], permissions: [], menus: [], isAuthenticated: false });
   },
 }));
+
+function readSession() {
+  const empty = { token: null, username: null, roles: [], permissions: [], menus: [], isAuthenticated: false };
+  try {
+    const list = (key: string): string[] => {
+      const value = JSON.parse(localStorage.getItem(key) || '[]');
+      if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) throw new Error('Invalid session');
+      return value;
+    };
+    const token = localStorage.getItem('token');
+    if (!token) return empty;
+    return { token, username: localStorage.getItem('username'), roles: list('roles'), permissions: list('permissions'), menus: list('menus'), isAuthenticated: true };
+  } catch {
+    // Corrupted browser state must fail closed, while leaving the login page usable.
+    try { ['token', 'username', 'roles', 'permissions', 'menus'].forEach(key => localStorage.removeItem(key)); } catch { /* unavailable storage */ }
+    return empty;
+  }
+}
+
+window.addEventListener('storage', event => {
+  if (event.storageArea !== localStorage || (event.key !== null && !['token', 'username', 'roles', 'permissions', 'menus'].includes(event.key))) return;
+  const previousToken = useAuthStore.getState().token;
+  const session = readSession();
+  useAuthStore.setState(session);
+  // Switching accounts must discard data fetched for the previous account.
+  if (previousToken && session.token && previousToken !== session.token) window.location.reload();
+});

@@ -1,6 +1,6 @@
+import Table from '../components/AdminTable';
 import { useState, useCallback, useEffect } from 'react';
-import {
-  Table, Card, Input, Select, DatePicker, Button, Space, Tag, message, Row, Col, Typography, Divider,
+import { Card, Input, Select, DatePicker, Button, Space, Tag, message, Row, Col, Typography, Divider,
 } from 'antd';
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
@@ -10,6 +10,7 @@ import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
 import { billingApi, type BillingRecordQuery, type BillingRecordItem } from '../services/billing';
 import { useRequest } from '../hooks/useRequest';
 import { formatDateTime } from '../utils/format-helpers';
+import RequestFeedback from '../components/RequestFeedback';
 
 /** 计费策略选项 */
 const BILLING_POLICY_OPTIONS = [
@@ -123,7 +124,7 @@ export default function BillingRecordsPage() {
   const [reconRows, setReconRows] = useState<any[]>([]);
   const [reconLoading, setReconLoading] = useState(false);
 
-  const { data, loading, refresh } = useRequest(
+  const { data, error, loading, refresh } = useRequest(
     () => billingApi.getRecords(params).then((res: any) => res.data || { items: [], total: 0 }),
     { deps: [params.taskId, params.page, params.pageSize, params.apiKey, params.model, params.billingPolicy, params.status, params.startDate, params.endDate] },
   );
@@ -243,7 +244,7 @@ export default function BillingRecordsPage() {
         title="用量账单"
         extra={(
           <>
-            <Input.Search placeholder="任务 ID 精确查询" defaultValue={params.taskId} allowClear style={{ width: 220 }} onSearch={taskId => setParams({ ...params, taskId, page: 1 })} />
+            <Input.Search key={`taskId:${params.taskId || ''}`} placeholder="任务 ID 精确查询" defaultValue={params.taskId} allowClear style={{ width: 220 }} onSearch={taskId => setParams({ ...params, taskId, page: 1 })} />
             <Button
               icon={<ReloadOutlined />}
               onClick={() => {
@@ -295,7 +296,6 @@ export default function BillingRecordsPage() {
           rowKey={(r) => String(r._id)}
           dataSource={reconRows}
           pagination={false}
-          scroll={{ x: 560 }}
           columns={[
             { title: '日期', dataIndex: '_id', width: 120 },
             { title: '笔数', dataIndex: 'count', width: 90, align: 'right' as const },
@@ -316,20 +316,26 @@ export default function BillingRecordsPage() {
       </Card>
 
       <Card title="用量账单明细">
+        <RequestFeedback error={error} hasData={!!data} retry={refresh} />
         <Space wrap style={{ marginBottom: 12 }}>
           <Input.Search
+            key={`apiKey:${params.apiKey || ''}`}
+            defaultValue={params.apiKey}
             placeholder="API Key"
             allowClear
             style={{ width: 200 }}
             onSearch={(v) => updateFilter({ apiKey: v || undefined })}
           />
           <Input.Search
+            key={`model:${params.model || ''}`}
+            defaultValue={params.model}
             placeholder="模型名称"
             allowClear
             style={{ width: 200 }}
             onSearch={(v) => updateFilter({ model: v || undefined })}
           />
           <Select
+            value={params.billingPolicy}
             placeholder="计费策略"
             allowClear
             style={{ width: 140 }}
@@ -337,6 +343,7 @@ export default function BillingRecordsPage() {
             onChange={(v) => updateFilter({ billingPolicy: v })}
           />
           <Select
+            value={params.status}
             placeholder="状态"
             allowClear
             style={{ width: 120 }}
@@ -344,6 +351,7 @@ export default function BillingRecordsPage() {
             onChange={(v) => updateFilter({ status: v })}
           />
           <DatePicker.RangePicker
+            value={params.startDate && params.endDate ? [dayjs(params.startDate), dayjs(params.endDate)] : null}
             onChange={(dates) => {
               updateFilter({
                 startDate: dates?.[0]?.toISOString(),
@@ -351,14 +359,15 @@ export default function BillingRecordsPage() {
               });
             }}
           />
+          <Button onClick={() => setParams({ page: 1, pageSize: params.pageSize })}>重置筛选</Button>
         </Space>
         <Table
           columns={columns}
           dataSource={data?.items || []}
           rowKey="_id"
           loading={loading}
+          locale={{ emptyText: error ? '加载失败，请点击重试' : undefined }}
           size="small"
-          scroll={{ x: 1400 }}
           pagination={{
             current: params.page,
             pageSize: params.pageSize,

@@ -1,6 +1,6 @@
+import Table from '../components/AdminTable';
 import { useEffect, useState, useCallback, useRef } from 'react';
-import {
-  Table, Card, Button, Space, Tag, Switch, message, Modal, Form, Input, Select,
+import { Card, Button, Space, Tag, Switch, message, Modal, Form, Input, Select,
   Typography, Popconfirm, Statistic, Row, Col, Descriptions, Badge, Tooltip,
 } from 'antd';
 import {
@@ -347,33 +347,33 @@ export default function PortalUsersPage() {
 
       {/* 统计卡片 */}
       {stats && (
-        <Row gutter={16} style={{ marginBottom: 16 }}>
-          <Col span={4}>
+        <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+          <Col xs={12} sm={8} lg={4}>
             <Card size="small">
               <Statistic title="总用户数" value={stats.totalUsers} prefix={<UserOutlined />} />
             </Card>
           </Col>
-          <Col span={4}>
+          <Col xs={12} sm={8} lg={4}>
             <Card size="small">
               <Statistic title="活跃用户" value={stats.activeUsers} valueStyle={{ color: '#3f8600' }} />
             </Card>
           </Col>
-          <Col span={4}>
+          <Col xs={12} sm={8} lg={4}>
             <Card size="small">
               <Statistic title="已禁用" value={stats.suspendedUsers} valueStyle={{ color: '#cf1322' }} />
             </Card>
           </Col>
-          <Col span={4}>
+          <Col xs={12} sm={8} lg={4}>
             <Card size="small">
               <Statistic title="今日新增" value={stats.newUsersToday} />
             </Card>
           </Col>
-          <Col span={4}>
+          <Col xs={12} sm={8} lg={4}>
             <Card size="small">
               <Statistic title="本周新增" value={stats.newUsersThisWeek} />
             </Card>
           </Col>
-          <Col span={4}>
+          <Col xs={12} sm={8} lg={4}>
             <Card size="small">
               <Statistic title="本月新增" value={stats.newUsersThisMonth} />
             </Card>
@@ -383,14 +383,14 @@ export default function PortalUsersPage() {
 
       <Card>
         {/* 筛选栏 */}
-        <div style={{ marginBottom: 16, display: 'flex', gap: 12 }}>
+        <div style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 12 }}>
           <Input
             placeholder="搜索邮箱/用户名"
             prefix={<SearchOutlined />}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             onPressEnter={() => fetchUsers(1)}
-            style={{ width: 250 }}
+            style={{ width: 250, maxWidth: '100%' }}
             allowClear
           />
           <Select

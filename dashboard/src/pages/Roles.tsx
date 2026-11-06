@@ -1,6 +1,8 @@
+import { useFormDialog } from '../hooks/useFormDialog';
+import { useUnsavedNavigation } from '../hooks/useUnsavedNavigation';
+import Table from '../components/AdminTable';
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import {
-  Table, Card, Button, Space, Tag, message, Modal, Form, Input, Collapse,
+import { Card, Button, Space, Tag, message, Modal, Form, Input, Collapse,
   Checkbox, Badge, Popconfirm, Tooltip, Tree, Tabs, Alert,
 } from 'antd';
 import {
@@ -50,6 +52,10 @@ export default function RolesPage() {
   const [editForm] = Form.useForm();
   const [editSelectedPerms, setEditSelectedPerms] = useState<string[]>([]);
   const [editSelectedMenus, setEditSelectedMenus] = useState<string[]>([]);
+  const createDialog = useFormDialog(createOpen, createForm, creating, () => { setCreateOpen(false); createForm.resetFields(); setCreateSelectedPerms([]); setCreateSelectedMenus([]); }, [createSelectedPerms, createSelectedMenus]);
+  const editDialog = useFormDialog(editOpen, editForm, editing, () => { setEditOpen(false); setEditingRole(null); editForm.resetFields(); setEditSelectedPerms([]); setEditSelectedMenus([]); }, [editSelectedPerms, editSelectedMenus]);
+  useUnsavedNavigation(createDialog.dirty || editDialog.dirty);
+
 
   // group permissions by module
   const groupedPermissions = useMemo(() => {
@@ -99,7 +105,7 @@ export default function RolesPage() {
 
   // ---- handlers ----
 
-  const handleCreate = async () => {
+  const handleCreate = () => createDialog.run(async () => {
     const values = await createForm.validateFields().catch(() => null);
     if (!values) return;
     setCreating(true);
@@ -121,9 +127,9 @@ export default function RolesPage() {
       message.error(err.response?.data?.message || '创建角色失败');
     }
     setCreating(false);
-  };
+  });
 
-  const handleEdit = async () => {
+  const handleEdit = () => editDialog.run(async () => {
     const values = await editForm.validateFields().catch(() => null);
     if (!values || !editingRole) return;
     setEditing(true);
@@ -145,7 +151,7 @@ export default function RolesPage() {
       message.error(err.response?.data?.message || '更新角色失败');
     }
     setEditing(false);
-  };
+  });
 
   const openEdit = (record: any) => {
     setEditingRole(record);
@@ -386,13 +392,11 @@ export default function RolesPage() {
       <Modal
         title="新建角色"
         open={createOpen}
-        onCancel={() => { setCreateOpen(false); createForm.resetFields(); setCreateSelectedPerms([]); setCreateSelectedMenus([]); }}
-        onOk={handleCreate}
-        confirmLoading={creating}
-        destroyOnClose
+        {...createDialog.modalProps}
+        onOk={handleCreate}        destroyOnClose
         width={720}
       >
-        <Form form={createForm} layout="vertical">
+        <Form disabled={createDialog.busy} form={createForm} layout="vertical">
           <Form.Item
             name="name"
             label="角色名"
@@ -413,6 +417,7 @@ export default function RolesPage() {
           <Form.Item label="菜单授权（多级）">
             <div style={{ border: '1px solid #d9d9d9', borderRadius: 6, padding: 8, maxHeight: 320, overflow: 'auto' }}>
               <Tree
+                disabled={createDialog.busy}
                 checkable
                 showLine
                 defaultExpandAll
@@ -440,6 +445,7 @@ export default function RolesPage() {
                 type="link"
                 size="small"
                 icon={<ThunderboltOutlined />}
+                disabled={createDialog.busy}
                 onClick={() => autoFillPermissionsFromMenus(createSelectedMenus, createSelectedPerms, setCreateSelectedPerms)}
               >
                 从菜单自动填充
@@ -455,13 +461,11 @@ export default function RolesPage() {
       <Modal
         title={`编辑角色 - ${editingRole?.displayName || editingRole?.name || ''}`}
         open={editOpen}
-        onCancel={() => { setEditOpen(false); setEditingRole(null); editForm.resetFields(); setEditSelectedPerms([]); setEditSelectedMenus([]); }}
-        onOk={handleEdit}
-        confirmLoading={editing}
-        destroyOnClose
+        {...editDialog.modalProps}
+        onOk={handleEdit}        destroyOnClose
         width={720}
       >
-        <Form form={editForm} layout="vertical">
+        <Form disabled={editDialog.busy} form={editForm} layout="vertical">
           <Form.Item
             name="displayName"
             label="显示名称"
@@ -475,6 +479,7 @@ export default function RolesPage() {
           <Form.Item label="菜单授权（多级）">
             <div style={{ border: '1px solid #d9d9d9', borderRadius: 6, padding: 8, maxHeight: 320, overflow: 'auto' }}>
               <Tree
+                disabled={editDialog.busy}
                 checkable
                 showLine
                 defaultExpandAll
@@ -502,6 +507,7 @@ export default function RolesPage() {
                 type="link"
                 size="small"
                 icon={<ThunderboltOutlined />}
+                disabled={editDialog.busy}
                 onClick={() => autoFillPermissionsFromMenus(editSelectedMenus, editSelectedPerms, setEditSelectedPerms)}
               >
                 从菜单自动填充

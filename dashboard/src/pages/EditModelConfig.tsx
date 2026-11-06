@@ -1,3 +1,4 @@
+import Table from '../components/AdminTable';
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
@@ -11,7 +12,6 @@ import {
   Row,
   Col,
   Select,
-  Table,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -33,6 +33,7 @@ import { modelApi } from '../services/api';
 import { usePermission } from '../hooks/usePermission';
 import { pickModelConfig } from '@model-hub/common/utils/model-contract';
 import { ErrorHandler } from '../utils/error-handler';
+import { useUnsavedNavigation } from '../hooks/useUnsavedNavigation';
 
 type ConfigEditMode = 'structured' | 'json';
 
@@ -58,6 +59,7 @@ export default function EditModelConfigPage() {
   const [validationErrors, setValidationErrors] = useState<any[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  useUnsavedNavigation(hasChanges);
   const [mongoId, setMongoId] = useState<string>('');
   const [editMode, setEditMode] = useState<ConfigEditMode>('structured');
   const [structuredSession, setStructuredSession] = useState(0);
@@ -191,35 +193,13 @@ export default function EditModelConfigPage() {
     });
   };
 
-  const handleCancel = () => {
-    if (hasChanges) {
-      Modal.confirm({
-        title: '确认离开',
-        content: '您有未保存的修改，确定要离开吗？',
-        okText: '离开',
-        cancelText: '取消',
-        okButtonProps: { danger: true },
-        onOk: () => {
-          navigate(returnTo);
-        },
-      });
-    } else {
-      navigate(returnTo);
-    }
+  const handleCancel = () => navigate(returnTo);
+  const loadDraft = () => {
+    const apply = () => setJsonValue(JSON.stringify(pickModelConfig({ ...activeConfig, ...activeConfig.draft }), null, 2));
+    if (!hasChanges) { apply(); return; }
+    Modal.confirm({ title: '加载草稿将覆盖当前修改', content: '当前未保存的修改将丢失，是否加载已保存草稿？',
+      okText: '加载草稿', cancelText: '继续编辑', okButtonProps: { danger: true }, onOk: apply });
   };
-
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (hasChanges) {
-        e.preventDefault();
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [hasChanges]);
 
   if (loading) {
     return <LoadingState tip="加载配置中..." large />;
@@ -234,7 +214,7 @@ export default function EditModelConfigPage() {
           <Space wrap>
             <span>活动版本 {activeConfig.revision || 0}</span>
             <Button loading={submitting} disabled={!canUpdate} onClick={() => manageVersion('draft')}>保存草稿</Button>
-            <Button disabled={!activeConfig.draft || submitting} onClick={() => setJsonValue(JSON.stringify(pickModelConfig({ ...activeConfig, ...activeConfig.draft }), null, 2))}>加载草稿</Button>
+            <Button disabled={!activeConfig.draft || submitting} onClick={loadDraft}>加载草稿</Button>
             <Button type="primary" disabled={!canUpdate || !activeConfig.draft || submitting || hasChanges} onClick={() => review('发布草稿：立即生效', activeConfig, activeConfig.draft, () => manageVersion('publish'))}>发布已保存草稿</Button>
             <Button disabled={!activeConfig.history?.length || submitting} onClick={() => setHistoryOpen(true)}>历史版本与差异</Button>
           </Space>

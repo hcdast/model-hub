@@ -1,6 +1,6 @@
+import Table from '../components/AdminTable';
 import { useState, useMemo } from 'react';
-import {
-  Table, Card, Input, Tag, Button, Drawer, Descriptions, Space, Typography, Select,
+import { Card, Input, Tag, Button, Drawer, Descriptions, Space, Typography, Select,
 } from 'antd';
 import PageHeader from '../components/PageHeader';
 import { auditApi } from '../services/api';
@@ -218,7 +218,6 @@ export default function AuditLogsPage() {
           rowKey="_id"
           loading={loading}
           size="small"
-          scroll={{ x: 1200 }}
           pagination={{
             current: params.page,
             pageSize: params.pageSize,

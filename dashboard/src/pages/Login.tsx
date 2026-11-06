@@ -1,27 +1,38 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Card, Typography, message, Space } from 'antd';
+import { useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Form, Input, Button, Card, Typography, message, Space, Alert } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { authApi } from '../services/api';
 import { useAuthStore } from '../store/auth';
 import { BrandMark } from '../components/BrandMark';
 import { COLOR_PRIMARY } from '../theme/antd-theme';
+import { safeReturnTo } from '../utils/login-return';
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const lock = useRef(false);
+  const [search] = useSearchParams();
   const navigate = useNavigate();
   const login = useAuthStore((s) => s.login);
 
   const onFinish = async (values: { username: string; password: string }) => {
+    if (lock.current) return;
+    lock.current = true;
+    setError('');
     setLoading(true);
     try {
       const res: any = await authApi.login(values.username, values.password);
       login(res.data.accessToken, values.username, res.data.roles || [], res.data.permissions || [], res.data.menus || []);
       message.success('登录成功');
-      navigate('/');
-    } catch {
-      message.error('用户名或密码错误');
+      navigate(safeReturnTo(search.get('returnTo')), { replace: true });
+    } catch (err: any) {
+      setError(err.response?.status === 401 ? '用户名或密码错误'
+        : err.response?.status === 429 ? '登录尝试过于频繁，请稍后重试'
+        : err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT' ? '登录请求超时，请重试'
+        : !err.response ? '无法连接服务器，请检查网络后重试' : '登录服务暂时不可用，请稍后重试');
     } finally {
+      lock.current = false;
       setLoading(false);
     }
   };
@@ -59,12 +70,13 @@ export default function LoginPage() {
             </Typography.Title>
             <Typography.Text style={{ color: '#475569' }}>统一 AI 模型接入中台</Typography.Text>
           </div>
-          <Form onFinish={onFinish} size="large" style={{ textAlign: 'left' }}>
+          {error && <Alert type="error" showIcon message={error} />}
+          <Form onFinish={onFinish} disabled={loading} size="large" style={{ textAlign: 'left' }}>
             <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
-              <Input prefix={<UserOutlined style={{ color: COLOR_PRIMARY }} />} placeholder="用户名" />
+              <Input autoComplete="username" aria-label="用户名" prefix={<UserOutlined style={{ color: COLOR_PRIMARY }} />} placeholder="用户名" />
             </Form.Item>
             <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]}>
-              <Input.Password prefix={<LockOutlined style={{ color: COLOR_PRIMARY }} />} placeholder="密码" />
+              <Input.Password autoComplete="current-password" aria-label="密码" prefix={<LockOutlined style={{ color: COLOR_PRIMARY }} />} placeholder="密码" />
             </Form.Item>
             <Form.Item>
               <Button type="primary" htmlType="submit" loading={loading} block size="large">

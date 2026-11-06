@@ -66,7 +66,7 @@ export function aggregateDailySummary(records: TaskDailyStatsRecord[]): DailySum
  * 当分母为 0 时返回 0，返回值精确到小数点后一位
  */
 export function calcSuccessRate(summary: DailySummary): number {
-  const denominator = summary.successCount + summary.failedCount + summary.timeoutCount + summary.cancelledCount;
+  const denominator = (summary.successCount || 0) + (summary.failedCount || 0) + (summary.timeoutCount || 0) + (summary.cancelledCount || 0);
   if (denominator === 0) return 0;
   const rate = (summary.successCount / denominator) * 100;
   return Math.round(rate * 10) / 10;

@@ -24,14 +24,15 @@ api.interceptors.response.use(
   },
   (err) => {
     reportRequest(err.config, err);
-    if (err.response?.status === 401) {
+    if (err.response?.status === 401 && !err.config?.url?.startsWith('/auth/login')) {
       // 清除所有认证相关的 localStorage 数据，保持与 auth store 一致
       localStorage.removeItem('token');
       localStorage.removeItem('username');
       localStorage.removeItem('roles');
       localStorage.removeItem('permissions');
       localStorage.removeItem('menus');
-      window.location.href = '/login';
+      const returnTo = window.location.pathname + window.location.search + window.location.hash;
+      if (window.location.pathname !== '/login') window.location.replace(`/login?returnTo=${encodeURIComponent(returnTo)}`);
     }
     return Promise.reject(err);
   },
@@ -52,6 +53,7 @@ export const overviewApi = {
 };
 
 export const taskApi = {
+  failureSummary: (params: Record<string, any>) => api.get('/tasks/failure-summary', { params }),
   diagnostics: (id: string) => api.get(`/tasks/${id}/diagnostics`),
   reconcileFailure: (id: string, body: any) => api.post(`/tasks/${id}/reconcile-failure`, body),
   list: (params: Record<string, any>) => api.get('/tasks', { params }),
@@ -84,6 +86,7 @@ export const auditApi = {
 };
 
 export const modelApi = {
+  export: (params: Record<string, any>) => api.get('/models/export', { params, timeout: 60000 }),
   previewImport: (body: any) => api.post('/models/import/preview', body),
   commitImport: (planId: string) => api.post('/models/import/commit', { planId }),
   bulk: (items: any[], patch: Record<string, any>) => api.put('/models/bulk', { items, patch }),
@@ -156,22 +159,23 @@ export const providerConfigApi = {
 };
 
 export const apiClientApi = {
+  detail: (id: string) => api.get(`/api-clients/${encodeURIComponent(id)}`),
   list: (params: Record<string, any>) => api.get('/api-clients', { params }),
   create: (data: { name?: string }) => api.post('/api-clients', data),
-  setEnabled: (id: string, enabled: boolean) =>
-    api.patch(`/api-clients/${encodeURIComponent(id)}`, { enabled }),
+  setEnabled: (id: string, enabled: boolean, expected_revision: number) =>
+    api.patch(`/api-clients/${encodeURIComponent(id)}`, { enabled, expected_revision }),
   rotate: (id: string) => api.post(`/api-clients/${encodeURIComponent(id)}/rotate`),
-  updateDefaultPriority: (id: string, defaultPriority: number) =>
-    api.patch(`/api-clients/${encodeURIComponent(id)}/priority`, { defaultPriority }),
+  updateDefaultPriority: (id: string, defaultPriority: number, expected_revision: number) =>
+    api.patch(`/api-clients/${encodeURIComponent(id)}/priority`, { defaultPriority, expected_revision }),
   /** 修改 API 客户端计费策略 */
-  updateBillingPolicy: (id: string, billingPolicy: string) =>
-    api.patch(`/api-clients/${encodeURIComponent(id)}/billing-policy`, { billingPolicy }),
+  updateBillingPolicy: (id: string, billingPolicy: string, expected_revision: number) =>
+    api.patch(`/api-clients/${encodeURIComponent(id)}/billing-policy`, { billingPolicy, expected_revision }),
   /** 更新限流配置 */
-  updateRateLimits: (id: string, rateLimits: { maxQps?: number; maxConcurrent?: number; maxDailyRequests?: number }) =>
-    api.put(`/api-clients/${encodeURIComponent(id)}/rate-limits`, rateLimits),
+  updateRateLimits: (id: string, rateLimits: { maxQps?: number; maxConcurrent?: number; maxDailyRequests?: number }, expected_revision: number) =>
+    api.put(`/api-clients/${encodeURIComponent(id)}/rate-limits`, { ...rateLimits, expected_revision }),
   /** 更新模型白名单 */
-  updateModelAllowlist: (id: string, modelAllowlist: string[]) =>
-    api.put(`/api-clients/${encodeURIComponent(id)}/model-allowlist`, { modelAllowlist }),
+  updateModelAllowlist: (id: string, modelAllowlist: string[], expected_revision: number) =>
+    api.put(`/api-clients/${encodeURIComponent(id)}/model-allowlist`, { modelAllowlist, expected_revision }),
   /** 查询单个客户端用量统计 */
   getUsage: (id: string, params: { from?: string; to?: string }) =>
     api.get(`/api-clients/${encodeURIComponent(id)}/usage`, { params }),

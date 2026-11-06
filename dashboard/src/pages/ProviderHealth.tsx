@@ -1,6 +1,7 @@
+import Table from '../components/AdminTable';
 import { useRequest } from '../hooks/useRequest';
 import { useCallback, useEffect, useState } from 'react';
-import { Card, Table, Tag, Typography, Button, Space, message, Spin, Drawer, Descriptions } from 'antd';
+import { Alert, Card, Tag, Typography, Button, Space, message, Spin, Drawer, Descriptions } from 'antd';
 import { ReloadOutlined, HeartOutlined } from '@ant-design/icons';
 import { providerHealthApi, type ProviderHealthOverview } from '../services/provider-health';
 import ProviderHealthChart from '../components/ProviderHealthChart';
@@ -10,9 +11,9 @@ import PageHeader from '../components/PageHeader';
 
 /** 熔断状态对应的颜色和文案 */
 const circuitStateMap: Record<string, { color: string; label: string }> = {
-  CLOSED: { color: 'green', label: 'CLOSED' },
-  OPEN: { color: 'red', label: 'OPEN' },
-  HALF_OPEN: { color: 'orange', label: 'HALF_OPEN' },
+  CLOSED: { color: 'default', label: '未熔断' },
+  OPEN: { color: 'red', label: '熔断中' },
+  HALF_OPEN: { color: 'orange', label: '恢复探测中' },
 };
 
 export default function ProviderHealthPage() {
@@ -42,6 +43,7 @@ export default function ProviderHealthPage() {
           </Button></Space>
         )}
       />
+      <Alert type="info" showIcon message="未熔断表示允许请求，不代表供应商健康；暂无样本时无法判断健康度。指标仅统计各供应商的滑动采样窗口。" style={{ marginBottom: 16 }} />
       <Card>
       {loading && items.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 48 }}>
@@ -53,14 +55,12 @@ export default function ProviderHealthPage() {
           dataSource={items}
           loading={loading && items.length > 0}
           pagination={false}
-          scroll={{x:1100}}
           columns={[
-            { title: "详情", key: "detail", fixed: "right", width: 90, render: (_, row) => <Button type="link" onClick={() => inspect(row.provider)}>查看</Button> },
             {
-              title: 'Provider',
+              title: '供应商 / 采样窗口',
               dataIndex: 'provider',
               width: 160,
-              render: (name: string) => <Typography.Text strong>{name}</Typography.Text>,
+              render: (name: string, row) => <Space direction="vertical" size={0}><Typography.Text strong>{name}</Typography.Text><Typography.Text type="secondary">{row.windowDurationMs ? `最近 ${row.windowDurationMs / 60000} 分钟` : '窗口未提供'} · {row.sampleCount > 0 ? `${row.sampleCount} 个样本` : '暂无样本'}</Typography.Text></Space>,
             },
             {
               title: '熔断状态',
@@ -111,6 +111,7 @@ export default function ProviderHealthPage() {
               render: (val: string) =>
                 val ? new Date(val).toLocaleString() : '—',
             },
+            { title: '详情', key: 'detail', width: 90, render: (_, row) => <Button type="link" onClick={() => inspect(row.provider)}>查看</Button> },
           ]}
         />
       )}

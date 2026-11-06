@@ -1,9 +1,9 @@
+import Table from '../components/AdminTable';
 import { NOTIFICATION_EVENTS as EVENT_TYPES, EVENT_LABELS, SEVERITY_LABELS } from '../constants/notification-events';
 import { useRequest } from '../hooks/useRequest';
 import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import {
-  Table, Card, Button, Space, Tag, Modal, Form, Input, Select,
+import { Card, Button, Space, Tag, Modal, Form, Input, Select,
   Switch, InputNumber, message, Popconfirm,
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
@@ -142,7 +142,7 @@ export default function NotificationRulesPage() {
         extra={<Space><Select allowClear placeholder="渠道" value={channel} onChange={setChannel} options={CHANNEL_TYPES} style={{ width: 120 }} /><Select allowClear placeholder="启停" value={enabled} onChange={setEnabled} options={[{ value: 'true', label: '启用' }, { value: 'false', label: '禁用' }]} style={{ width: 100 }} /><Button icon={<ReloadOutlined />} onClick={() => void fetchData()}>刷新</Button></Space>}
       />
       <Card>
-        <Table columns={columns} dataSource={data} rowKey="_id" loading={loading} size="small" pagination={false} scroll={{ x: 1200 }} />
+        <Table columns={columns} dataSource={data} rowKey="_id" loading={loading} size="small" pagination={false} />
       </Card>
 
       <Modal title={editing ? '编辑规则' : '新建规则'} open={modalOpen} onOk={handleSave} onCancel={() => setModalOpen(false)} confirmLoading={saving} width={640} destroyOnClose>

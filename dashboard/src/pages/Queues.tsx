@@ -1,8 +1,8 @@
+import Table from '../components/AdminTable';
 import { useRequest } from '../hooks/useRequest';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
-  Card, Row, Col, Statistic, Typography, Spin, Tag, Space, Button,
-  Table, Segmented, Tooltip, Badge, message,
+  Card, Row, Col, Statistic, Typography, Spin, Tag, Space, Button, Segmented, Tooltip, Badge, message,
 } from 'antd';
 import {
   ReloadOutlined, DownOutlined, RightOutlined,
@@ -110,7 +110,6 @@ function QueueJobList({ queueName }: { queueName: string }) {
         size="small"
         loading={loading}
         pagination={{current:page,pageSize:20,total,onChange:setPage,showSizeChanger:false}}
-        scroll={{x:1000}}
         locale={{ emptyText: '暂无任务' }}
       />
     </div>

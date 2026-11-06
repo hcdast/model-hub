@@ -1,8 +1,9 @@
+import Table from '../components/AdminTable';
 import { useRequest } from '../hooks/useRequest';
 import { useSearchParams } from 'react-router-dom';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Card, Table, Typography, DatePicker, Select, Row, Col, Statistic, Tag, message, Button,
+  Card, Typography, DatePicker, Select, Row, Col, Statistic, Tag, message, Button,
 } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import PageHeader from '../components/PageHeader';

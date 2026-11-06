@@ -1,8 +1,9 @@
+import Table from '../components/AdminTable';
 import dayjs from 'dayjs';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useRequest } from '../hooks/useRequest';
 import { useEffect, useState } from 'react';
-import { Card, Table, Form, Input, Select, Button, Space, Tag, Typography, DatePicker, Drawer } from 'antd';
+import { Card, Form, Input, Select, Button, Space, Tag, Typography, DatePicker, Drawer } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { callbackLogApi } from '../services/api';
 import { formatDateTime } from '../utils/format-helpers';
@@ -74,7 +75,6 @@ export default function CallbackLogsPage() {
           dataSource={data.items}
           loading={loading}
           size="small"
-          scroll={{ x: 1200 }}
           pagination={{
             current: page,
             pageSize,

@@ -1,6 +1,7 @@
-import { useState, useCallback, useEffect } from 'react';
+import Table from '../components/AdminTable';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
-  Card, Input, Button, Space, Typography, Table, Tag, Modal,
+  Card, Input, Button, Space, Typography, Tag, Modal,
   Form, InputNumber, Row, Col, Statistic, message, Tooltip, Alert, Divider,
 } from 'antd';
 import {
@@ -57,6 +58,10 @@ export default function WalletManagementPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [keyword, setKeyword] = useState('');
+  const [appliedKeyword, setAppliedKeyword] = useState('');
+  const listSequence = useRef(0), balanceSequence = useRef(0), txSequence = useRef(0);
+  const currentDetail = useRef('');
+  const [detailError, setDetailError] = useState('');
 
   /** 详情弹窗 */
   const [detailOpen, setDetailOpen] = useState(false);
@@ -73,36 +78,47 @@ export default function WalletManagementPage() {
   const [creditTarget, setCreditTarget] = useState('');
   const [creditForm] = Form.useForm();
   const [creditLoading, setCreditLoading] = useState(false);
+  type PendingCredit = { operationId: string; amount: number; reason: string };
+  const [pendingCredit, setPendingCredit] = useState<PendingCredit | null>(null);
+  const creditLock = useRef(false);
+  const pendingKey = (target: string) => `admin-pending-credit:${localStorage.getItem('username') || ''}:${target}`;
 
-  const fetchWallets = useCallback(async (p = page, ps = pageSize, kw = keyword) => {
+  const fetchWallets = useCallback(async (p = page, ps = pageSize, kw = appliedKeyword) => {
+    const request = ++listSequence.current;
     setLoading(true);
     try {
       const res: any = await billingApi.listWallets({ keyword: kw || undefined, page: p, pageSize: ps });
+      if (request !== listSequence.current) return;
       setWallets(res?.data?.items || []);
       setTotal(res?.data?.total || 0);
     } catch {
-      message.error('加载钱包列表失败');
+      if (request === listSequence.current) message.error('加载钱包列表失败');
     } finally {
-      setLoading(false);
+      if (request === listSequence.current) setLoading(false);
     }
-  }, [page, pageSize, keyword]);
+  }, [page, pageSize, appliedKeyword]);
 
   useEffect(() => {
     fetchWallets(1, 20, '');
+    return () => { listSequence.current++; balanceSequence.current++; txSequence.current++; currentDetail.current = ''; };
   }, []);
 
   const handleSearch = useCallback(() => {
     setPage(1);
+    setAppliedKeyword(keyword);
     fetchWallets(1, pageSize, keyword);
   }, [keyword, pageSize, fetchWallets]);
 
   const handlePageChange = useCallback((p: number, ps: number) => {
     setPage(p);
     setPageSize(ps);
-    fetchWallets(p, ps, keyword);
-  }, [keyword, fetchWallets]);
+    fetchWallets(p, ps, appliedKeyword);
+  }, [appliedKeyword, fetchWallets]);
 
   const loadDetailData = useCallback(async (apiKey: string, txPage = 1, txPs = 10) => {
+    const balanceRequest = ++balanceSequence.current, txRequest = ++txSequence.current;
+    const isCurrent = () => currentDetail.current === apiKey && balanceRequest === balanceSequence.current;
+    setDetailError('');
     setWalletLoading(true);
     setTxLoading(true);
     try {
@@ -110,20 +126,25 @@ export default function WalletManagementPage() {
         billingApi.getWallet(apiKey),
         billingApi.getWalletTransactions(apiKey, { page: txPage, pageSize: txPs }),
       ]);
-      setWallet(balRes?.data || null);
-      setTxData(txRes?.data || { items: [], total: 0 });
-      setTxParams({ page: txPage, pageSize: txPs });
+      if (isCurrent()) setWallet(balRes?.data || null);
+      if (currentDetail.current === apiKey && txRequest === txSequence.current) {
+        setTxData(txRes?.data || { items: [], total: 0 });
+        setTxParams({ page: txPage, pageSize: txPs });
+      }
     } catch {
-      message.error('加载钱包详情失败');
+      if (isCurrent()) setDetailError('加载钱包详情失败，请重试');
     } finally {
-      setWalletLoading(false);
-      setTxLoading(false);
+      if (isCurrent()) setWalletLoading(false);
+      if (currentDetail.current === apiKey && txRequest === txSequence.current) setTxLoading(false);
     }
   }, []);
 
   const openDetailModal = useCallback(
     (record: WalletListItem) => {
-      setDetailApiKey((record as any).clientRef || record.apiKey);
+      const target = (record as any).clientRef || record.apiKey;
+      currentDetail.current = target;
+      setWallet(null); setTxData({ items: [], total: 0 }); setTxParams({ page: 1, pageSize: 10 });
+      setDetailApiKey(target);
       setDetailSnapshot(record);
       setDetailOpen(true);
       loadDetailData((record as any).clientRef || record.apiKey, 1, 10);
@@ -132,6 +153,7 @@ export default function WalletManagementPage() {
   );
 
   const closeDetailModal = useCallback(() => {
+    currentDetail.current = ''; balanceSequence.current++; txSequence.current++;
     setDetailOpen(false);
     setDetailApiKey('');
     setDetailSnapshot(null);
@@ -142,33 +164,46 @@ export default function WalletManagementPage() {
   const handleTxPageChange = useCallback(
     async (p: number, ps: number) => {
       if (!detailApiKey) return;
+      const target = detailApiKey, request = ++txSequence.current;
       setTxLoading(true);
       setTxParams({ page: p, pageSize: ps });
       try {
         const res: any = await billingApi.getWalletTransactions(detailApiKey, { page: p, pageSize: ps });
-        setTxData(res?.data || { items: [], total: 0 });
+        if (currentDetail.current === target && request === txSequence.current) setTxData(res?.data || { items: [], total: 0 });
       } catch {
-        message.error('加载交易记录失败');
+        if (currentDetail.current === target && request === txSequence.current) message.error('加载交易记录失败');
       } finally {
-        setTxLoading(false);
+        if (currentDetail.current === target && request === txSequence.current) setTxLoading(false);
       }
     },
     [detailApiKey],
   );
 
   const openCredit = useCallback((targetApiKey: string) => {
+    if (creditLock.current) return;
+    let pending: PendingCredit | null = null;
+    try { pending = JSON.parse(sessionStorage.getItem(pendingKey(targetApiKey)) || 'null'); }
+    catch { message.error('无法读取待确认的充值操作，请检查浏览器存储'); return; }
+    setPendingCredit(pending);
+    creditForm.resetFields();
+    if (pending) creditForm.setFieldsValue(pending);
     setCreditTarget(targetApiKey);
     setCreditModalOpen(true);
-  }, []);
+  }, [creditForm]);
 
   const handleCredit = useCallback(async () => {
+    if (creditLock.current) return;
+    creditLock.current = true;
+    setCreditLoading(true);
     try {
-      const values = await creditForm.validateFields();
-      setCreditLoading(true);
-      await billingApi.creditWallet(creditTarget, {
-        amount: values.amount,
-        reason: values.reason,
-      });
+      const values = pendingCredit || await creditForm.validateFields();
+      const operation = pendingCredit || { operationId: crypto.randomUUID(), amount: values.amount, reason: values.reason.trim() };
+      // Persist before sending; a reload or lost response must reuse this receipt identity.
+      sessionStorage.setItem(pendingKey(creditTarget), JSON.stringify(operation));
+      setPendingCredit(operation);
+      await billingApi.creditWallet(creditTarget, operation);
+      sessionStorage.removeItem(pendingKey(creditTarget));
+      setPendingCredit(null);
       message.success('充值成功');
       creditForm.resetFields();
       setCreditModalOpen(false);
@@ -177,15 +212,19 @@ export default function WalletManagementPage() {
         await loadDetailData(creditTarget, 1, 10);
       }
     } catch (err: any) {
+      if ([400, 403, 404, 422].includes(err?.response?.status)) {
+        sessionStorage.removeItem(pendingKey(creditTarget)); setPendingCredit(null);
+      }
       if (err?.response?.data?.message) {
         message.error(err.response.data.message);
       } else if (!err?.errorFields) {
         message.error('充值失败');
       }
     } finally {
+      creditLock.current = false;
       setCreditLoading(false);
     }
-  }, [creditTarget, creditForm, detailOpen, detailApiKey, fetchWallets, loadDetailData]);
+  }, [creditTarget, pendingCredit, creditForm, detailOpen, detailApiKey, fetchWallets, loadDetailData]);
 
   const columns = [
     {
@@ -404,13 +443,19 @@ export default function WalletManagementPage() {
             </Button>
             <Button
               icon={<ReloadOutlined />}
+              onClick={() => fetchWallets()}
+            >
+              刷新
+            </Button>
+            <Button
               onClick={() => {
                 setKeyword('');
+                setAppliedKeyword('');
                 setPage(1);
                 fetchWallets(1, pageSize, '');
               }}
             >
-              刷新
+              重置筛选
             </Button>
           </>
         )}
@@ -431,7 +476,6 @@ export default function WalletManagementPage() {
           rowKey={(r: any) => r.clientRef || r._id}
           loading={loading}
           size="small"
-          scroll={{ x: 1680 }}
           pagination={{
             current: page,
             pageSize,
@@ -452,6 +496,7 @@ export default function WalletManagementPage() {
         footer={null}
       >
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          {detailError && <Alert type="error" message={detailError} action={<Button onClick={() => loadDetailData(detailApiKey)}>重试</Button>} />}
           <div>
             <Typography.Text type="secondary" style={{ marginRight: 8 }}>API Key</Typography.Text>
             <Typography.Text copyable code style={{ fontSize: 12 }}>
@@ -540,7 +585,6 @@ export default function WalletManagementPage() {
             rowKey="_id"
             loading={txLoading}
             size="small"
-            scroll={{ x: 880 }}
             pagination={{
               current: txParams.page,
               pageSize: txParams.pageSize,
@@ -558,13 +602,20 @@ export default function WalletManagementPage() {
         open={creditModalOpen}
         onOk={handleCredit}
         onCancel={() => {
+          if (creditLock.current) return;
           creditForm.resetFields();
           setCreditModalOpen(false);
         }}
         confirmLoading={creditLoading}
+        closable={!creditLoading}
+        maskClosable={!creditLoading}
+        keyboard={!creditLoading}
+        cancelButtonProps={{ disabled: creditLoading }}
+        okText={pendingCredit ? '核对并重试原充值' : '确认充值'}
         destroyOnClose
       >
-        <Form form={creditForm} layout="vertical" preserve={false}>
+        {pendingCredit && <Alert type="warning" showIcon style={{ marginBottom: 16 }} message="本次充值结果尚待确认" description="重试会核对同一笔充值，不会重复入账。金额和原因已锁定；关闭或刷新后重新打开仍可继续核对。" />}
+        <Form form={creditForm} disabled={creditLoading || !!pendingCredit} layout="vertical" preserve={false}>
           <Form.Item label="API Key">
             <Input value={creditTarget} disabled />
           </Form.Item>

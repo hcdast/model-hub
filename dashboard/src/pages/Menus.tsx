@@ -1,6 +1,8 @@
+import { useFormDialog } from '../hooks/useFormDialog';
+import { useUnsavedNavigation } from '../hooks/useUnsavedNavigation';
+import Table from '../components/AdminTable';
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import {
-  Table, Card, Button, Space, Tag, message, Modal, Form, Input, InputNumber,
+import { Card, Button, Space, Tag, message, Modal, Form, Input, InputNumber,
   Switch, Select, Popconfirm, TreeSelect,
 } from 'antd';
 import {
@@ -60,6 +62,10 @@ export default function MenusPage() {
   const [editing, setEditing] = useState(false);
   const [editingMenu, setEditingMenu] = useState<any>(null);
   const [editForm] = Form.useForm();
+  const createDialog = useFormDialog(createOpen, createForm, creating, () => { setCreateOpen(false); createForm.resetFields(); });
+  const editDialog = useFormDialog(editOpen, editForm, editing, () => { setEditOpen(false); setEditingMenu(null); editForm.resetFields(); });
+  useUnsavedNavigation(createDialog.dirty || editDialog.dirty);
+
 
   const fetchMenus = useCallback(async () => {
     setLoading(true);
@@ -92,7 +98,7 @@ export default function MenusPage() {
 
   // ---- handlers ----
 
-  const handleCreate = async () => {
+  const handleCreate = () => createDialog.run(async () => {
     const values = await createForm.validateFields().catch(() => null);
     if (!values) return;
     setCreating(true);
@@ -109,9 +115,9 @@ export default function MenusPage() {
       message.error(err.response?.data?.message || '创建菜单失败');
     }
     setCreating(false);
-  };
+  });
 
-  const handleEdit = async () => {
+  const handleEdit = () => editDialog.run(async () => {
     const values = await editForm.validateFields().catch(() => null);
     if (!values || !editingMenu) return;
     setEditing(true);
@@ -129,7 +135,7 @@ export default function MenusPage() {
       message.error(err.response?.data?.message || '更新菜单失败');
     }
     setEditing(false);
-  };
+  });
 
   const openEdit = (record: any) => {
     setEditingMenu(record);
@@ -321,7 +327,6 @@ export default function MenusPage() {
           loading={loading}
           size="small"
           pagination={false}
-          scroll={{ x: 1280 }}
           defaultExpandAllRows
           childrenColumnName="children"
         />
@@ -330,13 +335,11 @@ export default function MenusPage() {
         <Modal
           title="新建菜单"
           open={createOpen}
-          onCancel={() => { setCreateOpen(false); createForm.resetFields(); }}
-          onOk={handleCreate}
-          confirmLoading={creating}
-          destroyOnClose
+          {...createDialog.modalProps}
+          onOk={handleCreate}          destroyOnClose
           width={640}
         >
-          <Form form={createForm} layout="vertical" initialValues={{ enabled: true, sortOrder: 0 }}>
+          <Form disabled={createDialog.busy} form={createForm} layout="vertical" initialValues={{ enabled: true, sortOrder: 0 }}>
             <Form.Item
               name="key"
               label="菜单标识"
@@ -414,13 +417,11 @@ export default function MenusPage() {
         <Modal
           title={`编辑菜单 - ${editingMenu?.label || ''}`}
           open={editOpen}
-          onCancel={() => { setEditOpen(false); setEditingMenu(null); editForm.resetFields(); }}
-          onOk={handleEdit}
-          confirmLoading={editing}
-          destroyOnClose
+          {...editDialog.modalProps}
+          onOk={handleEdit}          destroyOnClose
           width={640}
         >
-          <Form form={editForm} layout="vertical">
+          <Form disabled={editDialog.busy} form={editForm} layout="vertical">
             <Form.Item label="菜单标识">
               <Input value={editingMenu?.key} disabled />
             </Form.Item>

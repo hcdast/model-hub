@@ -1,6 +1,7 @@
+import Table from '../components/AdminTable';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Row, Col, Card, Typography, Spin, Table, Button, Space, Tag, Badge, Statistic, Alert } from 'antd';
+import { Row, Col, Card, Typography, Spin, Button, Space, Tag, Badge, Statistic, Alert } from 'antd';
 import {
   CheckCircleOutlined,
   CloudServerOutlined, ThunderboltOutlined,
@@ -60,10 +61,14 @@ export default function DashboardPage() {
   const [costData, setCostData] = useState<any>(null);
   const [statsError, setStatsError] = useState(false);
   const [taskError, setTaskError] = useState(false);
+  const [costError, setCostError] = useState(false);
+  const [trendError, setTrendError] = useState(false);
 
   const fetchData = useCallback(async () => {
     setStatsError(false);
     setTaskError(false);
+    setCostError(false);
+    setTrendError(false);
 
     if (canStats) {
       try {
@@ -78,15 +83,17 @@ export default function DashboardPage() {
         setCostData(costRes.data);
       } catch {
         setCostData(null);
+        setCostError(true);
       }
       try {
         const dateTo = dayjs().format('YYYY-MM-DD');
         const dateFrom = dayjs().subtract(6, 'day').format('YYYY-MM-DD');
         const statsRes: any = await statsApi.daily({ dateFrom, dateTo, pageSize: 100 });
-        const records = statsRes.data?.items || statsRes.data || [];
+        const records = statsRes.data?.trend || statsRes.data?.items || [];
         setDailySummary(aggregateDailySummary(records));
       } catch {
         setDailySummary([]);
+        setTrendError(true);
       }
     } else {
       setData(null);
@@ -191,33 +198,31 @@ export default function DashboardPage() {
         />
       )}
 
+      {canStats && costError && <Alert type="warning" showIcon message="成本数据加载失败，请稍后刷新" style={{ marginBottom: 16 }} />}
+
       {/* 成本分析 — 依赖 stats:read 接口 */}
       {canStats && (
         <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
           <Col xs={24} sm={12} lg={6}>
             <StatCard
               title="模型消耗"
-              value={costData?.totalSpend?.toFixed(2) || '0.00'}
+              value={costData?.totalSpend != null ? costData.totalSpend.toFixed(2) : '—'}
               prefix={<DollarOutlined />}
-              suffix="credits"
+              suffix={costData?.totalSpend != null ? 'credits' : undefined}
             />
           </Col>
           <Col xs={24} sm={12} lg={6}>
             <StatCard
               title="路由成本"
-              value="0.00"
-              prefix={<DollarOutlined />}
-              suffix="credits"
+              value="暂未统计"
               valueStyle={{ color: '#8c8c8c' }}
             />
           </Col>
           <Col xs={24} sm={12} lg={6}>
             <StatCard
               title="缓存节省"
-              value="0.00"
-              prefix={<DollarOutlined />}
-              suffix="credits"
-              valueStyle={{ color: '#52c41a' }}
+              value="暂未统计"
+              valueStyle={{ color: '#8c8c8c' }}
             />
           </Col>
           <Col xs={24} sm={12} lg={6}>
@@ -242,10 +247,10 @@ export default function DashboardPage() {
                 <Col xs={12}>
                   <Statistic
                     title="成功率"
-                    value={today.successRate?.toFixed(1) || '0.0'}
-                    suffix="%"
-                    prefix={<CheckCircleOutlined />}
-                    valueStyle={{ color: (today.successRate || 0) >= 95 ? '#52c41a' : '#faad14' }}
+                    value={today.totalTasks > 0 ? today.successRate?.toFixed(1) ?? '—' : statsError ? '—' : '暂无任务'}
+                    suffix={today.totalTasks > 0 && today.successRate != null ? '%' : undefined}
+                    prefix={today.totalTasks > 0 ? <CheckCircleOutlined /> : undefined}
+                    valueStyle={{ color: today.totalTasks > 0 ? (today.successRate || 0) >= 95 ? '#52c41a' : '#faad14' : '#8c8c8c', fontSize: 24 }}
                   />
                 </Col>
               </Row>
@@ -267,10 +272,10 @@ export default function DashboardPage() {
                 <Col xs={12}>
                   <Statistic
                     title="成功率"
-                    value={total.successRate?.toFixed(1) || '0.0'}
-                    suffix="%"
-                    prefix={<CheckCircleOutlined />}
-                    valueStyle={{ color: (total.successRate || 0) >= 95 ? '#52c41a' : '#faad14' }}
+                    value={total.totalTasks > 0 ? total.successRate?.toFixed(1) ?? '—' : statsError ? '—' : '暂无任务'}
+                    suffix={total.totalTasks > 0 && total.successRate != null ? '%' : undefined}
+                    prefix={total.totalTasks > 0 ? <CheckCircleOutlined /> : undefined}
+                    valueStyle={{ color: total.totalTasks > 0 ? (total.successRate || 0) >= 95 ? '#52c41a' : '#faad14' : '#8c8c8c', fontSize: 24 }}
                   />
                 </Col>
               </Row>
@@ -313,7 +318,8 @@ export default function DashboardPage() {
                 </Col>
               </Row>
               <div style={{ marginTop: 12, textAlign: 'center' }}>
-                {(queues.totalDepth || 0) <= 50 && <Tag color="success">健康</Tag>}
+                {!statsError && (queues.totalDepth || 0) <= 50 && <Tag color="success">健康</Tag>}
+                {statsError && <Tag>状态未知</Tag>}
                 {(queues.totalDepth || 0) > 50 && (queues.totalDepth || 0) <= 100 && <Tag color="warning">注意</Tag>}
                 {(queues.totalDepth || 0) > 100 && <Tag color="error">告警</Tag>}
               </div>
@@ -329,7 +335,7 @@ export default function DashboardPage() {
               {dailySummary.length > 0 ? (
                 <ReactEChartsCore option={buildTaskVolumeOption(dailySummary)} style={{ height: 300 }} />
               ) : (
-                <Typography.Text type="secondary">暂无趋势数据</Typography.Text>
+                <Typography.Text type={trendError ? 'danger' : 'secondary'}>{trendError ? '趋势数据加载失败，请刷新' : '暂无趋势数据'}</Typography.Text>
               )}
             </Card>
           </Col>
@@ -338,7 +344,7 @@ export default function DashboardPage() {
               {dailySummary.length > 0 ? (
                 <ReactEChartsCore option={buildSuccessRateOption(dailySummary)} style={{ height: 300 }} />
               ) : (
-                <Typography.Text type="secondary">暂无趋势数据</Typography.Text>
+                <Typography.Text type={trendError ? 'danger' : 'secondary'}>{trendError ? '趋势数据加载失败，请刷新' : '暂无趋势数据'}</Typography.Text>
               )}
             </Card>
           </Col>
@@ -348,14 +354,13 @@ export default function DashboardPage() {
       {canTask && (
         <Row gutter={[16, 16]} style={{ marginTop: 24 }}>
           <Col span={24}>
-            <Card title="最近失败/超时任务">
+            <Card title="最近失败/超时任务" extra={<Button type="link" onClick={() => navigate('/tasks?view=failures')}>失败聚合分析</Button>}>
               {recentFailures.length > 0 ? (
                 <Table
                   dataSource={recentFailures}
                   rowKey="taskId"
                   size="small"
                   pagination={false}
-                  scroll={{ x: 1180 }}
                   columns={[
                     {
                       title: 'TaskId',

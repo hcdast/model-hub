@@ -91,6 +91,7 @@ export interface TransactionItem {
 
 /** 钱包充值参数 */
 export interface CreditWalletData {
+  operationId: string;
   amount: number;
   reason: string;
 }

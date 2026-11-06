@@ -1,6 +1,7 @@
+import Table from '../components/AdminTable';
 import { Link } from 'react-router-dom';
 import { useCallback, useEffect, useState } from 'react';
-import { Card, Table, Button, Space, Typography, message, Modal, Form, Input, InputNumber, Switch, Avatar, Alert, Select, Tooltip, Drawer, Descriptions, Tag } from 'antd';
+import { Card, Button, Space, Typography, message, Modal, Form, Input, InputNumber, Switch, Avatar, Alert, Select, Tooltip, Drawer, Descriptions, Tag } from 'antd';
 import { ReloadOutlined, EditOutlined, PlusOutlined, TeamOutlined, DeleteOutlined } from '@ant-design/icons';
 import PageHeader from '../components/PageHeader';
 import ProviderAccountPoolModal from '../components/ProviderAccountPoolModal';
@@ -227,7 +228,6 @@ export default function ProviderConfigsPage() {
         pagination={false}
         size="small"
         tableLayout="fixed"
-        scroll={{ x: 1320 }}
         columns={[
           {
             title: '厂商',

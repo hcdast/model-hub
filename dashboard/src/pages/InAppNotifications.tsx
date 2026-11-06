@@ -1,5 +1,6 @@
+import Table from '../components/AdminTable';
 import { useEffect, useState } from 'react';
-import { Table, Card, Tag, Button, Select, message, Badge } from 'antd';
+import { Card, Tag, Button, Select, message, Badge } from 'antd';
 import { CheckOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageHeader from '../components/PageHeader';
 import { inAppNotificationApi } from '../services/api';
@@ -81,7 +82,7 @@ export default function InAppNotificationsPage() {
       />
       <Card>
         <Table
-          columns={columns} dataSource={data.items} rowKey="_id" loading={loading} size="small" scroll={{ x: 1000 }}
+          columns={columns} dataSource={data.items} rowKey="_id" loading={loading} size="small"
           pagination={{
             current: params.page, pageSize: params.pageSize, total: data.total,
             showTotal: (t) => `共 ${t} 条`,

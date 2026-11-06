@@ -1,5 +1,6 @@
+import Table from '../components/AdminTable';
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Table, Card, Select, message, Tag, Button } from 'antd';
+import { Card, Select, message, Tag, Button } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { permissionApi } from '../services/api';
 import PageHeader from '../components/PageHeader';

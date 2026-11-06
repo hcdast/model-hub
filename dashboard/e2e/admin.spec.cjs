@@ -56,7 +56,11 @@ for (const role of ['viewer', 'editor', 'super_admin']) test(`${role}: login, mo
   const row = page.locator('tr').filter({ hasText: '回归测试模型' });
   await expect(row.getByRole('button', { name: /编\s*辑/  })).toBeEnabled({ enabled: role !== 'viewer' });
   await expect(row.getByRole('switch')).toBeEnabled({ enabled: role !== 'viewer' });
-  await expect(row.getByRole('button', { name: /删\s*除/  })).toHaveCount(role === 'super_admin' ? 1 : 0);
+  if (role !== 'viewer') {
+    await row.getByRole('button', { name: /^更多操作/ }).click();
+    await expect(page.getByRole('menuitem', { name: '删除', exact: true })).toHaveCount(role === 'super_admin' ? 1 : 0);
+    await page.keyboard.press('Escape');
+  } else await expect(row.getByRole('button', { name: /^更多操作/ })).toBeDisabled();
   await page.goto('/provider-configs'); const supplier = page.locator('tr').filter({ hasText: 'https://example.invalid' });
   await expect(supplier.getByRole('button', { name: /编\s*辑/  })).toBeEnabled({ enabled: role !== 'viewer' });
   await expect(supplier.getByRole('button', { name: /删\s*除/  })).toBeEnabled({ enabled: role === 'super_admin' });

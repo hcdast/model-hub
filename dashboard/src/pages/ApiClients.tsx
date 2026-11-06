@@ -1,8 +1,8 @@
-import { useEffect, useState, useMemo } from 'react';
+import Table from '../components/AdminTable';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import type { CSSProperties } from 'react';
-import {
-  Table, Card, Button, Space, Typography, Switch, message, Modal, Form, Input, InputNumber, Tag, Select, Tooltip,
-  Progress,
+import { Card, Button, Space, Typography, Switch, message, Modal, Form, Input, InputNumber, Tag, Select, Tooltip,
+  Progress, Alert, Empty,
 } from 'antd';
 import {
   PlusOutlined, ReloadOutlined, KeyOutlined, EditOutlined, BarChartOutlined,
@@ -13,6 +13,9 @@ import { apiClientApi, modelApi } from '../services/api';
 import { ErrorHandler } from '../utils/error-handler';
 import { usePermission } from '../hooks/usePermission';
 import PageHeader from '../components/PageHeader';
+import { useRequest } from '../hooks/useRequest';
+import { useFormDialog } from '../hooks/useFormDialog';
+import { useUnsavedNavigation } from '../hooks/useUnsavedNavigation';
 
 /** API Key 列表列：小号等宽，与其它列信息密度对齐 */
 const API_KEY_CELL_FONT: CSSProperties = {
@@ -71,24 +74,10 @@ function RateLimitStatusTag({ dailyRequests, maxDailyRequests }: { dailyRequests
 
 /** 用量图表组件：展示最近 7 天每日请求趋势 */
 function UsageChart({ clientId }: { clientId: string }) {
-  const [loading, setLoading] = useState(false);
-  const [usageData, setUsageData] = useState<any[]>([]);
-
-  useEffect(() => {
-    const fetchUsage = async () => {
-      setLoading(true);
-      try {
-        const to = dayjs().format('YYYYMMDD');
-        const from = dayjs().subtract(6, 'day').format('YYYYMMDD');
-        const res: any = await apiClientApi.getUsage(clientId, { from, to });
-        setUsageData(res.data || []);
-      } catch {
-        setUsageData([]);
-      }
-      setLoading(false);
-    };
-    fetchUsage();
-  }, [clientId]);
+  const { data: usageData = [], loading, error, refresh } = useRequest<any[]>(async () => {
+    const res: any = await apiClientApi.getUsage(clientId, { from: dayjs().subtract(6, 'day').format('YYYYMMDD'), to: dayjs().format('YYYYMMDD') });
+    return res.data || [];
+  }, { deps: [clientId] });
 
   const chartOption = useMemo(() => {
     // 生成最近 7 天日期列表
@@ -159,6 +148,9 @@ function UsageChart({ clientId }: { clientId: string }) {
     return <div style={{ textAlign: 'center', padding: 24 }}>加载中...</div>;
   }
 
+  if (error) return <Alert type="error" showIcon message="用量数据加载失败" description="当前无法确认实际用量，请重试。" action={<Button onClick={() => void refresh()}>重试</Button>} />;
+  if (!usageData.length) return <Empty description="该时段暂无用量记录" />;
+
   return (
     <ReactECharts
       option={chartOption}
@@ -208,25 +200,42 @@ export default function ApiClientsPage() {
 
   // 用量汇总数据
   const [usageSummaryMap, setUsageSummaryMap] = useState<Map<string, any>>(new Map());
+  const [summaryError, setSummaryError] = useState(false);
+  const [modelsError, setModelsError] = useState(false);
+  const [conflict, setConflict] = useState<string | null>(null);
+  const listSequence = useRef(0), modelSequence = useRef(0), summarySequence = useRef(0);
+  const toggleLocks = useRef(new Set<string>());
+  const [toggling, setToggling] = useState<string[]>([]);
+  const createDialog = useFormDialog(createOpen, form, creating, () => { setCreateOpen(false); form.resetFields(); });
+  const priorityDialog = useFormDialog(priorityOpen, priorityForm, false, () => { setPriorityOpen(false); setEditingClient(null); setConflict(null); });
+  const billingDialog = useFormDialog(billingPolicyOpen, billingPolicyForm, false, () => { setBillingPolicyOpen(false); setBillingPolicyClient(null); setConflict(null); });
+  const rateDialog = useFormDialog(rateLimitOpen, rateLimitForm, false, () => { setRateLimitOpen(false); setRateLimitClient(null); setConflict(null); });
+  const allowDialog = useFormDialog(allowlistOpen, allowlistForm, false, () => { setAllowlistOpen(false); setAllowlistClient(null); setSelectedFeatureType(null); setConflict(null); modelSequence.current++; });
+  useUnsavedNavigation(createDialog.dirty || priorityDialog.dirty || billingDialog.dirty || rateDialog.dirty || allowDialog.dirty);
 
   const fetchData = async (p = page, ps = pageSize) => {
+    const request = ++listSequence.current;
     setLoading(true);
     try {
       const res: any = await apiClientApi.list({ page: p, pageSize: ps });
+      if (request !== listSequence.current) return;
       setItems(res.data?.items || []);
       setTotal(res.data?.total ?? 0);
       setPage(res.data?.page ?? p);
       setPageSize(res.data?.pageSize ?? ps);
     } catch (err) {
-      ErrorHandler.handleApiError(err, '加载失败');
+      if (request === listSequence.current) ErrorHandler.handleApiError(err, '加载失败');
     }
-    setLoading(false);
+    if (request === listSequence.current) setLoading(false);
   };
 
   /** 获取用量汇总 */
   const fetchUsageSummary = async () => {
+    const request = ++summarySequence.current;
+    setSummaryError(false);
     try {
       const res: any = await apiClientApi.getUsageSummary();
+      if (request !== summarySequence.current) return;
       const summaryList: any[] = res.data || [];
       const map = new Map<string, any>();
       summaryList.forEach((item: any) => {
@@ -234,36 +243,57 @@ export default function ApiClientsPage() {
       });
       setUsageSummaryMap(map);
     } catch {
-      // 静默处理
+      if (request === summarySequence.current) setSummaryError(true);
     }
   };
 
   /** 获取可用模型列表（用于白名单自动补全） */
   const fetchAvailableModels = async (modelTypeFilter?: string) => {
+    const request = ++modelSequence.current;
     setLoadingModels(true);
+    setModelsError(false);
+    setAvailableModels([]);
     try {
-      const params: Record<string, any> = { page: 1, pageSize: 200 };
-      if (modelTypeFilter) {
-        params.model_type = modelTypeFilter;
+      const names = new Set<string>();
+      let loaded = 0;
+      for (let p = 1; ; p++) {
+        const res: any = await modelApi.list({ page: p, pageSize: 100, ...(modelTypeFilter ? { model_type: modelTypeFilter } : {}) });
+        if (request !== modelSequence.current) return;
+        const rows: any[] = res.data?.items || [];
+        rows.forEach(row => { if (row.model_id || row.name) names.add(row.model_id || row.name); });
+        loaded += rows.length;
+        if (!rows.length || loaded >= (res.data?.total ?? loaded)) break;
       }
-      const res: any = await modelApi.list(params);
-      const modelItems: any[] = res.data?.items || [];
-      const names = modelItems.map((m: any) => m.model_id || m.name).filter(Boolean);
-      setAvailableModels(names);
+      setAvailableModels([...names]);
     } catch {
-      // 静默处理
+      if (request === modelSequence.current) setModelsError(true);
     }
-    setLoadingModels(false);
+    if (request === modelSequence.current) setLoadingModels(false);
   };
 
   useEffect(() => {
     fetchData(1, pageSize);
     fetchUsageSummary();
-    fetchAvailableModels();
+    return () => { listSequence.current++; modelSequence.current++; summarySequence.current++; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const onCreate = async () => {
+  const handleSaveError = (err: any) => {
+    if (err?.response?.status === 409) { setConflict('配置已被其他管理员修改。当前输入已保留，请查看最新配置后重新确认。'); return; }
+    if (!err?.errorFields) ErrorHandler.handleApiError(err, '更新失败');
+  };
+  const reviewLatest = async (record: any, editor: any, setRecord: (value: any) => void, fields: string[], resetBaseline: () => void) => {
+    try {
+      const res: any = await apiClientApi.detail(record.id);
+      const latest = res.data;
+      const next = fields.includes('maxQps') ? { maxQps: latest.rateLimits?.maxQps ?? 10, maxConcurrent: latest.rateLimits?.maxConcurrent ?? 50, maxDailyRequests: latest.rateLimits?.maxDailyRequests ?? 10000 }
+        : Object.fromEntries(fields.map(key => [key, latest[key] ?? (key === 'modelAllowlist' ? [] : key === 'defaultPriority' ? 50 : 'internal')]));
+      Modal.confirm({ title: '对比最新配置', width: 620, content: <><Typography.Paragraph>加载后会替换当前输入，请核对后再保存。</Typography.Paragraph><strong>当前编辑</strong><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(editor.getFieldsValue(), null, 2)}</pre><strong>最新配置</strong><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(next, null, 2)}</pre></>, okText: '加载最新配置', cancelText: '保留当前输入', onOk: () => { editor.setFieldsValue(next); setRecord(latest); setConflict(null); resetBaseline(); } });
+    } catch (err) { ErrorHandler.handleApiError(err, '加载最新配置失败'); }
+  };
+  const conflictNotice = (record: any, editor: any, setRecord: (value: any) => void, fields: string[], resetBaseline: () => void) => conflict && <Alert style={{ marginBottom: 16 }} type="warning" showIcon message={conflict} action={<Button onClick={() => void reviewLatest(record, editor, setRecord, fields, resetBaseline)}>查看最新配置</Button>} />;
+
+  const onCreate = () => createDialog.run(async () => {
     const values = await form.validateFields().catch(() => null);
     if (!values) return;
     setCreating(true);
@@ -313,7 +343,7 @@ export default function ApiClientsPage() {
       ErrorHandler.handleApiError(err, '创建失败');
     }
     setCreating(false);
-  };
+  });
 
   const onRotate = (clientId: string) => {
     Modal.confirm({
@@ -350,59 +380,67 @@ export default function ApiClientsPage() {
   };
 
   const onToggle = async (record: any, enabled: boolean) => {
+    if (toggleLocks.current.has(record.id)) return;
+    toggleLocks.current.add(record.id); setToggling([...toggleLocks.current]);
     try {
-      await apiClientApi.setEnabled(record.id, enabled);
+      await apiClientApi.setEnabled(record.id, enabled, record.revision ?? 0);
       message.success(enabled ? '已启用' : '已禁用');
       fetchData(page, pageSize);
     } catch (err) {
-      ErrorHandler.handleApiError(err, '更新失败');
+      ErrorHandler.handleApiError(err, '更新失败，请刷新列表后重试');
+      void fetchData();
+    } finally {
+      toggleLocks.current.delete(record.id); setToggling([...toggleLocks.current]);
     }
   };
 
   const onEditPriority = (record: any) => {
+    setConflict(null);
     setEditingClient(record);
     priorityForm.setFieldsValue({ defaultPriority: record.defaultPriority ?? 50 });
     setPriorityOpen(true);
   };
 
-  const onSavePriority = async () => {
+  const onSavePriority = () => priorityDialog.run(async () => {
     const values = await priorityForm.validateFields().catch(() => null);
     if (!values || !editingClient) return;
     try {
-      await apiClientApi.updateDefaultPriority(editingClient.id, values.defaultPriority);
+      await apiClientApi.updateDefaultPriority(editingClient.id, values.defaultPriority, editingClient.revision ?? 0);
       message.success('默认优先级已更新');
       setPriorityOpen(false);
       setEditingClient(null);
       fetchData(page, pageSize);
     } catch (err) {
-      ErrorHandler.handleApiError(err, '更新失败');
+      handleSaveError(err);
     }
-  };
+  });
 
   /** 打开计费策略编辑弹窗 */
   const onEditBillingPolicy = (record: any) => {
+    setConflict(null);
     setBillingPolicyClient(record);
     billingPolicyForm.setFieldsValue({ billingPolicy: record.billingPolicy ?? 'internal' });
     setBillingPolicyOpen(true);
   };
 
   /** 保存计费策略 */
-  const onSaveBillingPolicy = async () => {
+  const onSaveBillingPolicy = () => billingDialog.run(async () => {
     const values = await billingPolicyForm.validateFields().catch(() => null);
     if (!values || !billingPolicyClient) return;
     try {
-      await apiClientApi.updateBillingPolicy(billingPolicyClient.id, values.billingPolicy);
+      await apiClientApi.updateBillingPolicy(billingPolicyClient.id, values.billingPolicy, billingPolicyClient.revision ?? 0);
       message.success('计费策略已更新');
       setBillingPolicyOpen(false);
       setBillingPolicyClient(null);
       fetchData(page, pageSize);
     } catch (err) {
-      ErrorHandler.handleApiError(err, '更新失败');
+      handleSaveError(err);
     }
-  };
+  });
 
   /** 打开限流配置编辑弹窗 */
   const onEditRateLimits = (record: any) => {
+    setConflict(null);
     setRateLimitClient(record);
     const rl = record.rateLimits || {};
     rateLimitForm.setFieldsValue({
@@ -414,7 +452,7 @@ export default function ApiClientsPage() {
   };
 
   /** 保存限流配置 */
-  const onSaveRateLimits = async () => {
+  const onSaveRateLimits = () => rateDialog.run(async () => {
     const values = await rateLimitForm.validateFields().catch(() => null);
     if (!values || !rateLimitClient) return;
     try {
@@ -422,18 +460,19 @@ export default function ApiClientsPage() {
         maxQps: values.maxQps,
         maxConcurrent: values.maxConcurrent,
         maxDailyRequests: values.maxDailyRequests,
-      });
+      }, rateLimitClient.revision ?? 0);
       message.success('限流配置已更新');
       setRateLimitOpen(false);
       setRateLimitClient(null);
       fetchData(page, pageSize);
     } catch (err) {
-      ErrorHandler.handleApiError(err, '更新失败');
+      handleSaveError(err);
     }
-  };
+  });
 
   /** 打开模型白名单编辑弹窗 */
   const onEditAllowlist = (record: any) => {
+    setConflict(null);
     setAllowlistClient(record);
     allowlistForm.setFieldsValue({
       modelAllowlist: record.modelAllowlist || [],
@@ -455,19 +494,19 @@ export default function ApiClientsPage() {
   };
 
   /** 保存模型白名单 */
-  const onSaveAllowlist = async () => {
+  const onSaveAllowlist = () => allowDialog.run(async () => {
     const values = await allowlistForm.validateFields().catch(() => null);
     if (!values || !allowlistClient) return;
     try {
-      await apiClientApi.updateModelAllowlist(allowlistClient.id, values.modelAllowlist || []);
+      await apiClientApi.updateModelAllowlist(allowlistClient.id, values.modelAllowlist || [], allowlistClient.revision ?? 0);
       message.success('模型白名单已更新');
       setAllowlistOpen(false);
       setAllowlistClient(null);
       fetchData(page, pageSize);
     } catch (err) {
-      ErrorHandler.handleApiError(err, '更新失败');
+      handleSaveError(err);
     }
-  };
+  });
 
   /** 打开用量图表弹窗 */
   const onShowUsageChart = (record: any) => {
@@ -587,6 +626,7 @@ export default function ApiClientsPage() {
       width: 160,
       render: (_: unknown, r: any) => {
         const summary = usageSummaryMap.get(r.id);
+        if (summaryError) return <Typography.Text type="danger">用量加载失败</Typography.Text>;
         if (!summary) {
           return <Typography.Text type="secondary" style={{ fontSize: 12 }}>暂无数据</Typography.Text>;
         }
@@ -630,6 +670,7 @@ export default function ApiClientsPage() {
       width: 70,
       render: (_: unknown, r: any) => (
         <Switch
+          loading={toggling.includes(r.id)}
           disabled={!canUpdateClient || r.source === 'portal'}
           checked={r.enabled !== false}
           onChange={(v) => onToggle(r, v)}
@@ -712,7 +753,6 @@ export default function ApiClientsPage() {
           dataSource={items}
           loading={loading}
           size="small"
-          scroll={{ x: 1720 }}
           pagination={{
             current: page,
             pageSize,
@@ -727,13 +767,12 @@ export default function ApiClientsPage() {
       <Modal
         title="新建 API 客户端"
         open={createOpen}
-        onCancel={() => { setCreateOpen(false); form.resetFields(); }}
+        {...createDialog.modalProps}
         onOk={onCreate}
-        confirmLoading={creating}
         destroyOnClose
         width={600}
       >
-        <Form form={form} layout="vertical" initialValues={{ billingPolicy: 'internal', defaultPriority: 50 }}>
+        <Form disabled={createDialog.busy} form={form} layout="vertical" initialValues={{ billingPolicy: 'internal', defaultPriority: 50 }}>
           <Form.Item name="name" label="显示名称（可选）">
             <Input placeholder="例如：AGI-Content 生产" maxLength={200} />
           </Form.Item>
@@ -755,7 +794,7 @@ export default function ApiClientsPage() {
             限流配置（可选，留空使用默认值）
           </Typography.Text>
           <Form.Item name="maxQps" label="每秒最大请求数 (QPS)">
-            <InputNumber min={1} max={10000} precision={0} style={{ width: '100%' }} placeholder="默认 10" />
+            <InputNumber min={1} max={1000} precision={0} style={{ width: '100%' }} placeholder="默认 10" />
           </Form.Item>
           <Form.Item name="maxConcurrent" label="最大并发任务数">
             <InputNumber min={1} max={10000} precision={0} style={{ width: '100%' }} placeholder="默认 50" />
@@ -770,11 +809,12 @@ export default function ApiClientsPage() {
       <Modal
         title="编辑默认优先级"
         open={priorityOpen}
-        onCancel={() => { setPriorityOpen(false); setEditingClient(null); }}
+        {...priorityDialog.modalProps}
         onOk={onSavePriority}
         destroyOnClose
       >
-        <Form form={priorityForm} layout="vertical">
+        {conflictNotice(editingClient, priorityForm, setEditingClient, ['defaultPriority'], priorityDialog.resetBaseline)}
+        <Form disabled={priorityDialog.busy} form={priorityForm} layout="vertical">
           <Form.Item
             name="defaultPriority"
             label="默认优先级（0=最高, 100=最低）"
@@ -789,11 +829,12 @@ export default function ApiClientsPage() {
       <Modal
         title="编辑计费策略"
         open={billingPolicyOpen}
-        onCancel={() => { setBillingPolicyOpen(false); setBillingPolicyClient(null); }}
+        {...billingDialog.modalProps}
         onOk={onSaveBillingPolicy}
         destroyOnClose
       >
-        <Form form={billingPolicyForm} layout="vertical">
+        {conflictNotice(billingPolicyClient, billingPolicyForm, setBillingPolicyClient, ['billingPolicy'], billingDialog.resetBaseline)}
+        <Form disabled={billingDialog.busy} form={billingPolicyForm} layout="vertical">
           <Form.Item
             name="billingPolicy"
             label="计费策略"
@@ -811,11 +852,12 @@ export default function ApiClientsPage() {
       <Modal
         title={`编辑限流配置 - ${rateLimitClient?.name || rateLimitClient?.apiKey || ''}`}
         open={rateLimitOpen}
-        onCancel={() => { setRateLimitOpen(false); setRateLimitClient(null); }}
+        {...rateDialog.modalProps}
         onOk={onSaveRateLimits}
         destroyOnClose
       >
-        <Form form={rateLimitForm} layout="vertical">
+        {conflictNotice(rateLimitClient, rateLimitForm, setRateLimitClient, ['maxQps', 'maxConcurrent', 'maxDailyRequests'], rateDialog.resetBaseline)}
+        <Form disabled={rateDialog.busy} form={rateLimitForm} layout="vertical">
           <Form.Item
             name="maxQps"
             label="每秒最大请求数 (QPS)"
@@ -844,12 +886,14 @@ export default function ApiClientsPage() {
       <Modal
         title={`编辑模型白名单 - ${allowlistClient?.name || allowlistClient?.apiKey || ''}`}
         open={allowlistOpen}
-        onCancel={() => { setAllowlistOpen(false); setAllowlistClient(null); setSelectedFeatureType(null); }}
+        {...allowDialog.modalProps}
         onOk={onSaveAllowlist}
         destroyOnClose
         width={600}
       >
-        <Form form={allowlistForm} layout="vertical">
+        {conflictNotice(allowlistClient, allowlistForm, setAllowlistClient, ['modelAllowlist'], allowDialog.resetBaseline)}
+        <Form disabled={allowDialog.busy} form={allowlistForm} layout="vertical">
+          {modelsError && <Alert style={{ marginBottom: 12 }} type="error" showIcon message="模型候选加载失败" description="已选白名单已保留，可重试加载候选。" action={<Button onClick={() => void fetchAvailableModels(selectedFeatureType || undefined)}>重试</Button>} />}
           <Form.Item label="功能类型筛选">
             <Select
               allowClear

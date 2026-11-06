@@ -1,6 +1,8 @@
+import { useFormDialog } from '../hooks/useFormDialog';
+import { useUnsavedNavigation } from '../hooks/useUnsavedNavigation';
+import Table from '../components/AdminTable';
 import { useEffect, useState, useCallback } from 'react';
-import {
-  Table, Card, Button, Space, Tag, Switch, message, Modal, Form, Input, Select,
+import { Card, Button, Space, Tag, Switch, message, Modal, Form, Input, Select,
   Typography, Popconfirm,
 } from 'antd';
 import {
@@ -32,6 +34,10 @@ export default function UsersPage() {
   const [editing, setEditing] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
   const [editForm] = Form.useForm();
+  const createDialog = useFormDialog(createOpen, createForm, creating, () => { setCreateOpen(false); createForm.resetFields(); });
+  const editDialog = useFormDialog(editOpen, editForm, editing, () => { setEditOpen(false); setEditingUser(null); editForm.resetFields(); });
+  useUnsavedNavigation(createDialog.dirty || editDialog.dirty);
+
 
   const fetchRoles = useCallback(async () => {
     try {
@@ -78,7 +84,7 @@ export default function UsersPage() {
     fetchUsers(1, pageSize, searchUsername);
   };
 
-  const handleCreate = async () => {
+  const handleCreate = () => createDialog.run(async () => {
     const values = await createForm.validateFields().catch(() => null);
     if (!values) return;
     setCreating(true);
@@ -92,9 +98,9 @@ export default function UsersPage() {
       ErrorHandler.handleApiError(err, '创建用户失败');
     }
     setCreating(false);
-  };
+  });
 
-  const handleEdit = async () => {
+  const handleEdit = () => editDialog.run(async () => {
     const values = await editForm.validateFields().catch(() => null);
     if (!values || !editingUser) return;
     setEditing(true);
@@ -109,7 +115,7 @@ export default function UsersPage() {
       ErrorHandler.handleApiError(err, '更新用户失败');
     }
     setEditing(false);
-  };
+  });
 
   const openEdit = (record: any) => {
     setEditingUser(record);
@@ -297,12 +303,10 @@ export default function UsersPage() {
       <Modal
         title="新建用户"
         open={createOpen}
-        onCancel={() => { setCreateOpen(false); createForm.resetFields(); }}
-        onOk={handleCreate}
-        confirmLoading={creating}
-        destroyOnClose
+        {...createDialog.modalProps}
+        onOk={handleCreate}        destroyOnClose
       >
-        <Form form={createForm} layout="vertical">
+        <Form disabled={createDialog.busy} form={createForm} layout="vertical">
           <Form.Item
             name="username"
             label="用户名"
@@ -344,12 +348,10 @@ export default function UsersPage() {
       <Modal
         title={`编辑用户 - ${editingUser?.username || ''}`}
         open={editOpen}
-        onCancel={() => { setEditOpen(false); setEditingUser(null); editForm.resetFields(); }}
-        onOk={handleEdit}
-        confirmLoading={editing}
-        destroyOnClose
+        {...editDialog.modalProps}
+        onOk={handleEdit}        destroyOnClose
       >
-        <Form form={editForm} layout="vertical">
+        <Form disabled={editDialog.busy} form={editForm} layout="vertical">
           <Form.Item name="displayName" label="显示名称">
             <Input placeholder="请输入显示名称" maxLength={100} />
           </Form.Item>

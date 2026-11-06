@@ -1,8 +1,8 @@
+import Table from './AdminTable';
 import { usePermission } from '../hooks/usePermission';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Modal,
-  Table,
   Button,
   Space,
   Typography,
@@ -429,7 +429,6 @@ export default function ProviderAccountPoolModal({
           loading={loading}
           dataSource={displayItems}
           columns={columns}
-          scroll={{ x: showAccountBaseUrlCol ? 980 : 840 }}
           pagination={{
             current: page,
             pageSize,

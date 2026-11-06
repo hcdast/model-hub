@@ -1,22 +1,24 @@
+import Table from '../components/AdminTable';
 import ProviderSelect from '../components/ProviderSelect';
 import { useSearchParams } from 'react-router-dom';
 import { useRequest } from '../hooks/useRequest';
 import { MODEL_CONFIG_MODEL_TYPES } from '../constants/model-config-model-type';
 import { useEffect, useState, useMemo } from 'react';
-import { Table, Card, DatePicker, Select, Button, Typography, Row, Col, Statistic, message } from 'antd';
+import { Card, DatePicker, Select, Button, Typography, Row, Col, Statistic, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import PageHeader from '../components/PageHeader';
 import dayjs from 'dayjs';
 import ReactEChartsCore from '../components/Chart';
 import { statsApi } from '../services/api';
 import { aggregateDailySummary, buildTaskVolumeOption } from '../utils/trend-chart-helpers';
+import RequestFeedback from '../components/RequestFeedback';
 
 export default function StatsPage() {
   const [search, setSearch] = useSearchParams();
   const page = Number(search.get('page')) || 1, featureType = search.get('featureType') || undefined, provider = search.get('provider') || undefined;
   const dateRange: [string, string] = [search.get('dateFrom') || dayjs().subtract(7, 'day').format('YYYY-MM-DD'), search.get('dateTo') || dayjs().format('YYYY-MM-DD')];
   const update = (patch: Record<string, any>) => { const next = new URLSearchParams(search); Object.entries({ page: 1, ...patch } as Record<string, any>).forEach(([k,v]) => v === undefined || v === '' ? next.delete(k) : next.set(k, String(v))); setSearch(next); };
-  const { data = { items: [], total: 0 }, loading, refresh: fetchData } = useRequest<any>(async () => (await statsApi.daily({ dateFrom: dateRange[0], dateTo: dateRange[1], featureType, provider, page, pageSize: 20 }) as any).data, { deps: [search.toString()] });
+  const { data = { items: [], total: 0 }, error, lastSuccess, loading, refresh: fetchData } = useRequest<any>(async () => (await statsApi.daily({ dateFrom: dateRange[0], dateTo: dateRange[1], featureType, provider, page, pageSize: 20 }) as any).data, { deps: [search.toString()] });
   // 按日期聚合趋势数据
   const dailySummary = useMemo(() => data.trend || aggregateDailySummary(data.items), [data.items, data.trend]);
 
@@ -72,11 +74,12 @@ export default function StatsPage() {
       />
 
       <Typography.Paragraph type="secondary">实时任务数据 · UTC 日期 · 汇总覆盖全部筛选结果 · 更新时间：{data.generatedAt ? new Date(data.generatedAt).toLocaleString() : "—"}</Typography.Paragraph>
+      <RequestFeedback error={error} hasData={!!lastSuccess} retry={fetchData} />
       <Card style={{ marginBottom: 16 }}>
         <Row gutter={24}>
-          <Col span={8}><Statistic title="总任务量" value={summary.totalCount} /></Col>
-          <Col span={8}><Statistic title="成功" value={summary.successCount} valueStyle={{ color: '#52c41a' }} /></Col>
-          <Col span={8}><Statistic title="失败" value={summary.failedCount} valueStyle={{ color: '#ff4d4f' }} /></Col>
+          <Col span={8}><Statistic title="总任务量" value={error && !lastSuccess ? '—' : summary.totalCount} /></Col>
+          <Col span={8}><Statistic title="成功" value={error && !lastSuccess ? '—' : summary.successCount} valueStyle={{ color: '#52c41a' }} /></Col>
+          <Col span={8}><Statistic title="失败" value={error && !lastSuccess ? '—' : summary.failedCount} valueStyle={{ color: '#ff4d4f' }} /></Col>
         </Row>
       </Card>
 
@@ -90,7 +93,7 @@ export default function StatsPage() {
       </Card>
 
       <Card>
-        <Table columns={columns} dataSource={data.items} rowKey={(r) => `${r.date}-${r.featureType}-${r.provider}-${r.model}`} pagination={{ current: page, pageSize: 20, total: data.total, onChange: (p) => update({ page: p }), showSizeChanger: false }} loading={loading} size="small" scroll={{ x: 1400 }} />
+        <Table columns={columns} dataSource={data.items} rowKey={(r) => `${r.date}-${r.featureType}-${r.provider}-${r.model}`} pagination={{ current: page, pageSize: 20, total: data.total, onChange: (p) => update({ page: p }), showSizeChanger: false }} loading={loading} size="small" />
       </Card>
     </div>
   );

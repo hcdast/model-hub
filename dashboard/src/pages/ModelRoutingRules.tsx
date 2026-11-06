@@ -1,8 +1,8 @@
+import Table from '../components/AdminTable';
 import { usePermission } from '../hooks/usePermission';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import {
-  Table, Card, Button, Space, Typography, Input, message, Tag, Modal, Form, Select, Switch,
+import { Card, Button, Space, Typography, Input, message, Tag, Modal, Form, Select, Switch,
   InputNumber, DatePicker, Popconfirm, Tooltip, Descriptions, Alert, Collapse, AutoComplete,
 } from 'antd';
 import {
@@ -14,6 +14,7 @@ import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
 import { modelRoutingApi, modelApi, apiClientApi } from '../services/api';
 import ProviderSelect from '../components/ProviderSelect';
+import { useUnsavedClose } from '../hooks/useUnsavedClose';
 
 type Strategy = 'fixed' | 'weighted' | 'primary_fallback' | 'latency' | 'cost';
 
@@ -110,6 +111,10 @@ export default function ModelRoutingRulesPage() {
   const [keyword, setKeyword] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<RuleRow | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const saveLock = useRef(false);
+  const closeEditor = useUnsavedClose(dirty, saving, () => setModalOpen(false));
   const [form] = Form.useForm();
   const [loadingProviderPricing, setLoadingProviderPricing] = useState(false);
 
@@ -183,6 +188,7 @@ export default function ModelRoutingRulesPage() {
   };
 
   const openCreate = () => {
+    setDirty(false);
     setEditing(null);
     form.resetFields();
     form.setFieldsValue(getCreateFormDefaults());
@@ -190,6 +196,8 @@ export default function ModelRoutingRulesPage() {
   };
 
   const openEdit = useCallback((r: RuleRow) => {
+    setDirty(false);
+    form.resetFields();
     setEditing(r);
     form.setFieldsValue({
       model_id: r.model_id,
@@ -213,6 +221,7 @@ export default function ModelRoutingRulesPage() {
   }, [form]);
 
   const openCreateWithModelId = useCallback((modelId: string) => {
+    setDirty(false);
     setEditing(null);
     form.resetFields();
     form.setFieldsValue(getCreateFormDefaults(modelId));
@@ -308,6 +317,9 @@ export default function ModelRoutingRulesPage() {
   };
 
   const handleSubmit = async () => {
+    if (saveLock.current) return;
+    saveLock.current = true;
+    setSaving(true);
     try {
       const v = await form.validateFields();
       const payload = buildPayload(v);
@@ -315,18 +327,6 @@ export default function ModelRoutingRulesPage() {
         await modelRoutingApi.update(editing._id, { ...payload, expected_revision: (editing as any).revision || 0 });
         message.success('已更新');
       } else {
-        const modelId = String(payload.model_id || '').trim();
-        if (modelId) {
-          const res: any = await modelRoutingApi.list({ page: 1, pageSize: 1, model_id: modelId });
-          const existing = pickRuleForModel((res.data?.items || []) as RuleRow[]);
-          if (existing) {
-            await modelRoutingApi.update(existing._id, { ...payload, expected_revision: (existing as any).revision || 0 });
-            message.success('该 model_id 已有路由策略，已更新现有规则');
-            setModalOpen(false);
-            fetchData(page, pageSize);
-            return;
-          }
-        }
         await modelRoutingApi.create(payload);
         message.success('已创建');
       }
@@ -336,7 +336,7 @@ export default function ModelRoutingRulesPage() {
       if (e?.errorFields) return;
       const msg = e?.response?.data?.message || e?.message;
       message.error(msg || (editing ? '更新失败' : '创建失败'));
-    }
+    } finally { saveLock.current = false; setSaving(false); }
   };
 
   const handleDelete = async (r: RuleRow) => {
@@ -486,7 +486,7 @@ export default function ModelRoutingRulesPage() {
               name="sim_model_id"
               label="model_id"
               rules={[{ required: true, message: '必填' }]}
-              style={{ minWidth: 280, marginBottom: 8 }}
+              style={{ width: 280, maxWidth: '100%', marginBottom: 8 }}
             >
               <Input placeholder="与 API 创建任务时的 model 一致" allowClear />
             </Form.Item>
@@ -494,7 +494,7 @@ export default function ModelRoutingRulesPage() {
               name="sim_api_key"
               label="apiKey"
               rules={[{ required: true, message: '必填' }]}
-              style={{ minWidth: 320, marginBottom: 8 }}
+              style={{ width: 320, maxWidth: '100%', marginBottom: 8 }}
             >
               <AutoComplete
                 allowClear
@@ -507,10 +507,10 @@ export default function ModelRoutingRulesPage() {
                 }
               />
             </Form.Item>
-            <Form.Item name="sim_featureType" label="featureType（可选）" style={{ minWidth: 220, marginBottom: 8 }}>
+            <Form.Item name="sim_featureType" label="featureType（可选）" style={{ width: 220, maxWidth: '100%', marginBottom: 8 }}>
               <Select options={SIM_FEATURE_OPTIONS} placeholder="推断 model_type 用" allowClear />
             </Form.Item>
-            <Form.Item name="sim_at" label="判定时间 at（可选）" style={{ minWidth: 220, marginBottom: 8 }}>
+            <Form.Item name="sim_at" label="判定时间 at（可选）" style={{ width: 220, maxWidth: '100%', marginBottom: 8 }}>
               <DatePicker showTime style={{ width: '100%' }} placeholder="默认当前时间" />
             </Form.Item>
             <Form.Item label=" " colon={false} style={{ marginBottom: 8 }}>
@@ -626,7 +626,6 @@ export default function ModelRoutingRulesPage() {
           rowKey="_id"
           loading={loading}
           size="small"
-          scroll={{ x: 1000 }}
           pagination={{
             current: page,
             pageSize,
@@ -641,13 +640,19 @@ export default function ModelRoutingRulesPage() {
       <Modal
         title={editing ? '编辑路由策略' : '新建路由策略'}
         open={modalOpen}
-        onCancel={() => setModalOpen(false)}
+        onCancel={closeEditor}
         onOk={handleSubmit}
         width={640}
         destroyOnClose
         okText="保存"
+        confirmLoading={saving}
+        closable={!saving}
+        maskClosable={!saving}
+        keyboard={!saving}
+        cancelButtonProps={{ disabled: saving }}
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
+        {!editing && <Alert type="info" showIcon message="新建仅创建新规则；同模型已有规则时会拒绝提交，请返回列表编辑。" style={{ marginBottom: 12 }} />}
+        <Form form={form} disabled={saving} onValuesChange={() => setDirty(true)} layout="vertical" style={{ marginTop: 8 }}>
           <Form.Item name="model_id" label="model_id" rules={[{ required: true, message: '必填' }]}>
             <Input placeholder="与创建任务时的 model 完全一致" />
           </Form.Item>
