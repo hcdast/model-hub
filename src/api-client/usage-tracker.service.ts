@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, ServiceUnavailableException, BadRequestException } from '@nestjs/common';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../redis/redis.constants';
 import { roundMoney } from '../common/utils/money.util';
@@ -114,14 +114,8 @@ export class UsageTrackerService {
         this.logger.warn(
           `查询用量失败: apiKey=${apiKey}, date=${date}, error=${(error as Error).message}`,
         );
-        results.push({
-          apiKey,
-          date,
-          totalRequests: 0,
-          successRequests: 0,
-          failedRequests: 0,
-          totalCost: 0,
-        });
+        // Read failures must not masquerade as a day with no usage.
+        throw new ServiceUnavailableException('用量数据暂时不可用，请稍后重试');
       }
     }
 
@@ -159,7 +153,7 @@ export class UsageTrackerService {
       this.logger.warn(
         `获取用量汇总失败: error=${(error as Error).message}`,
       );
-      return [];
+      throw new ServiceUnavailableException('用量汇总暂时不可用，请稍后重试');
     }
   }
 
@@ -182,14 +176,17 @@ export class UsageTrackerService {
     const dates: string[] = [];
     const startDate = this.parseDate(from);
     const endDate = this.parseDate(to);
+    if (startDate > endDate || (endDate.getTime() - startDate.getTime()) / 86400000 > 30) {
+      throw new BadRequestException('用量查询日期须按先后顺序，且一次最多查询 31 天');
+    }
 
     const current = new Date(startDate);
     while (current <= endDate) {
-      const year = current.getFullYear();
-      const month = String(current.getMonth() + 1).padStart(2, '0');
-      const day = String(current.getDate()).padStart(2, '0');
+      const year = current.getUTCFullYear();
+      const month = String(current.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(current.getUTCDate()).padStart(2, '0');
       dates.push(`${year}${month}${day}`);
-      current.setDate(current.getDate() + 1);
+      current.setUTCDate(current.getUTCDate() + 1);
     }
 
     return dates;
@@ -197,15 +194,20 @@ export class UsageTrackerService {
 
   /** 解析 YYYYMMDD 格式日期 */
   private parseDate(dateStr: string): Date {
+    if (!/^\d{8}$/.test(dateStr)) throw new BadRequestException('日期必须为有效的 YYYYMMDD 格式');
     const year = parseInt(dateStr.slice(0, 4), 10);
     const month = parseInt(dateStr.slice(4, 6), 10) - 1;
     const day = parseInt(dateStr.slice(6, 8), 10);
-    return new Date(year, month, day);
+    const date = new Date(Date.UTC(year, month, day));
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month || date.getUTCDate() !== day) {
+      throw new BadRequestException('日期必须为有效的 YYYYMMDD 格式');
+    }
+    return date;
   }
 
   /** 使用 SCAN 命令安全遍历匹配的 keys */
   private async scanKeys(pattern: string): Promise<string[]> {
-    const keys: string[] = [];
+    const keys = new Set<string>();
     let cursor = '0';
 
     do {
@@ -217,9 +219,9 @@ export class UsageTrackerService {
         100,
       );
       cursor = nextCursor;
-      keys.push(...batch);
+      batch.forEach(key => keys.add(key));
     } while (cursor !== '0');
 
-    return keys;
+    return [...keys];
   }
 }

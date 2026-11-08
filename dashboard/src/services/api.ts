@@ -1,8 +1,16 @@
 import { reportRequest } from './request-status';
-import axios from 'axios';
+import axios, { CanceledError } from 'axios';
 import { pickModelConfig } from '@model-hub/common/utils/model-contract';
 
 const api = axios.create({ baseURL: '/api/v1/admin', timeout: 15000 });
+
+// Ignore delayed responses belonging to an account that has since signed out or changed.
+function isPreviousSession(config: any): boolean {
+  if (config?.url?.startsWith('/auth/login')) return false;
+  const sent = config?.headers?.Authorization;
+  const token = localStorage.getItem('token');
+  return (sent || '') !== (token ? `Bearer ${token}` : '');
+}
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
@@ -12,6 +20,7 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (res) => {
+    if (isPreviousSession(res.config)) return Promise.reject(new CanceledError('会话已变化，忽略旧请求'));
     const body = res.data;
     if (body && typeof body === 'object' && typeof body.code === 'number' && body.code !== 0) {
       const error = new Error(body.message || `操作失败（${body.code}）`);
@@ -23,6 +32,7 @@ api.interceptors.response.use(
     return body;
   },
   (err) => {
+    if (isPreviousSession(err.config)) return Promise.reject(new CanceledError('会话已变化，忽略旧请求'));
     reportRequest(err.config, err);
     if (err.response?.status === 401 && !err.config?.url?.startsWith('/auth/login')) {
       // 清除所有认证相关的 localStorage 数据，保持与 auth store 一致

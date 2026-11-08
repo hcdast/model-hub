@@ -10,7 +10,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
  * 日期格式为 YYYYMMDD
  */
 export class UsageQueryDto {
-  @ApiPropertyOptional({ description: '起始日期（YYYYMMDD）', example: '20260101' })
+  @ApiPropertyOptional({ description: '起始日期（YYYYMMDD），一次最多查询 31 天', example: '20260101' })
   @IsOptional()
   @IsString()
   @Matches(/^\d{8}$/, { message: 'from 必须为 YYYYMMDD 格式' })
