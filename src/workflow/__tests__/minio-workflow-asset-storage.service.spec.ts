@@ -158,7 +158,7 @@ describe.each(providers)('%s real SDK transport', provider => {
     const urls = await Promise.all([service.upload(body, first), service.upload(body, second)]);
     expect(new Set(urls).size).toBe(2);
     for (const [index, item] of [first, second].entries()) {
-      const key = `workflow-assets/nested/${item.ownerKey}/${item.assetId}.txt`;
+      const key = `modelhub/workflow-assets/nested/workflow/uploads/text/${item.ownerKey}/${item.assetId}.txt`;
       expect(urls[index]).toBe(`https://cdn.example.com/%E7%B4%A0%E6%9D%90/${key}`);
       const request = requests.find(value => value.path === `/modelhub/${key}`)!;
       expect(request.method).toBe('PUT');
@@ -174,7 +174,7 @@ describe.each(providers)('%s real SDK transport', provider => {
     service.logMetadataFailure(first);
     expect(logError.mock.calls).toEqual([[{
       category: 'metadata_failure', assetId: first.assetId,
-      objectKey: `workflow-assets/nested/${first.ownerKey}/${first.assetId}.txt`,
+      objectKey: `modelhub/workflow-assets/nested/workflow/uploads/text/${first.ownerKey}/${first.assetId}.txt`,
     }]]);
     expect(JSON.stringify(logError.mock.calls)).not.toMatch(/private-owner|test-secret-key|test-access-key|capsule-secret-key|capsule-access-key|qiniu-secret-key|qiniu-access-key|Authorization/);
   });
@@ -189,7 +189,34 @@ describe.each(providers)('%s real SDK transport', provider => {
     await create({ ...valid, port, region: undefined }).upload(Buffer.from('hello'), context());
     expect(methods).toHaveLength(2);
     expect(methods[0]).toBe('GET /modelhub?location');
-    expect(methods[1]).toMatch(/^PUT \/modelhub\/workflow-assets\//);
+    expect(methods[1]).toMatch(/^PUT \/modelhub\/modelhub\/workflow\/uploads\/text\//);
+  });
+
+  it.each([undefined, 'workflow-assets', 'modelhub'])('keeps new uploads under modelhub for prefix %s', async pathPrefix => {
+    const paths: string[] = [];
+    handler = (req, res) => { paths.push(req.url!); req.resume(); res.writeHead(200, { ETag: '"etag"' }); res.end(); };
+    const service = create({ ...valid, port, pathPrefix, publicBaseUrl: 'https://cdn.example.com' });
+    const item = context();
+    const key = `modelhub/workflow/uploads/text/${item.ownerKey}/${item.assetId}.txt`;
+    await expect(service.upload(Buffer.from('hello'), item)).resolves.toBe(`https://cdn.example.com/${key}`);
+    expect(paths).toEqual([`/modelhub/${key}`]);
+  });
+
+  it.each([
+    ['output-text', 'workflow/outputs', 'application/json', 'text', 'json'],
+    ['drama-upload', 'short-drama/uploads', 'image/png', 'image', 'png'],
+    ['drama-archive', 'short-drama/archives', 'audio/mpeg', 'audio', 'mp3'],
+    ['drama-render', 'short-drama/renders', 'video/mp4', 'video', 'mp4'],
+  ] as const)('writes %s into its feature and media folder and logs the same key', async (purpose, folder, contentType, kind, fileExt) => {
+    const paths: string[] = [];
+    handler = (req, res) => { paths.push(req.url!); req.resume(); res.writeHead(200, { ETag: '"etag"' }); res.end(); };
+    const service = create({ ...valid, port, publicBaseUrl: 'https://cdn.example.com' });
+    const item = { ...context(), purpose, contentType, fileExt };
+    const key = `modelhub/${folder}/${kind}/${item.ownerKey}/${item.assetId}.${fileExt}`;
+    await expect(service.upload(Buffer.from('media'), item)).resolves.toBe(`https://cdn.example.com/${key}`);
+    expect(paths).toEqual([`/modelhub/${key}`]);
+    service.logMetadataFailure(item);
+    expect(logError).toHaveBeenCalledWith({ category: 'metadata_failure', assetId: item.assetId, objectKey: key });
   });
 
   it.each([403, 404, 503])('sanitizes HTTP %i and does not retry or write/delete other objects', async status => {
@@ -256,7 +283,7 @@ describe.each(providers)('%s real SDK transport', provider => {
     let calls = 0;
     handler = (_req, res) => { calls++; res.end(); };
     const service = create({ ...valid, port });
-    for (const patch of [{ assetId: '../escape' }, { ownerKey: 'raw-owner' }, { fileExt: '../txt' }, { contentType: 'text/plain\r\nsecret' }]) {
+    for (const patch of [{ assetId: '../escape' }, { ownerKey: 'raw-owner' }, { fileExt: '../txt' }, { contentType: 'text/plain\r\nsecret' }, { purpose: '../escape' as any }, { purpose: 'toString' as any }]) {
       await expect(service.upload(Buffer.from('hello'), { ...context(), ...patch })).rejects.toBeInstanceOf(ServiceUnavailableException);
       if (!('contentType' in patch)) service.logMetadataFailure({ ...context(), ...patch });
     }

@@ -3627,13 +3627,35 @@ API、Worker、Scheduler、管理端须连接同一目标 MongoDB/Redis。资金
 | bucket / region | 服务商提供的 S3 bucket 标识及区域；region 缺省时由 SDK 探测 |
 | accessKeyId / secretAccessKey | 当前 provider 的服务端凭据 |
 | publicBaseUrl | 稳定文件读取根地址，包含实际所需的 bucket 路径 |
-| pathPrefix | 对象路径前缀，默认 workflow-assets |
+| pathPrefix | 应用命名空间，默认 modelhub；旧默认 workflow-assets 自动升级为 modelhub，自定义值统一限制在 modelhub/ 下 |
 | uploadTimeoutMs | 上传总超时，默认 60000 毫秒 |
 | allowInsecureHttp | HTTP 配置需要显式允许；生产应配置有效 HTTPS 域名与证书 |
 
-对象键包含前缀、owner 哈希及 UUID。publicBaseUrl 后追加对象键，不自动追加 bucket。上传 endpoint 与下载域名可以不同；填写 URL 不改变 bucket 策略。素材限制沿用平台 20 MiB，存储成功才写元数据，失败不落成功记录；响应和日志不回显密钥。
+S3 对象键统一为 `modelhub/{功能}/{用途}/{媒体类型}/{owner SHA-256}/{UUID}.{扩展名}`。bucket 是存储空间，`modelhub/` 是空间内部的项目目录；即使 bucket 名为 modelhub，对象键仍保留项目目录。路径集中定义在 `src/common/storage/asset-storage-path.ts`，新增功能在 `ASSET_STORAGE_PATHS` 注册用途，由服务端选择，调用方不传任意目录。
 
-持久化的是稳定 URL，适合可被目标模型读取的原始文件地址。网页分享页、提取码页面和短期预签名链接不能直接当永久素材地址。私有对象需另行设计受控下载代理或签名生命周期。切换后端只影响新上传，历史对象与 URL 不迁移，删除素材记录也不自动删远程对象。
+| 功能 / 用途 | 对象目录 | source |
+| --- | --- | --- |
+| 工作流素材上传 | modelhub/workflow/uploads/ | upload |
+| 工作流文本、JSON 输出保存 | modelhub/workflow/outputs/ | output-text |
+| 短剧素材上传 | modelhub/short-drama/uploads/ | drama-upload |
+| 短剧模型结果归档 | modelhub/short-drama/archives/ | drama-archive |
+| 短剧成片导出 | modelhub/short-drama/renders/ | drama-render |
+
+每个用途下再按 `image`、`video`、`audio`、`text` 分层，JSON 归入 text。例如 `modelhub/short-drama/renders/video/{owner哈希}/{UUID}.mp4`。保留原始 owner 标识在数据库中做所有权校验，不放入对象路径。UUID 避免同名文件覆盖。自定义 `pathPrefix=team-a` 或 `modelhub/team-a` 均生成 `modelhub/team-a/{功能}/...`；路径片段不允许绝对路径、空段、反斜杠或路径穿越。旧默认 `workflow-assets` 显式配置和缺省配置均使用新目录，避免升级代码后继续写入桶根目录的旧目录。
+
+`POST /v1/workflow-assets` 的 multipart 文件字段仍为 `file`，可选字段 `feature` 仅接受 `workflow`（缺省）或 `short-drama`。短剧门户显式传 short-drama；归档与成片用途只能由后端指定。媒体输出引用（output-reference）沿用供应商 URL，不重复上传，因此不生成对象键。
+
+publicBaseUrl 后追加完整对象键，不自动追加 bucket，也不能把对象目录重复填入 publicBaseUrl。上传 endpoint 与下载域名可以不同；填写 URL 不改变 bucket 策略。素材限制沿用平台 20 MiB，存储成功才写元数据，失败不落成功记录；响应和日志不回显密钥。元数据保存失败的日志使用同一套路径生成规则定位实际对象。
+
+storagesvc 兼容适配器和第三方链接转换仍由外部存储网关生成对象键；当前 SDK 的签名与分片接口没有自定义对象键/前缀字段，不能依靠本地路径配置保证网关的物理目录。需要上述目录约束的素材上传应选择 minio、datacapsule 或 qiniu；网关端统一目录需另行在网关配置或接口中支持。
+
+持久化的是稳定 URL，适合可被目标模型读取的原始文件地址。网页分享页、提取码页面和短期预签名链接不能直接当永久素材地址。私有对象需另行设计受控下载代理或签名生命周期。新目录规则与切换后端均只影响新上传，历史对象与数据库中已保存的 URL 继续有效；读取时不重算路径。历史文件如需整理，须先复制到新键、核验内容与可读性，再更新所有引用并保留旧键兼容，不能直接移动或按字符串批量替换 URL。删除素材记录也不自动删远程对象。
+
+旧 `workflow-assets/` 同步迁移工具为 `scripts/migrate-workflow-assets.cjs`，复用当前运行环境的本地或 Nacos 配置，仅处理选中的 S3 provider 和数据库。先运行 `node scripts/migrate-workflow-assets.cjs plan <run>` 生成只读清单，再运行 `apply <run>` 执行，最后运行 `verify <run>` 独立复核。重复使用同一 run 可从已校验的副本继续；遇到并发引用编辑会停止，避免覆盖业务修改。
+
+工具从素材 source 和短剧候选记录恢复功能用途：归档、成片、短剧上传及工作流输出分别归类；无素材记录且无候选引用的孤立文件保守归入 workflow/uploads。复制前核对源 ETag/大小，目标存在时只核验不覆盖；源与目标的 SHA-256、MIME、大小以及公开 URL 读取全部通过后，才用字段级比较更新同步数据库内嵌对象、数组和 JSON 字符串中的已知资源 URL。只替换当前文件域名与完整对象键对应的 URL，不改其他域名或相似文件名。备份集合和无资源 URL 的队列统计不参与引用更新，旧对象全部保留。
+
+清单与校验报告位于私有的 `config/migration-backups/workflow-assets_<run>/`。引用修改前值保存在 AES-256-GCM 加密文件，密钥由 Windows 当前用户 DPAPI 保护，不将业务文档或连接凭据输出到控制台。迁移期间若旧进程继续创建根目录文件，报告会显示新增旧文件数；应应用新目录规则后重新生成增量迁移清单。迁移不会触发模型生成、计费或删除远程文件。
 
 <a id="deployment-4"></a>
 
@@ -3943,7 +3965,7 @@ VITE_API_TARGET=http://localhost:7000
       "accessKeyId": "REPLACE_WITH_PRIVATE_VALUE",
       "secretAccessKey": "REPLACE_WITH_PRIVATE_VALUE",
       "publicBaseUrl": "https://assets.example.com",
-      "pathPrefix": "workflow-assets",
+      "pathPrefix": "modelhub",
       "uploadTimeoutMs": 60000
     },
     "datacapsule": {
@@ -3954,7 +3976,7 @@ VITE_API_TARGET=http://localhost:7000
       "accessKeyId": "REPLACE_WITH_PRIVATE_VALUE",
       "secretAccessKey": "REPLACE_WITH_PRIVATE_VALUE",
       "publicBaseUrl": "https://assets.example.com",
-      "pathPrefix": "workflow-assets",
+      "pathPrefix": "modelhub",
       "uploadTimeoutMs": 60000
     }
   }
@@ -3978,7 +4000,7 @@ VITE_API_TARGET=http://localhost:7000
       "accessKeyId": "REPLACE_WITH_PRIVATE_VALUE",
       "secretAccessKey": "REPLACE_WITH_PRIVATE_VALUE",
       "publicBaseUrl": "https://assets.example.com",
-      "pathPrefix": "workflow-assets",
+      "pathPrefix": "modelhub",
       "uploadTimeoutMs": 60000
     }
   }

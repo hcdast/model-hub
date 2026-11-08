@@ -7,6 +7,7 @@ export interface WorkflowAssetS3Config {
   secretAccessKey: string;
   region?: string;
   publicBaseUrl: string;
+  /** Object namespace under modelhub; defaults to modelhub. Legacy workflow-assets is upgraded automatically. */
   pathPrefix?: string;
   uploadTimeoutMs?: number;
   allowInsecureHttp?: boolean;

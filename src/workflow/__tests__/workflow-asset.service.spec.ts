@@ -59,6 +59,7 @@ describe('WorkflowAssetService', () => {
       ownerKey: createHash('sha256').update(ownerId).digest('hex'),
       fileExt,
       contentType: mimeType,
+      purpose: 'upload',
     });
     expect(result).toMatchObject({ text, mimeType, kind: 'text', url: 'https://minio.example.com/workflow-assets/asset.txt', source: 'upload', size: buffer.length });
     expect(result).not.toHaveProperty('ownerId');
@@ -131,8 +132,8 @@ describe('WorkflowAssetService', () => {
       if (enabled) {
         const assetId = assets.create.mock.calls[0][0].id;
         const ownerKey = createHash('sha256').update(ownerId).digest('hex');
-        expect(minioStorage.logMetadataFailure).toHaveBeenCalledWith({ assetId, ownerKey, fileExt: 'txt' });
-        expect(loggerError).toHaveBeenCalledWith({ category: 'metadata_failure', assetId, objectKey: `workflow-assets/${ownerKey}/${assetId}.txt` });
+        expect(minioStorage.logMetadataFailure).toHaveBeenCalledWith({ assetId, ownerKey, fileExt: 'txt', contentType: 'text/plain', purpose: 'upload' });
+        expect(loggerError).toHaveBeenCalledWith({ category: 'metadata_failure', assetId, objectKey: `modelhub/workflow/uploads/text/${ownerKey}/${assetId}.txt` });
         expect(config.getEffectiveConfig).not.toHaveBeenCalled();
       } else {
         expect(minioStorage.logMetadataFailure).not.toHaveBeenCalled();
@@ -147,10 +148,12 @@ describe('WorkflowAssetService', () => {
 
   it.each([false, true])('lists only current owner assets and hides foreign deletes with 404 (MinIO %s)', async enabled => {
     minioStorage.enabled = enabled;
-    stored.push({ id: 'foreign', ownerId: 'owner-b' }, { id: 'mine', ownerId, name: 'Mine' });
+    const legacyUrl = 'https://cdn.example.com/workflow-assets/old-owner/old-file.txt';
+    stored.push({ id: 'foreign', ownerId: 'owner-b' }, { id: 'mine', ownerId, name: 'Mine', url: legacyUrl });
     const result = await service.list(ownerId, 1, 20);
     expect(result.total).toBe(1);
     expect(result.items.map(item => item.id)).toEqual(['mine']);
+    expect(result.items[0].url).toBe(legacyUrl);
     await expect(service.delete(ownerId, 'foreign')).rejects.toBeInstanceOf(NotFoundException);
     expect(await service.delete(ownerId, 'mine')).toEqual({ id: 'mine', storageObjectDeleted: false });
     expect(minioStorage.upload).not.toHaveBeenCalled();
@@ -192,8 +195,18 @@ describe('WorkflowAssetService', () => {
     const result = await service.fromOutput(ownerId, { workflowId: 'w', runId: 'r', nodeId: 'n' });
     expect(result).toMatchObject({ text, mimeType: 'text/plain', source: 'output-text', url: 'https://minio.example.com/workflow-assets/asset.txt' });
     expect(minioStorage.upload.mock.calls[0][0]).toEqual(Buffer.from(text));
+    expect(minioStorage.upload.mock.calls[0][1].purpose).toBe('output-text');
     expect(config.getEffectiveConfig).not.toHaveBeenCalled();
     expect(upload).not.toHaveBeenCalled();
+  });
+
+  it.each(['drama-upload', 'drama-archive', 'drama-render'] as const)('routes %s explicitly and persists its source', async source => {
+    minioStorage.enabled = true;
+    const buffer = Buffer.from('0000ftypisom');
+    const result = await service.upload(ownerId, { buffer, mimetype: 'video/mp4', originalname: 'movie.mp4' }, source);
+    expect(minioStorage.upload).toHaveBeenCalledWith(buffer, expect.objectContaining({ purpose: source, contentType: 'video/mp4' }));
+    expect(result.source).toBe(source);
+    expect(stored[0].source).toBe(source);
   });
 
   it('fails explicitly without storage config', async () => {

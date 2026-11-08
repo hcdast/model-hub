@@ -8,6 +8,7 @@ import { WorkflowRun, WorkflowRunDocument } from '../database/schemas/workflow-r
 import { LinkConversionConfigService } from '../admin/link-conversion-config.service';
 import { createLinkConversionStorageAdapter } from '../link-conversion/adapters/akool-storagesvc.adapter';
 import { S3WorkflowAssetStorageService } from './s3-workflow-asset-storage.service';
+import { AssetStorageContext, AssetStoragePurpose } from '../common/storage/asset-storage-path';
 
 export const WORKFLOW_ASSET_MAX_BYTES = 20 * 1024 * 1024;
 export const WORKFLOW_ASSET_TEXT_MAX_BYTES = 1024 * 1024;
@@ -91,15 +92,16 @@ export class WorkflowAssetService {
     return { items: items.map(item => this.view(item)), total, page, pageSize };
   }
 
-  async upload(ownerId: string, file: { buffer: Buffer; mimetype: string; originalname: string }, source = 'upload', origin?: { workflowId: string; runId: string; nodeId: string }) {
+  async upload(ownerId: string, file: { buffer: Buffer; mimetype: string; originalname: string }, source: AssetStoragePurpose = 'upload', origin?: { workflowId: string; runId: string; nodeId: string }) {
     if (!file?.buffer) throw new BadRequestException('请选择上传文件');
     const text = validateAssetFile(file.buffer, file.mimetype);
     const type = WORKFLOW_ASSET_TYPES[file.mimetype];
     const id = randomUUID();
     const ownerKey = createHash('sha256').update(ownerId).digest('hex');
+    const storageContext: AssetStorageContext = { assetId: id, ownerKey, fileExt: type.ext, contentType: file.mimetype, purpose: source };
     let url: string;
     if (this.s3Storage.enabled) {
-      url = await this.s3Storage.upload(file.buffer, { assetId: id, ownerKey, fileExt: type.ext, contentType: file.mimetype });
+      url = await this.s3Storage.upload(file.buffer, storageContext);
     } else {
       const config = await this.config.getEffectiveConfig();
       if (!config.storagesvc.host?.trim() || !config.storagesvc.jwt_secret?.trim() || !config.storage_config.bucket?.trim()) {
@@ -121,7 +123,7 @@ export class WorkflowAssetService {
     try {
       asset = await this.assets.create({ id, ownerId, name: safeName(file.originalname), kind: type.kind, url, text, mimeType: file.mimetype, size: file.buffer.length, source, ...origin });
     } catch {
-      if (this.s3Storage.enabled) this.s3Storage.logMetadataFailure({ assetId: id, ownerKey, fileExt: type.ext });
+      if (this.s3Storage.enabled) this.s3Storage.logMetadataFailure(storageContext);
       throw new ServiceUnavailableException('素材元数据保存失败，请稍后重试');
     }
     return this.view(asset);

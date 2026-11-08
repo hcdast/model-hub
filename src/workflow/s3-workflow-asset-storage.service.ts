@@ -6,6 +6,7 @@ import { isIP } from 'net';
 import { Client } from 'minio';
 import { APP_CONFIG } from '../config/config.module';
 import { AppConfig, WorkflowAssetS3Config, WorkflowAssetS3Provider } from '../config/interfaces/config.interface';
+import { AssetStorageContext, buildAssetStorageKey, normalizeAssetStoragePrefix } from '../common/storage/asset-storage-path';
 
 interface UploadScope {
   controller: AbortController;
@@ -15,7 +16,6 @@ interface UploadScope {
 const MAX_BYTES = 20 * 1024 * 1024;
 // minio 8.0.6 internal/request.js otherwise retries these with uncancellable sleeps.
 const RETRY_STATUSES = new Set([408, 429, 499, 500, 502, 503, 504, 520]);
-const SAFE_SEGMENT = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
 
 function invalid(field: string): never {
   throw new Error(`Invalid workflowAssetStorage.${field}`);
@@ -38,8 +38,9 @@ function validateConfig(value: WorkflowAssetS3Config | undefined, provider: Work
   if (value.allowInsecureHttp !== undefined && typeof value.allowInsecureHttp !== 'boolean') invalid(`${provider}.allowInsecureHttp`);
   const timeout = value.uploadTimeoutMs === undefined ? 60000 : value.uploadTimeoutMs;
   if (!Number.isInteger(timeout) || timeout < 1000 || timeout > 300000) invalid(`${provider}.uploadTimeoutMs`);
-  const prefix = value.pathPrefix === undefined ? 'workflow-assets' : value.pathPrefix;
-  if (typeof prefix !== 'string' || !prefix.split('/').every(segment => SAFE_SEGMENT.test(segment))) invalid(`${provider}.pathPrefix`);
+  let prefix: string;
+  try { prefix = normalizeAssetStoragePrefix(value.pathPrefix); }
+  catch { invalid(`${provider}.pathPrefix`); }
   let base: URL;
   try {
     if (typeof value.publicBaseUrl !== 'string' || value.publicBaseUrl.trim() !== value.publicBaseUrl || /[\\\s]/.test(value.publicBaseUrl)) invalid(`${provider}.publicBaseUrl`);
@@ -118,21 +119,21 @@ export class S3WorkflowAssetStorageService {
     }
   }
 
-  logMetadataFailure(context: { assetId: string; ownerKey: string; fileExt: string }): void {
-    if (!this.config || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(context.assetId) ||
-      !/^[0-9a-f]{64}$/.test(context.ownerKey) || !/^[a-z0-9]{1,10}$/.test(context.fileExt)) return;
-    const objectKey = `${this.config.pathPrefix}/${context.ownerKey}/${context.assetId}.${context.fileExt}`;
+  logMetadataFailure(context: AssetStorageContext): void {
+    if (!this.config) return;
+    let objectKey: string;
+    try { objectKey = buildAssetStorageKey(this.config.pathPrefix, context); }
+    catch { return; }
     this.logger.error({ category: 'metadata_failure', assetId: context.assetId, objectKey });
   }
 
-  async upload(buffer: Buffer, context: { assetId: string; ownerKey: string; fileExt: string; contentType: string }): Promise<string> {
-    if (!this.client || !this.config || !Buffer.isBuffer(buffer) || !buffer.length || buffer.length > MAX_BYTES ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(context.assetId) ||
-      !/^[0-9a-f]{64}$/.test(context.ownerKey) || !/^[a-z0-9]{1,10}$/.test(context.fileExt) ||
-      typeof context.contentType !== 'string' || !/^[\w.+-]+\/[\w.+-]+$/.test(context.contentType)) {
+  async upload(buffer: Buffer, context: AssetStorageContext): Promise<string> {
+    if (!this.client || !this.config || !Buffer.isBuffer(buffer) || !buffer.length || buffer.length > MAX_BYTES) {
       throw new ServiceUnavailableException('Workflow asset storage unavailable');
     }
-    const key = `${this.config.pathPrefix}/${context.ownerKey}/${context.assetId}.${context.fileExt}`;
+    let key: string;
+    try { key = buildAssetStorageKey(this.config.pathPrefix, context); }
+    catch { throw new ServiceUnavailableException('Workflow asset storage unavailable'); }
     const url = `${this.config.publicBaseUrl}/${key.split('/').map(encodeURIComponent).join('/')}`;
     const controller = new AbortController();
     const timeout = this.config.uploadTimeoutMs!;

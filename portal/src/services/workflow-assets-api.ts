@@ -8,16 +8,17 @@ export interface WorkflowAsset {
   text?: string;
   mimeType?: string;
   size?: number;
-  source?: 'upload' | 'output-reference' | 'output-text';
+  source?: 'upload' | 'output-reference' | 'output-text' | 'drama-upload' | 'drama-archive' | 'drama-render';
 }
 interface Envelope<T> { code: number; message: string; data: T }
 export interface AssetPage { items: WorkflowAsset[]; total: number; page: number; pageSize: number }
 
 export const workflowAssetsApi = {
   list: (page = 1, pageSize = 20) => portalApi.get<never, Envelope<AssetPage>>('/workflow-assets', { params: { page, pageSize } }),
-  upload: (file: File, onProgress?: (percent: number) => void) => {
+  upload: (file: File, onProgress?: (percent: number) => void, feature: 'workflow' | 'short-drama' = 'workflow') => {
     const form = new FormData();
     form.append('file', file);
+    form.append('feature', feature);
     return portalApi.post<never, Envelope<WorkflowAsset>>('/workflow-assets', form, {
       timeout: 120000,
       onUploadProgress: event => { if (event.total) onProgress?.(Math.round(event.loaded * 100 / event.total)); },

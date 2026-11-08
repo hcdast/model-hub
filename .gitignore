@@ -25,6 +25,8 @@ scripts/*
 !scripts/migrate-modelhub-to-atlas.test.cjs
 !scripts/sync-modelhub.cjs
 !scripts/sync-modelhub.test.cjs
+!scripts/migrate-workflow-assets.cjs
+!scripts/migrate-workflow-assets.test.cjs
 
 .npm-cache/
 !scripts/backfill-media-constraints.cjs

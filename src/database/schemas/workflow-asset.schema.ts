@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument } from 'mongoose';
+import { ASSET_STORAGE_PATHS, AssetStoragePurpose } from '../../common/storage/asset-storage-path';
 
 export type WorkflowAssetDocument = HydratedDocument<WorkflowAsset>;
 
@@ -13,7 +14,7 @@ export class WorkflowAsset {
   @Prop() text?: string;
   @Prop({ required: true }) mimeType!: string;
   @Prop() size?: number;
-  @Prop({ required: true, enum: ['upload', 'output-reference', 'output-text', 'drama-archive'] }) source!: string;
+  @Prop({ required: true, enum: ['output-reference', ...Object.keys(ASSET_STORAGE_PATHS)] }) source!: AssetStoragePurpose | 'output-reference';
   @Prop() workflowId?: string;
   @Prop() runId?: string;
   @Prop() nodeId?: string;

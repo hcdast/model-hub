@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Post, Query, UploadedFile, UseGuards, UseInterceptors, UsePipes, ValidationPipe } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
 import { ClientId } from '../auth/decorators/client-info.decorator';
 import { WORKFLOW_ASSET_MAX_BYTES, WorkflowAssetService } from './workflow-asset.service';
@@ -18,6 +18,10 @@ class SaveOutputDto {
   @IsOptional() @IsString() @MaxLength(180) name?: string;
 }
 
+class UploadAssetDto {
+  @IsOptional() @IsIn(['workflow', 'short-drama']) feature?: 'workflow' | 'short-drama';
+}
+
 @Controller('v1/workflow-assets')
 @UseGuards(ApiKeyOrJwtGuard)
 @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
@@ -30,9 +34,9 @@ export class WorkflowAssetController {
   }
 
   @Post()
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: WORKFLOW_ASSET_MAX_BYTES, files: 1, fields: 0 } }))
-  async upload(@ClientId() ownerId: string, @UploadedFile() file: { buffer: Buffer; mimetype: string; originalname: string }) {
-    return { code: 0, message: 'Success', data: await this.assets.upload(ownerId, file) };
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: WORKFLOW_ASSET_MAX_BYTES, files: 1, fields: 1, fieldSize: 32 } }))
+  async upload(@ClientId() ownerId: string, @UploadedFile() file: { buffer: Buffer; mimetype: string; originalname: string }, @Body() input: UploadAssetDto) {
+    return { code: 0, message: 'Success', data: await this.assets.upload(ownerId, file, input.feature === 'short-drama' ? 'drama-upload' : 'upload') };
   }
 
   @Post('from-output')
