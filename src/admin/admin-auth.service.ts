@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject, OnModuleInit, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, Inject, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import * as bcrypt from 'bcrypt';
@@ -11,7 +11,7 @@ import { PermissionCacheService } from './permission-cache.service';
 import { PermissionCheckService } from './permission-check.service';
 
 @Injectable()
-export class AdminAuthService implements OnModuleInit {
+export class AdminAuthService {
   private readonly logger = new Logger(AdminAuthService.name);
   private readonly jwtSecret: string;
   private readonly jwtExpiresIn: string;
@@ -26,14 +26,7 @@ export class AdminAuthService implements OnModuleInit {
     this.jwtExpiresIn = config.admin.jwtExpiresIn;
   }
 
-  async onModuleInit(): Promise<void> {
-    const count = await this.userModel.countDocuments();
-    if (count === 0) {
-      const hash = await bcrypt.hash(this.config.admin.defaultPassword, 10);
-      await this.userModel.create({ username: this.config.admin.defaultUsername, passwordHash: hash, roles: ['super_admin'], enabled: true });
-      this.logger.log(`Default admin user created: ${this.config.admin.defaultUsername}`);
-    }
-  }
+  // Default accounts are provisioned only by RbacInitializationService.
 
   async login(username: string, password: string) {
     const user = await this.userModel.findOne({ username, enabled: true, deletedAt: null });

@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { FilterQuery, Model, UpdateQuery } from 'mongoose';
 import * as bcrypt from 'bcrypt';
 import { Role, RoleDocument } from '../database/schemas/role.schema';
 import { AdminUser, AdminUserDocument } from '../database/schemas/admin-user.schema';
@@ -139,21 +139,15 @@ export class RbacInitializationService implements OnModuleInit {
     ];
 
     for (const roleData of roles) {
-      const existing = await this.roleModel.findOne({ name: roleData.name });
-      if (existing) {
-        // Update permissions and menus if role exists
-        existing.permissions = roleData.permissions;
-        existing.displayName = roleData.displayName;
-        existing.description = roleData.description;
-        existing.menus = roleData.menus;
-        await existing.save();
-        this.logger.log(`Updated role: ${roleData.name}`);
-      } else {
-        // Create new role
-        const role = new this.roleModel(roleData);
-        await role.save();
-        this.logger.log(`Created role: ${roleData.name}`);
-      }
+      const { name, isSystem, permissions, ...metadata } = roleData;
+      // All process types may start together. Replace arrays atomically instead of
+      // saving a document whose __v may have changed since it was read.
+      const result = await this.upsertByIdentity<RoleDocument>(this.roleModel, { name }, {
+        $set: { ...metadata, ...(name === 'super_admin' ? {} : { permissions }) },
+        // PermissionSyncPlugin owns existing super_admin permissions.
+        $setOnInsert: { name, isSystem, ...(name === 'super_admin' ? { permissions } : {}) },
+      });
+      this.logger.log(`${result.upsertedCount ? 'Created' : 'Updated'} role: ${name}`);
     }
 
     this.logger.log(`Initialized ${roles.length} roles`);
@@ -173,8 +167,10 @@ export class RbacInitializationService implements OnModuleInit {
     if (existing) {
       // 确保已有的默认管理员拥有 super_admin 角色
       if (!existing.roles.includes('super_admin')) {
-        existing.roles = [...new Set([...existing.roles, 'super_admin'])];
-        await existing.save();
+        await this.adminUserModel.updateOne(
+          { _id: existing._id },
+          { $addToSet: { roles: 'super_admin' } },
+        );
         this.logger.log(`Ensured super_admin role for existing user: ${superAdminUsername}`);
       } else {
         this.logger.log('Super admin account already exists');
@@ -184,17 +180,38 @@ export class RbacInitializationService implements OnModuleInit {
 
     const passwordHash = await bcrypt.hash(defaultPassword, 10);
 
-    const superAdmin = new this.adminUserModel({
-      username: superAdminUsername,
-      passwordHash,
-      roles: ['super_admin'],
-      enabled: true,
-      displayName: 'Super Administrator',
-      requirePasswordChange: false,
+    const result = await this.upsertByIdentity<AdminUserDocument>(this.adminUserModel, { username: superAdminUsername }, {
+      $setOnInsert: {
+        username: superAdminUsername,
+        passwordHash,
+        enabled: true,
+        displayName: 'Super Administrator',
+        requirePasswordChange: false,
+      },
+      $addToSet: { roles: 'super_admin' },
     });
 
-    await superAdmin.save();
-    this.logger.log(`Created super admin account: ${superAdminUsername}`);
-    this.logger.warn(`Default password from config - PLEASE CHANGE IT IMMEDIATELY!`);
+    if (result.upsertedCount) {
+      this.logger.log(`Created super admin account: ${superAdminUsername}`);
+      this.logger.warn(`Default password from config - PLEASE CHANGE IT IMMEDIATELY!`);
+    } else {
+      this.logger.log('Super admin account already exists');
+    }
+  }
+
+  /** Recover only a concurrent insert of this exact unique identity. */
+  private async upsertByIdentity<T>(model: Model<T>, filter: FilterQuery<T>, update: UpdateQuery<T>) {
+    try {
+      return await model.updateOne(filter, update, { upsert: true });
+    } catch (error) {
+      const duplicate = error as { code?: number; keyPattern?: Record<string, number>; keyValue?: Record<string, unknown> };
+      const keys = Object.keys(filter);
+      if (duplicate.code !== 11000 || keys.length !== 1 ||
+        !duplicate.keyPattern || Object.keys(duplicate.keyPattern).length !== 1 ||
+        !duplicate.keyPattern[keys[0]] || duplicate.keyValue?.[keys[0]] !== filter[keys[0]]) throw error;
+      const result = await model.updateOne(filter, update);
+      if (result.matchedCount !== 1) throw error;
+      return result;
+    }
   }
 }
