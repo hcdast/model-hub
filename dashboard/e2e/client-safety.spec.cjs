@@ -45,7 +45,7 @@ async function fixture(page) {
   });
   return state;
 }
-const ok = dialog => dialog.getByRole('button', { name: /^确\s*定$/ });
+const ok = dialog => dialog.getByRole('button', { name: /确\s*定$/ });
 const writeRequests = state => state.requests.filter(r => r.method !== 'GET');
 async function openEditor(page, button, title) {
   await page.getByRole('row').filter({ hasText: client.name }).getByRole('button', { name: new RegExp(`${button}$`) }).click();

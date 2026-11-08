@@ -38,6 +38,9 @@ playwright-report/
 test-results/
 
 !scripts/admin-test-server.cjs
+!scripts/creation-test-server.cjs
+!scripts/check-creation-local.cjs
+!scripts/drama-workspace-qa-server.cjs
 !scripts/audit-money.cjs
 
 # 可重生成的验收与临时产物

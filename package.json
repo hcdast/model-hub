@@ -33,6 +33,7 @@
     "build:all": "npm run validate:dashboard-menu && npm run build && npm run build:dashboard && npm run build:portal",
     "postbuild": "node scripts/write-build-info.cjs",
     "test:admin:browser": "playwright test --config playwright.admin.config.cjs",
+    "test:creation:browser": "npm --prefix portal run build -- --outDir ../output/creation-portal-dist && npm --prefix dashboard run build -- --outDir ../output/creation-dashboard-dist && playwright test --config playwright.creation.config.cjs",
     "test:admin:operations": "jest --runInBand --runTestsByPath src/admin/admin-permissions.integration.spec.ts src/provider-health/operations.integration.spec.ts src/notification/channels/delivery.integration.spec.ts src/billing/reconciliation.spec.ts",
     "assets:prune": "node scripts/prune-dashboard-assets.cjs",
     "audit:money": "node scripts/audit-money.cjs"
