@@ -1,8 +1,10 @@
 import { templateMessages } from './templates';
+import { creationMessages } from './creation';
 export type Locale = 'en' | 'zh' | 'ja';
 
 // English keys keep existing product copy readable at the call site.
 export const messages: Record<string, [string, string]> = {
+  ...creationMessages,
   'Your workflow and short drama results appear here.': ['工作流和短剧制作结果会显示在这里。', 'ワークフローとショートドラマの結果が表示されます。'],
   'Short drama result ready': ['短剧素材已完成', 'ショートドラマの素材が完成'],
   'Short drama needs attention': ['短剧制作需要处理', 'ショートドラマ制作の確認が必要'],

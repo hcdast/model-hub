@@ -5,5 +5,6 @@ export default function Community() {
   const [params] = useSearchParams();
   const next = new URLSearchParams(params);
   next.set('source', 'community');
+  next.set('type', 'workflow');
   return <Navigate to={`/discover?${next}`} replace />;
 }

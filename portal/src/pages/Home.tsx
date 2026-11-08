@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Button, Modal, Skeleton } from 'antd';
 import {
   ArrowRightOutlined, PlusOutlined, PictureOutlined, VideoCameraOutlined,
@@ -32,6 +32,7 @@ interface RecentWorkflow { _id: string; name: string; nodes?: unknown[]; updated
 
 export default function Home() {
   const { locale, t } = useI18n();
+  const navigate = useNavigate();
   const copy = homeCopy[locale];
   const { models, loading, error, retry } = useCatalog();
   const { openFeature, loginPrompt } = useProtectedNavigate();
@@ -78,7 +79,7 @@ export default function Home() {
           <h1 id="home-title">{copy.title[0]}<br /><span>{copy.title[1]}</span></h1>
           <p className="home-intro">{copy.intro}</p>
           <div className="home-actions">
-            <Button type="primary" size="large" icon={<PlusOutlined />} onClick={() => openFeature('/workflows/new')}>{copy.create}</Button>
+            <Button type="primary" size="large" icon={<PlusOutlined />} onClick={() => navigate('/create')}>{copy.create}</Button>
             <Link className="home-secondary-button" to="/models">{copy.explore}<ArrowRightOutlined /></Link>
           </div>
           <p className="home-access">{copy.access}</p>

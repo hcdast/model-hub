@@ -6,6 +6,7 @@ import { templateApi } from '../services/workflow-api';
 import { useAuthStore } from '../store/auth-store';
 import { useProtectedNavigate } from './useProtectedNavigate';
 import { useI18n } from '../i18n';
+import { templateEvent } from '../services/creation-events';
 
 export function useTemplateCopy() {
   const navigate = useNavigate();
@@ -16,6 +17,7 @@ export function useTemplateCopy() {
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const copyTemplate = async (id: string) => {
+    templateEvent('create_click', 'workflow', id);
     if (!useAuthStore.getState().isAuthenticated) { openFeature(`/templates/${encodeURIComponent(id)}`); return; }
     if (pending.current) return;
     pending.current = true; setCopyingId(id);

@@ -32,8 +32,9 @@ interface Workflow {
   tags?: string[];
 }
 
-export default function WorkflowList() {
+export default function WorkflowList({ embedded = false }: { embedded?: boolean }) {
   const { t } = useI18n();
+  const Heading = embedded ? 'h2' : 'h1';
   const { openFeature, loginPrompt } = useProtectedNavigate();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const [searchParams] = useSearchParams();
@@ -509,7 +510,7 @@ export default function WorkflowList() {
 
   return (
     <div style={{
-      padding: tokens.spacing.xl,
+      padding: embedded ? 0 : tokens.spacing.xl,
       maxWidth: 1400,
       margin: '0 auto',
     }}>
@@ -521,13 +522,13 @@ export default function WorkflowList() {
         alignItems: 'center',
         marginBottom: tokens.spacing.xl,
       }}>
-        <h1 style={{
+        <Heading style={{
           fontSize: tokens.font.size.xxl,
           fontWeight: tokens.font.weight.semibold,
           color: tokens.text.primary,
           margin: 0,
         }}>
-          {t("Workflows")}</h1>
+          {t(embedded ? 'Professional workflows' : 'Workflows')}</Heading>
         <Button
           type="primary"
           icon={<PlusOutlined />}

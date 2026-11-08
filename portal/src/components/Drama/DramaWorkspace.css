@@ -1,0 +1,107 @@
+/* A stable editing surface; secondary detail lives in drawers. */
+.sd-studio-layout .sd-window { overflow:visible; }
+.sd-studio-layout .sd-project-heading { padding:18px 22px 12px;align-items:flex-start; }
+.sd-studio-layout .sd-project-heading>div:first-child { flex:1; }
+.sd-studio-layout .sd-title-input { width:100%;font-size:22px!important; }
+.sd-studio-layout .sd-project-heading p { margin-top:3px; }
+.sd-studio-layout .sd-kicker { margin-bottom:4px; }
+.sd-studio-layout .sd-stage { padding:14px 22px 20px;min-height:400px; }
+.sd-studio-layout .sd-section-head { margin:14px 0; }
+.sd-studio-layout .sd-section-head h2 { font-size:18px; }
+.drama-studio .sd-command-bar { display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 18px;padding:12px 14px;margin-bottom:16px;background:var(--sd-panel);border:1px solid var(--sd-line);border-radius:12px; }
+.drama-studio .sd-command-next { display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0; }
+.drama-studio .sd-command-next strong { font-size:13px; }
+.drama-studio .sd-command-next .sd-eyebrow { margin:0;font-size:11px; }
+.drama-studio .sd-command-tools { display:flex;flex-wrap:wrap;gap:6px; }
+.drama-studio .sd-command-tools button { font-size:12px;min-height:32px;padding:5px 8px; }
+.drama-studio .sd-detail-drawer { padding:0; }
+.drama-studio .sd-task-row { display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--sd-line);padding:12px 0; }
+.drama-studio .sd-batch-fields label { display:block;margin:14px 0 6px; }
+.drama-studio .sd-plan-overview>p,.drama-studio .sd-plan-overview>button { margin:12px 0; }
+.sd-studio-layout .sd-storyboard-layout,.sd-studio-layout .sd-takes-layout { display:grid;grid-template-columns:240px minmax(0,1fr);align-items:start;gap:18px; }
+.sd-studio-layout .sd-takes-layout { margin-top:12px; }
+.drama-studio .sd-shot-navigator { display:flex;flex-direction:column;min-width:0;border:1px solid var(--sd-line);border-radius:12px;background:var(--sd-panel);overflow:hidden;padding:12px;gap:10px; }
+.drama-studio .sd-shot-navigator>.sd-actions { justify-content:space-between;font-size:12px; }
+.drama-studio .sd-shot-list { overflow:auto;min-height:70px;max-height:460px; }
+.drama-studio .sd-shot-list-row { display:flex;gap:8px;align-items:center;padding:5px;border:1px solid transparent;border-radius:8px;margin-bottom:4px; }
+.drama-studio .sd-shot-list-row.active { background:var(--sd-soft);border-color:var(--sd-violet); }
+.drama-studio .sd-shot-list-row>button { padding:0;flex:1;min-width:0;display:flex;gap:8px;justify-content:flex-start;border:0;background:transparent!important;text-align:left; }
+.drama-studio .sd-shot-list-row img,.drama-studio .sd-shot-no { width:42px;height:52px;object-fit:cover;border-radius:5px;flex-shrink:0;display:grid;place-items:center;background:var(--sd-surface); }
+.drama-studio .sd-shot-list-row strong { display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:145px;font-size:12px; }
+.drama-studio .sd-shot-list-row small { display:block;color:var(--sd-muted);font-size:11px; }
+.drama-studio .sd-shot-batch { display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--sd-line);padding-top:10px; }
+.drama-studio .sd-shot-batch>span { font-size:12px;color:var(--sd-muted); }
+.drama-studio .sd-shot-batch .sd-note { font-size:11px; }
+.drama-studio .sd-assembly { display:grid;grid-template-columns:210px minmax(220px,1fr) minmax(290px,.95fr);grid-template-rows:minmax(0,1fr) 150px;gap:14px;height:clamp(470px,calc(100dvh - 480px),1050px); }
+.drama-studio .sd-assembly>.sd-shot-navigator { min-height:0;height:100%; }
+.drama-studio .sd-assembly .sd-shot-list { flex:1;max-height:none; }
+.drama-studio .sd-assembly-preview { min-width:0;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:12px; }
+.drama-studio .sd-preview-switch { display:flex;flex-wrap:wrap;gap:6px; }
+.drama-studio .sd-preview-switch button { font-size:12px;flex:1; }
+.drama-studio .sd-assembly .sd-player-bed { width:100%;padding:12px;display:flex;flex-direction:column;gap:10px;min-height:0; }
+.drama-studio .sd-assembly .sd-player { flex-shrink:0;width:min(100%,270px,max(145px,calc((100dvh - 650px) * .5625)));max-height:480px; }
+.drama-studio .sd-film-preview { display:flex;flex-direction:column;gap:12px; }
+.drama-studio .sd-film-preview video { max-height:460px;background:#090911; }
+.drama-studio .sd-inspector { min-width:0;min-height:0;overflow:auto;border:1px solid var(--sd-line);border-radius:12px;padding:0 14px 16px;background:var(--sd-panel); }
+.drama-studio .sd-inspector .ant-tabs-nav { position:sticky;top:0;background:var(--sd-panel);z-index:3;margin-bottom:12px; }
+.drama-studio .sd-inspector .ant-tabs-tab { font-size:12px;padding:12px 0; }
+.drama-studio .sd-inspector .ant-tabs-tab+.ant-tabs-tab { margin-left:16px; }
+.drama-studio .sd-inspector .sd-section-head h2 { font-size:16px; }
+.drama-studio .sd-inspector .sd-panel { padding:0;margin:0;border:0; }
+.drama-studio .sd-inspector-fields>label { display:block;margin:14px 0 6px;color:var(--sd-text); }
+.drama-studio .sd-inspector-fields>.ant-select { margin-bottom:6px; }
+.drama-studio .sd-inspector-fields>.ant-checkbox-wrapper { margin:12px 0; }
+.drama-studio .sd-inspector-fields>button { margin:8px 5px 0 0; }
+.drama-studio .sd-scope-label { padding:8px 10px;border-radius:8px;background:var(--sd-soft);color:var(--sd-violet);font-size:12px; }
+.drama-studio .sd-inspector .sd-caption-editor { margin:12px 0;padding:0;border:0; }
+.drama-studio .sd-inspector .sd-caption-row { display:flex;flex-wrap:wrap;gap:8px;padding:10px;margin:10px 0;border:1px solid var(--sd-line);border-radius:8px; }
+.drama-studio .sd-inspector .sd-caption-row.active { border-color:var(--sd-violet);background:var(--sd-soft); }
+.drama-studio .sd-inspector .sd-caption-row textarea { width:100%; }
+.drama-studio .sd-inspector .sd-caption-row details { flex:1;min-width:140px;font-size:12px; }
+.drama-studio .sd-inspector .sd-caption-row details .ant-input-number { width:90px;margin:4px; }
+.drama-studio .sd-edit-timeline { grid-column:1/-1;min-width:0;border:1px solid var(--sd-line);background:var(--sd-panel);border-radius:12px;padding:10px 12px; }
+.drama-studio .sd-timeline-head { font-size:12px;gap:10px; }
+.drama-studio .sd-edit-strip { display:flex;gap:8px;overflow-x:auto;padding-bottom:5px; }
+.drama-studio .sd-edit-strip>div { flex:0 0 128px;min-width:0;border-radius:7px;border:1px solid var(--sd-line);overflow:hidden; }
+.drama-studio .sd-edit-strip>div.active { border-color:var(--sd-violet);background:var(--sd-soft); }
+.drama-studio .sd-edit-strip>div>button { width:100%;padding:0;display:grid;grid-template-columns:38px minmax(0,1fr);gap:3px 6px;border:0;text-align:left;justify-content:start;border-radius:0;background:transparent; }
+.drama-studio .sd-edit-strip img { width:38px;height:56px;object-fit:cover;grid-row:1/3; }
+.drama-studio .sd-edit-strip strong { font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.drama-studio .sd-edit-strip small { font-size:10px;color:var(--sd-muted); }
+.drama-studio .sd-timeline-reorder { display:flex;gap:2px; }
+.drama-studio .sd-edit-strip .sd-timeline-reorder button { min-height:23px;flex:1;padding:0;border:0;border-radius:0; }
+.drama-studio.sd-compare-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:18px; }
+.drama-studio.sd-compare-grid img,.drama-studio.sd-compare-grid video { width:100%;max-height:65vh;object-fit:contain;background:#090911;border-radius:10px; }
+.drama-studio.sd-compare-grid h3 { margin-bottom:12px; }
+.drama-studio .sd-candidate-browser { margin-top:16px;min-width:0; }
+.drama-studio .sd-candidate-browser .sd-candidates { grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr)); }
+.drama-studio .sd-continuity-selector { display:flex;gap:6px;flex-wrap:wrap;margin:12px 0; }
+.drama-studio .sd-detail-drawer .sd-continuity-grid { grid-template-columns:minmax(0,1fr); }
+.drama-studio .sd-detail-drawer .sd-production { margin:0 0 20px;padding:0;border:0; }
+.drama-studio .sd-shot-list-row small { white-space:nowrap; }
+.sd-generation-scope { max-height:130px;overflow:auto;padding-left:22px;font-size:13px; }
+.sd-reference-thumbnails { display:flex;gap:8px;flex-wrap:wrap;margin:8px 0; }
+.sd-reference-thumbnails figure { margin:0;max-width:90px;font-size:11px;text-align:center; }
+.sd-reference-thumbnails img { width:64px;height:70px;object-fit:contain;border-radius:6px;background:#101018; }
+@media(max-width:1200px) {
+  .sd-studio-layout .sd-shell { grid-template-columns:145px minmax(0,1fr); }
+  .drama-studio .sd-assembly { grid-template-columns:170px minmax(180px,1fr) minmax(255px,1fr);gap:10px; }
+  .drama-studio .sd-assembly .sd-shot-navigator { padding:8px; }
+  .drama-studio .sd-shot-list-row strong { max-width:100px; }
+}
+@media(max-width:980px) {
+  .sd-studio-layout .sd-shell { grid-template-columns:1fr; }.sd-studio-layout .sd-sidebar { display:none; }
+  .drama-studio .sd-assembly { grid-template-columns:160px minmax(180px,1fr) minmax(250px,1fr); }
+}
+@media(max-width:700px) {
+  .sd-studio-layout .sd-project-heading { padding:14px 16px;flex-wrap:wrap; }.sd-studio-layout .sd-project-heading>div:first-child { flex-basis:100%; }
+  .sd-studio-layout .sd-title-input { font-size:19px!important; }.sd-studio-layout .sd-project-heading p { display:none; }
+  .sd-studio-layout .sd-stage { padding:12px!important; }.sd-studio-layout .sd-command-bar { padding:9px;gap:5px; }
+  .drama-studio .sd-command-next strong { font-size:12px; }.drama-studio .sd-command-tools { gap:4px; }.drama-studio .sd-command-tools button { font-size:11px; }
+  .sd-studio-layout .sd-storyboard-layout,.sd-studio-layout .sd-takes-layout { grid-template-columns:1fr; }
+  .drama-studio .sd-assembly { height:auto;display:flex;flex-direction:column; }
+  .drama-studio .sd-assembly>.sd-shot-navigator { order:3;max-height:340px; }.drama-studio .sd-assembly-preview { order:0;overflow:visible; }
+  .drama-studio .sd-inspector { order:2;max-height:65vh; }.drama-studio .sd-edit-timeline { order:1;position:sticky;top:0;z-index:5; }
+  .drama-studio .sd-assembly .sd-player { width:190px;max-height:340px; }.drama-studio .sd-shot-list { max-height:210px; }
+  .drama-studio .sd-command-next .sd-eyebrow { display:none; }.drama-studio .sd-timeline-head>span { display:none; }
+}

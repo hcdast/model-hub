@@ -7,16 +7,29 @@ import { useTemplateCopy } from '../hooks/useTemplateCopy';
 import { TemplateCover } from '../components/Templates/TemplateMedia';
 import { TemplatePage, templateCatalogApi, templateDate, templateScenarios } from '../services/template-api';
 import './Templates.css';
+import { Tabs } from 'antd';
+import DramaTemplateGallery from './DramaTemplateGallery';
+import TemplateActivity from '../components/Templates/TemplateActivity';
+import './Creation.css';
 
 const pageSize = 12;
 export default function TemplateGallery() {
+  const { t } = useI18n();
+  const [params, setParams] = useSearchParams();
+  const type = (['workflow', 'short-drama'].includes(params.get('type') || '') ? params.get('type') : null) || (params.has('source') || params.has('category') || params.has('scenario') ? 'workflow' : 'short-drama');
+  return <div className="creation-discovery-tabs"><Tabs destroyInactiveTabPane activeKey={type} onChange={value => setParams({ type: value, ...(params.get('search') ? { search: params.get('search')! } : {}) })} items={[
+    { key: 'short-drama', label: t('Short drama templates'), children: <DramaTemplateGallery /> }, { key: 'workflow', label: t('Workflow templates'), children: <WorkflowTemplateGallery /> },
+  ]} /></div>;
+}
+
+function WorkflowTemplateGallery() {
   const { t, locale } = useI18n();
   const [search, setSearch] = useSearchParams();
   const query = search.get('search') || '';
   const source = ['official', 'community'].includes(search.get('source') || '') ? search.get('source')! : '';
   const scenario = templateScenarios.some(([key]) => key === search.get('scenario')) ? search.get('scenario')! : '';
   const category = search.get('category') || '';
-  const order = ['updated', 'newest', 'name'].includes(search.get('order') || '') ? search.get('order')! : 'updated';
+  const order = ['recommended', 'updated', 'newest', 'name'].includes(search.get('order') || '') ? search.get('order')! : 'recommended';
   const page = Math.min(100000, Math.max(1, Math.trunc(Number(search.get('page'))) || 1));
   const [data, setData] = useState<TemplatePage | null>(null);
   const [loading, setLoading] = useState(true);
@@ -26,6 +39,7 @@ export default function TemplateGallery() {
   const { copyTemplate, copyingId, loginPrompt } = useTemplateCopy();
   const update = (key: string, value: string) => {
     const next = new URLSearchParams(search);
+    next.set('type', 'workflow');
     if (value) next.set(key, value); else next.delete(key);
     if (key !== 'page') next.delete('page');
     setSearch(next, { replace: key === 'search' });
@@ -59,7 +73,7 @@ export default function TemplateGallery() {
       <div><p className="templates-eyebrow"><CompassOutlined /> {t('WORKFLOW DISCOVERY')}</p>
         <h1>{t('Find a workflow. Make it yours.')}</h1>
         <p>{t('Explore ready-made workflows, see how they work, and start creating with your own inputs.')}</p></div>
-      <Link to="/workflows"><Button icon={<ApartmentOutlined />}>{t('My workflows')}</Button></Link>
+      <Link to="/works?type=workflow"><Button icon={<ApartmentOutlined />}>{t('My works')}</Button></Link>
     </header>
     <Alert style={{ marginBottom: 24 }} type="info" showIcon message={t('Make your first AI short drama')} description={t('Start with a story and follow five guided steps to create your film.')} action={<Link to="/short-dramas"><Button type="primary">{t('Open short drama studio')}</Button></Link>} />
     <div className="templates-journey" aria-label={t('How to use a template')}>
@@ -77,7 +91,7 @@ export default function TemplateGallery() {
           ['', 'All types'], ['Image', 'Image'], ['Video', 'Video'], ['Audio', 'Audio'], ['Text', 'Text'], ['Creative', 'Creative'],
         ].map(([value, label]) => ({ value, label: t(label) }))} />
         <Select value={order} onChange={value => update('order', value)} aria-label={t('Sort templates')} options={[
-          ['updated', 'Recently updated'], ['newest', 'Newest'], ['name', 'Name A–Z'],
+          ['recommended', 'Recommended'], ['updated', 'Recently updated'], ['newest', 'Newest'], ['name', 'Name A–Z'],
         ].map(([value, label]) => ({ value, label: t(label) }))} />
       </div>
       <div className="templates-scenarios" role="group" aria-label={t('Explore by use case')}>
@@ -85,12 +99,13 @@ export default function TemplateGallery() {
         {templateScenarios.map(([key, label]) => <button key={key} type="button" className={scenario === key ? 'active' : ''} aria-pressed={scenario === key} onClick={() => update('scenario', key)}>{t(label)}</button>)}
       </div>
     </section>
+    {order === 'recommended' && <p className="templates-recommendation-note">{t('Recommendations use distinct creators and successful projects. New templates follow creation time. Data refreshes within a minute.')}</p>}
     <div className="templates-results-heading" aria-live="polite"><h2>{t('Explore workflows')} <span>{loading || error ? '—' : data?.total || 0}</span></h2>
-      {filtered && <Button type="text" onClick={() => setSearch({})}>{t('Clear filters')}</Button>}</div>
+      {filtered && <Button type="text" onClick={() => setSearch({ type: 'workflow' })}>{t('Clear filters')}</Button>}</div>
     {error ? <Alert type="error" showIcon message={t('Unable to load templates. Please try again.')} action={<Button onClick={() => setRevision(value => value + 1)}>{t('Retry')}</Button>} />
       : loading ? <div className="templates-grid" aria-busy="true">{[0, 1, 2].map(key => <div className="template-skeleton" key={key}><Skeleton active paragraph={{ rows: 6 }} /></div>)}</div>
       : !data?.items.length ? <div className="templates-empty"><Empty description={t(communityEmpty ? 'No community workflows have been published yet. Start with an official template.' : pageOutOfRange ? 'No workflows on this page.' : filtered ? 'No matching workflows. Try another search or clear your filters.' : 'No published workflows yet. Check back soon.')} />
-        {communityEmpty ? <Button type="primary" onClick={() => setSearch({ source: 'official' })}>{t('Browse official templates')}</Button> : pageOutOfRange ? <Button onClick={() => update('page', '1')}>{t('Back to first page')}</Button> : filtered && <Button onClick={() => setSearch({})}>{t('Clear filters')}</Button>}</div>
+        {communityEmpty ? <Button type="primary" onClick={() => setSearch({ type: 'workflow', source: 'official' })}>{t('Browse official templates')}</Button> : pageOutOfRange ? <Button onClick={() => update('page', '1')}>{t('Back to first page')}</Button> : filtered && <Button onClick={() => setSearch({ type: 'workflow' })}>{t('Clear filters')}</Button>}</div>
       : <><div className="templates-grid">{data.items.map(template => <article className="template-card" key={template.id}>
         <Link className="template-card-visual" to={`/templates/${template.id}`} state={detailState} aria-label={`${t('View details')}: ${template.name}`}>
           <TemplateCover url={template.thumbnail} name={template.name} nodeCount={template.nodeCount} />
@@ -102,6 +117,7 @@ export default function TemplateGallery() {
           <p className="template-description">{template.description || t('Open the details to explore this workflow.')}</p>
           <div className="template-tags">{template.tags.slice(0, 3).map(tag => <Tag key={tag}>{tag}</Tag>)}</div>
           <div className="template-card-meta"><span>{template.nodeCount} {t('nodes')} · {template.models.length} {t('models')}</span><span>{t('Updated')} {templateDate(template.updatedAt, locale)}</span></div>
+          <TemplateActivity metrics={template.metrics} />
           <div className="template-card-actions"><Link to={`/templates/${template.id}`} state={detailState}>{t('View details')} <ArrowRightOutlined /></Link>
             <Button type="primary" icon={<CopyOutlined />} loading={copyingId === template.id} disabled={!!copyingId && copyingId !== template.id} onClick={() => void copyTemplate(template.id)}>{t('Use template')}</Button></div>
         </div>

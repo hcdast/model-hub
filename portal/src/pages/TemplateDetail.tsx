@@ -6,6 +6,7 @@ import { ArrowLeftOutlined, ArrowRightOutlined, CopyOutlined, ApartmentOutlined 
 import ReactFlow, { Background, Controls, Position } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { useI18n } from '../i18n';
+import { templateEvent } from '../services/creation-events';
 import { useTemplateCopy } from '../hooks/useTemplateCopy';
 import { TemplateCover, TemplateMedia } from '../components/Templates/TemplateMedia';
 import { TemplateDetail as Detail, templateCatalogApi, templateDate, templateGraphNodes, templateScenarios } from '../services/template-api';
@@ -15,9 +16,10 @@ export default function TemplateDetail() {
   const { id = '' } = useParams();
   const location = useLocation();
   const discovery = location.state?.discovery;
-  const backTo = typeof discovery === 'string' && /^\/discover(?:\?|$)/.test(discovery) ? discovery : '/discover';
+  const backTo = typeof discovery === 'string' && /^\/discover(?:\?|$)/.test(discovery) ? discovery : '/discover?type=workflow';
   const { t, locale } = useI18n();
   const [template, setTemplate] = useState<Detail | null>(null);
+  useEffect(() => { if (template) templateEvent('template_view', 'workflow', id); }, [template, id]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<'missing' | 'failed' | null>(null);
   const [revision, setRevision] = useState(0);
@@ -33,10 +35,11 @@ export default function TemplateDetail() {
   const graphNodes = useMemo(() => template ? templateGraphNodes(template).map(node => ({ ...node, sourcePosition: Position.Right, targetPosition: Position.Left })) : [], [template]);
   const graphEdges = useMemo(() => template?.graph.edges.map(edge => ({ ...edge, style: { stroke: '#8c8edb', strokeWidth: 2 }, labelStyle: { fill: '#e2e8f0' }, labelBgStyle: { fill: '#1e1e35' } })) || [], [template]);
   if (loading) return <div className="templates-page"><Skeleton active paragraph={{ rows: 12 }} /></div>;
-  if (error === 'missing') return <Result status="404" title={t('Template unavailable')} subTitle={t('This template does not exist or is no longer published.')} extra={<Link to="/discover"><Button type="primary">{t('Back to discovery')}</Button></Link>} />;
-  if (error || !template) return <div className="templates-page"><Alert type="error" showIcon message={t('Unable to load templates. Please try again.')} action={<Button onClick={() => setRevision(value => value + 1)}>{t('Retry')}</Button>} /><Link className="template-back" to="/discover">{t('Back to discovery')}</Link></div>;
+  if (error === 'missing') return <Result status="404" title={t('Template unavailable')} subTitle={t('This template does not exist or is no longer published.')} extra={<Link to="/discover?type=workflow"><Button type="primary">{t('Back to discovery')}</Button></Link>} />;
+  if (error || !template) return <div className="templates-page"><Alert type="error" showIcon message={t('Unable to load templates. Please try again.')} action={<Button onClick={() => setRevision(value => value + 1)}>{t('Retry')}</Button>} /><Link className="template-back" to="/discover?type=workflow">{t('Back to discovery')}</Link></div>;
   const scenario = templateScenarios.find(([key]) => key === template.scenario)?.[1];
   return <div className="templates-page template-detail">
+    {!!template.compatibility?.issues.length && <Alert type="warning" showIcon message="此模板需要检查模型配置" description={template.compatibility.issues.map(issue => `${issue.nodeId}：${issue.reason}`).join('；') + '。仍可创建草稿，运行前请在画布中调整；检查结果不代表生成成功或费用保证。'} />}
     {loginPrompt}
     <Link className="template-back" to={backTo}><ArrowLeftOutlined /> {t('Back to discovery')}</Link>
     <div className="template-detail-layout">

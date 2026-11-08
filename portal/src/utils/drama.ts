@@ -48,11 +48,7 @@ export function scriptToPlan(text: string, original: DramaPlan): DramaPlan {
     storyConfirmed:false,castConfirmed:false,storyboardConfirmed:false,step:0 };
 }
 
-export function planSrt(plan: DramaPlan): string {
-  const time = (n: number) => { const ms = Math.round(n * 1000); return `${String(Math.floor(ms / 3600000)).padStart(2, '0')}:${String(Math.floor(ms / 60000) % 60).padStart(2, '0')}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')},${String(ms % 1000).padStart(3, '0')}`; };
-  let elapsed = 0;
-  return plan.shots.map((s, i) => { const start = elapsed; elapsed += s.duration; return `${i + 1}\n${time(start + (s.subtitleStart || 0))} --> ${time(start + (s.subtitleEnd ?? s.duration))}\n${s.narration.replace(/\r/g, '').trim()}\n`; }).join('\n');
-}
+export { dramaSrt as planSrt } from '../../../src/short-drama/drama-timing';
 
 export function downloadText(text: string, name: string, type = 'text/plain') {
   const url = URL.createObjectURL(new Blob([text], { type })); const a = document.createElement('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);

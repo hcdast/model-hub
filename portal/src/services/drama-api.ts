@@ -1,6 +1,9 @@
 import portalApi from './auth-api';
 import type { DramaProject, DramaPlan, DramaKind, DramaQuote, DramaCandidate } from '../../../src/short-drama/drama.types';
 import type { ParamDocItem } from '../types/model-params';
+import type { DramaTimingReport } from '../../../src/short-drama/drama-timing';
+import type { DramaVisualReport } from '../../../src/short-drama/drama-visual';
+import type { CaptionReport } from '../../../src/short-drama/drama-captions';
 export type { DramaProject, DramaPlan, DramaKind, DramaQuote, DramaCandidate };
 export interface DramaModel { configId: string; modelId: string; name: string; type: string; provider?: string; kinds: DramaKind[]; params: ParamDocItem[] }
 export interface DramaVoice { id: string; name: string; preview?: string; locale?: string; language?: string; model: string }
@@ -22,6 +25,9 @@ export const dramaApi = {
   attach: (id: string, kind: DramaKind, targetId: string, assetId: string) => unwrap(portalApi.post<never, Envelope<DramaCandidate>>(`/short-dramas/${id}/assets`, { kind, targetId, assetId })),
   cancel: (id: string, candidateId: string) => unwrap(portalApi.post<never, Envelope<DramaProject>>(`/short-dramas/${id}/candidates/${candidateId}/cancel`)),
   export: (id: string, revision: number, requestId: string) => unwrap(portalApi.post<never, Envelope<{ id: string }>>(`/short-dramas/${id}/exports`, { revision, requestId })),
+  voiceTiming: (id: string, revision: number) => unwrap(portalApi.post<never, Envelope<DramaTimingReport>>(`/short-dramas/${id}/voice-timing`, { revision }, { timeout: 90000 })),
+  mediaCheck: (id: string, revision: number) => unwrap(portalApi.post<never, Envelope<DramaVisualReport>>(`/short-dramas/${id}/media-check`, { revision }, { timeout: 90000 })),
+  captionTiming: (id: string, revision: number) => unwrap(portalApi.post<never, Envelope<CaptionReport>>(`/short-dramas/${id}/caption-timing`, { revision }, { timeout: 90000 })),
   media: (id: string, candidate: string) => portalApi.get<never, Blob>(`/short-dramas/${id}/candidates/${candidate}/media`, { responseType: 'blob', timeout: 90000 }),
   budget: (id: string, revision: number, limit: number) => unwrap(portalApi.put<never, Envelope<DramaProject>>(`/short-dramas/${id}/budget`, { revision, limit })),
   copy: (id: string) => unwrap(portalApi.post<never, Envelope<DramaProject>>(`/short-dramas/${id}/copy`)),

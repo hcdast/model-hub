@@ -17,7 +17,6 @@ const Register = lazy(() => import('./pages/Register'));
 const AuthCallback = lazy(() => import('./pages/AuthCallback'));
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
 const WorkflowEditor = lazy(() => import('./pages/WorkflowEditor'));
-const WorkflowList = lazy(() => import('./pages/WorkflowList'));
 const TemplateGallery = lazy(() => import('./pages/TemplateGallery'));
 const TemplateDetail = lazy(() => import('./pages/TemplateDetail'));
 const Community = lazy(() => import('./pages/Community'));
@@ -25,12 +24,21 @@ const Profile = lazy(() => import('./pages/Profile'));
 const ApiKeys = lazy(() => import('./pages/ApiKeys'));
 const Models = lazy(() => import('./pages/Models'));
 const ModelDocs = lazy(() => import('./pages/ModelDocs'));
-const ShortDramaList = lazy(() => import('./pages/ShortDramaList'));
 const ShortDramaStudio = lazy(() => import('./pages/ShortDramaStudio'));
+const Works = lazy(() => import('./pages/Works'));
+const Create = lazy(() => import('./pages/Create'));
+const DramaTemplateDetail = lazy(() => import('./pages/DramaTemplateDetail'));
+
+function WorksRedirect({ type }: { type: string }) {
+  const [params] = useSearchParams();
+  const next = new URLSearchParams(params); next.set('type', type);
+  return <Navigate to={`/works?${next}`} replace />;
+}
 
 function TemplateIndexRedirect() {
   const [params] = useSearchParams();
-  return <Navigate to={`/discover${params.size ? `?${params}` : ''}`} replace />;
+  const next = new URLSearchParams(params); next.set('type', 'workflow');
+  return <Navigate to={`/discover?${next}`} replace />;
 }
 
 function NewWorkflowEntry() {
@@ -64,7 +72,10 @@ function App() {
           <Route path="/router" element={<Navigate to="/models" replace />} />
           <Route path="/models/:id" element={<AppLayout><ModelDocs /></AppLayout>} />
           <Route path="/docs" element={<AppLayout><ModelDocs /></AppLayout>} />
-          <Route path="/short-dramas" element={<AppLayout><ShortDramaList /></AppLayout>} />
+          <Route path="/works" element={<AppLayout><Works /></AppLayout>} />
+          <Route path="/create" element={<AppLayout><Create /></AppLayout>} />
+          <Route path="/short-dramas" element={<WorksRedirect type="short-drama" />} />
+          <Route path="/drama-templates/:id" element={<AppLayout><DramaTemplateDetail /></AppLayout>} />
           <Route path="/short-dramas/:id" element={<ProtectedRoute><ShortDramaStudio /></ProtectedRoute>} />
 
           {/* 浏览页面无需登录 */}
@@ -80,7 +91,7 @@ function App() {
             path="/workflows"
             element={
                 <AppLayout>
-                  <WorkflowList />
+                  <WorksRedirect type="workflow" />
                 </AppLayout>
             }
           />

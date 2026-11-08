@@ -1,11 +1,13 @@
 import axios from 'axios';
 import type { Node, Edge } from 'reactflow';
+import type { TemplateActivityMetrics } from './template-metrics';
 
 export const templateScenarios = [
   ['ecommerce', 'E-commerce'], ['marketing', 'Marketing & ads'], ['character', 'People & characters'],
   ['video', 'Video production'], ['audio', 'Voice & audio'], ['image', 'Image editing'],
 ] as const;
 export interface TemplateSummary {
+  metrics?: TemplateActivityMetrics;
   id: string; name: string; description: string; category: string; tags: string[];
   thumbnail?: string; source: 'official' | 'community'; scenario?: string; authorName?: string;
   version: number; createdAt?: string; updatedAt?: string; nodeCount: number; models: string[];
@@ -16,6 +18,7 @@ export interface TemplateExample {
   inputMediaType?: 'image' | 'video' | 'audio'; outputUrl: string; description?: string;
 }
 export interface TemplateDetail extends TemplateSummary {
+  compatibility?: { checkedAt: string; runnable: boolean; issues: Array<{ nodeId: string; reason: string }> };
   instructions: string; examples: TemplateExample[];
   graph: { nodes: Array<{ id: string; type: string; position: { x: number; y: number }; label: string; modelId?: string }>; edges: Edge[] };
 }

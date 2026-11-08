@@ -277,3 +277,40 @@
 .drama-studio .sd-work-card a { color:inherit;text-decoration:none; }
 .drama-studio .sd-work-card>.sd-actions { padding:12px;flex-wrap:wrap; }
 @media(max-width:700px) { .drama-studio .sd-production { padding:10px; }.drama-studio .sd-production .ant-select { max-width:100%; }.drama-studio .sd-production .sd-actions { font-size:12px; } }
+
+.drama-studio .sd-timing-check { margin:18px 0;padding:16px;border:1px solid var(--sd-line);border-radius:12px; }
+.drama-studio .sd-timing-check>p { color:var(--sd-muted);font-size:13px;line-height:1.6; }
+.drama-studio .sd-timing-list { display:grid;gap:10px;margin-top:12px; }
+.drama-studio .sd-timing-list>div { display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px;background:var(--sd-soft);border-radius:8px; }
+.drama-studio .sd-timing-list span { flex:1;min-width:130px;font-size:13px; }
+.drama-studio .sd-caption-editor { margin:18px 0;padding:18px;border:1px solid var(--sd-line);border-radius:12px; }
+.drama-studio .sd-caption-row { display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 0;border-bottom:1px solid var(--sd-line); }
+.drama-studio .sd-caption-row textarea { flex-basis:100%; }
+.drama-studio .sd-caption-preview { min-height:72px;display:grid;place-items:center;padding:16px;background:#08080d;border-radius:8px;color:white;text-align:center;font-size:18px;white-space:pre-wrap; }
+.drama-studio .sd-player-caption { white-space:pre-wrap; }
+.drama-studio .sd-creation-guide { margin:0 0 20px;padding:20px;border:1px solid var(--sd-violet);border-radius:14px;background:var(--sd-panel); }
+.drama-studio .sd-guide-heading { display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap; }
+.drama-studio .sd-guide-heading h3 { margin:6px 0 12px; }
+.drama-studio .sd-guide-heading small { color:var(--sd-violet); }
+.drama-studio .sd-guide-heading .sd-actions { flex-wrap:wrap; }
+.drama-studio .sd-creation-guide .ant-progress { margin:4px 0 8px; }
+.drama-studio .sd-creation-guide .ant-progress-inner { width:calc(100% - 180px); }
+.drama-studio .sd-creation-guide .ant-progress-text { width:170px;font-size:12px; }
+.drama-studio .sd-guide-budget { display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;padding:16px;background:var(--sd-soft);border-radius:10px; }
+.drama-studio .sd-guide-stages { list-style:none;padding:0;margin:20px 0;display:grid;gap:10px; }
+.drama-studio .sd-guide-stages li { display:flex;gap:12px;align-items:center;border:1px solid var(--sd-line);padding:12px;border-radius:10px; }
+.drama-studio .sd-guide-stages li>span { flex-shrink:0;display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--sd-soft);color:var(--sd-violet); }
+.drama-studio .sd-guide-stages li>div { flex:1;min-width:0; }
+.drama-studio .sd-guide-stages p { color:var(--sd-muted);font-size:12px;margin:6px 0;overflow-wrap:anywhere; }
+.drama-studio .sd-guide-stages li.complete>span { color:#77d6a2; }
+@media(max-width:700px) { .drama-studio .sd-creation-guide { padding:14px; }.drama-studio .sd-guide-stages li { flex-wrap:wrap; }.drama-studio .sd-guide-stages li .ant-btn { margin-left:40px; } }
+.sd-continuity { margin: 18px 0; }
+.sd-continuity-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,330px),1fr)); gap: 14px; }
+.sd-continuity-grid .sd-panel { padding: 16px; margin: 0; min-width: 0; }
+.sd-continuity-references { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+.sd-continuity-references button { display: flex; align-items: center; gap: 8px; border: 1px solid var(--sd-line); border-radius: 10px; padding: 6px; background: var(--sd-panel); color: inherit; cursor: pointer; }
+.sd-continuity-references img { width: 42px; height: 52px; object-fit: contain; border-radius: 6px; }
+.sd-continuity-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.sd-continuity-pair > div { min-width: 0; }
+.sd-continuity-pair img { width: 100%; max-height: 180px; object-fit: contain; background: #090911; border-radius: 8px; }
+.sd-continuity-pair p { overflow-wrap: anywhere; }

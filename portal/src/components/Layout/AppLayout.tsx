@@ -12,8 +12,8 @@ import '../../styles/portal-shell.css';
 
 const navItems = [
   { path: '/', label: 'Home', icon: <HomeOutlined /> },
-  { path: '/workflows', label: 'My workflows', icon: <AppstoreOutlined /> },
-  { path: '/short-dramas', label: 'Short dramas', icon: <VideoCameraOutlined /> },
+  { path: '/works', label: 'My works', icon: <AppstoreOutlined /> },
+  { path: '/create', label: 'Start creating', icon: <VideoCameraOutlined /> },
   { path: '/discover', label: 'Discover', icon: <CompassOutlined /> },
   { path: '/models', label: 'Models', icon: <ApiOutlined /> },
   { path: '/docs', label: 'Model docs', icon: <BookOutlined /> },
@@ -26,9 +26,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const { t } = useI18n();
   const [searchValue, setSearchValue] = useState('');
   const searchModels = location.pathname.startsWith('/models') || location.pathname === '/docs';
-  const searchTemplates = location.pathname.startsWith('/discover') || location.pathname.startsWith('/templates');
-  const searchPlaceholder = searchModels ? 'Search models...' : searchTemplates ? 'Search templates...' : 'Search workflows...';
-  const isActive = (path: string) => path === '/' ? location.pathname === '/' : location.pathname.startsWith(path) || (path === '/discover' && location.pathname.startsWith('/templates'));
+  const searchTemplates = ['/discover', '/templates', '/drama-templates'].some(path => location.pathname.startsWith(path));
+  const searchPlaceholder = searchModels ? 'Search models...' : searchTemplates ? 'Search templates...' : 'Search works...';
+  const isActive = (path: string) => path === '/' ? location.pathname === '/' : location.pathname.startsWith(path) || (path === '/discover' && searchTemplates);
   const userMenuItems = [
     { key: 'profile', icon: <ProfileOutlined />, label: t('Profile'), onClick: () => navigate('/profile') },
     { key: 'api-keys', icon: <KeyOutlined />, label: t('API Keys'), onClick: () => navigate('/settings/api-keys') },
@@ -51,7 +51,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           <span style={{ fontSize: tokens.font.size.lg, fontWeight: tokens.font.weight.semibold, color: tokens.text.primary, letterSpacing: '-0.02em' }}>Model Hub</span>
         </Link>
         <nav aria-label={t('Main navigation')} className="portal-topbar-nav">
-          {navItems.map(item => <Link key={item.path} to={item.path} aria-current={isActive(item.path) ? 'page' : undefined} style={{
+          {navItems.map(item => <Link key={item.path} to={item.path} aria-label={t(item.label)} aria-current={isActive(item.path) ? 'page' : undefined} style={{
             display: 'flex', alignItems: 'center', gap: tokens.spacing.sm,
             padding: `${tokens.spacing.sm} ${tokens.spacing.md}`, borderRadius: tokens.radius.md,
             fontSize: tokens.font.size.base, fontWeight: isActive(item.path) ? tokens.font.weight.medium : tokens.font.weight.normal,
@@ -69,7 +69,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           placeholder={t(searchPlaceholder)} value={searchValue}
           onChange={event => setSearchValue(event.target.value)}
           style={{ width: 220, background: tokens.bg.tertiary, borderColor: tokens.border.default, borderRadius: tokens.radius.md }}
-          onPressEnter={() => { if (searchValue.trim()) navigate(`${searchModels ? '/models' : searchTemplates ? '/discover' : '/workflows'}?search=${encodeURIComponent(searchValue.trim())}`); }} />
+          onPressEnter={() => { if (searchValue.trim()) { const next = new URLSearchParams(location.search); next.set('search', searchValue.trim()); next.delete('page'); navigate(`${searchModels ? '/models' : searchTemplates ? '/discover' : '/works'}?${next}`); } }} />
         <LanguageSwitcher />
         {isAuthenticated && user && <NotificationBell key={user.id} />}
         {isAuthenticated ? <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" trigger={['click']}>
