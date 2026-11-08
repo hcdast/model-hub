@@ -164,3 +164,4 @@ TaskSchema.index(
   },
 );
 TaskSchema.index({ featureType: 1, status: 1, createdAt: -1 });
+TaskSchema.index({ 'metadata.workflowBudgetId': 1, apiKey: 1 }, { sparse: true });

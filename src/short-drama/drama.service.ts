@@ -1,6 +1,9 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { isValidObjectId, Model } from 'mongoose';
+import { CreationTemplateSubmission } from '../creation/creation-template.schema';
+import { WorkflowBudgetService } from '../creation/workflow-budget.service';
+import { appendDramaStage } from '../creation/drama-stage-template';
 import { createHash, randomUUID } from 'crypto';
 import { ShortDramaProject, ShortDramaCandidate, ShortDramaQuote } from './drama.schema';
 import { DramaKind, DramaPlan, DramaCandidate, emptyDramaPlan } from './drama.types';
@@ -21,6 +24,8 @@ import { Interval } from '@nestjs/schedule';
 import { DRAMA_TEMPLATES, templatePlan } from './drama-templates';
 import { dramaMediaMime } from './drama-media';
 import { AkoolOpenapiAdapter } from '../provider/adapters/akool-openapi.adapter';
+import { generationDuration } from './drama-experience';
+import { applyShotReferences, referenceUsage, shotReferences } from './drama-continuity';
 
 export const DRAMA_MODEL_TYPES: Partial<Record<DramaKind, string[]>> = {
   script: ['textGenerate'], character: ['textToImage'], scene: ['textToImage'], image: ['imageToImage', 'textToImage'],
@@ -44,7 +49,10 @@ export function dramaPrompt(plan: DramaPlan, kind: DramaKind, targetId: string):
   if (kind === 'music') return `${plan.style}短剧配乐，${plan.duration}秒，无人声，轻柔衬托旁白。故事：${plan.story.slice(0, 1000)}`;
   const shot = plan.shots.find(s => s.id === targetId); if (!shot) throw new BadRequestException('镜头不存在');
   if (kind === 'voice') { if (!shot.narration.trim()) throw new BadRequestException('这个镜头还没有旁白'); return shot.narration; }
-  return `${plan.style}。画面：${shot.description}。角色设定：${shot.characterIds.map(id => { const r = plan.characters.find(x => x.id === id); return r ? `${r.name}：${r.description}` : ''; }).join('；')}。场景：${plan.scenes.find(x => x.id === shot.sceneId)?.description || '按画面描述'}。保持角色外貌与服装一致，无文字无水印。`;
+  // A product style name is not a request for a comic page or a storyboard sheet.
+  const visualStyle = plan.style === '绘本漫剧' ? '绘本插画风格' : plan.style;
+  const composition = kind === 'image' ? '单幅完整画面，单一连续构图，只描绘一个镜头中的一个瞬间，画面铺满整个画布。' : '连续的单镜头视频，保持统一构图。';
+  return `${visualStyle}。${composition}画面：${shot.description}。角色设定：${shot.characterIds.map(id => { const r = plan.characters.find(x => x.id === id); return r ? `${r.name}：${r.description}` : ''; }).join('；')}。场景：${plan.scenes.find(x => x.id === shot.sceneId)?.description || '按画面描述'}。保持角色外貌与服装一致，无文字无水印。`;
 }
 
 @Injectable()
@@ -61,6 +69,8 @@ export class ShortDramaService {
     private readonly policy: WorkflowPolicyService,
     @Optional() private readonly assetStorage?: WorkflowAssetService,
     @Optional() private readonly openapi?: AkoolOpenapiAdapter,
+    @Optional() @InjectModel(CreationTemplateSubmission.name) private readonly templateSubmissions?: Model<CreationTemplateSubmission>,
+    @Optional() private readonly workflowBudget?: WorkflowBudgetService,
   ) {}
 
   async find(ownerId: string, id: string) {
@@ -68,18 +78,18 @@ export class ShortDramaService {
     if (!project) throw new NotFoundException('作品不存在或无权访问');
     return project;
   }
-  candidateView(c: any): DramaCandidate { return { id: c.id, projectId: c.projectId, kind: c.kind, targetId: c.targetId, status: c.status, source: c.source,
-    url: c.url, text: c.text, error: candidateError(c.error), taskId: c.taskId, createdAt: c.createdAt, inputFingerprint: c.inputFingerprint, archiveStatus: c.archiveStatus, archiveError: c.archiveError }; }
+  candidateView(c: any): DramaCandidate { return { id: c.id, projectId: c.projectId, kind: c.kind, targetId: c.targetId, status: c.status, source: c.source, workflowOrigin: c.workflowOrigin,
+    url: c.url, text: c.text, error: candidateError(c.error), taskId: c.taskId, createdAt: c.createdAt, inputFingerprint: c.inputFingerprint, renderSource: c.renderSource, references: c.references, manualReferenceCount: c.manualReferenceCount, archiveStatus: c.archiveStatus, archiveError: c.archiveError }; }
   async view(project: ShortDramaProject & { updatedAt?: Date }) {
     const items = await this.candidates.find({ projectId: project.id, ownerId: project.ownerId }).sort({ createdAt: 1 }).lean();
     const pending = await this.quotes.find({ projectId: project.id, ownerId: project.ownerId, status: 'submitting' }).select('id kind items').lean();
-    return { id: project.id, revision: project.revision, plan: project.plan, updatedAt: project.updatedAt, budget: budgetSummary(project), archived: project.archived, history: (project.history || []).map(h => ({ revision: h.revision, savedAt: h.savedAt })), pendingRequests: pending.map(q => ({ id: q.id, kind: q.kind, count: q.items.length })), candidates: items.map(c => ({ ...this.candidateView(c), stale: !!c.inputFingerprint && c.kind !== 'export' && c.inputFingerprint !== dramaFingerprint(project.plan, c.kind, c.targetId) })) };
+    return { id: project.id, revision: project.revision, plan: project.plan, stageTemplates: project.stageTemplates || [], updatedAt: project.updatedAt, budget: budgetSummary(project), archived: project.archived, history: (project.history || []).map(h => ({ revision: h.revision, savedAt: h.savedAt })), pendingRequests: pending.map(q => ({ id: q.id, kind: q.kind, count: q.items.length })), candidates: items.map(c => ({ ...this.candidateView(c), stale: !!c.inputFingerprint && c.kind !== 'export' && c.inputFingerprint !== dramaFingerprint(project.plan, c.kind, c.targetId) })) };
   }
-  async create(ownerId: string, input?: unknown) {
+  async create(ownerId: string, input?: unknown, templateSource?: { id: string; version: number }) {
     if (process.env.DRAMA_CREATE_ENABLED === 'false') throw new ServiceUnavailableException('新建短剧暂时暂停，已有作品仍可查看和下载');
     const plan = input ? this.normalize(input) : emptyDramaPlan();
     validateSelections(plan, []);
-    return this.view(await this.projects.create({ id: randomUUID(), ownerId, revision: 0, plan }));
+    return this.view(await this.projects.create({ id: randomUUID(), ownerId, revision: 0, plan, ...(templateSource ? { templateSource } : {}) }));
   }
   async list(ownerId: string, page = 1, archived = false, search = '') {
     const filter = { ownerId, archived: archived ? true : { $ne: true }, ...(search ? { 'plan.title': { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } } : {}) };
@@ -88,7 +98,7 @@ export class ShortDramaService {
   }
   async get(ownerId: string, id: string) { await this.find(ownerId, id); await this.refresh(ownerId, id); await this.reconcileBudget(ownerId, id); return this.view(await this.find(ownerId, id)); }
   normalize(input: unknown) { try { return normalizeDramaPlan(input); } catch (e) { throw new BadRequestException((e as Error).message); } }
-  async update(ownerId: string, id: string, revision: number, input: unknown) {
+  async update(ownerId: string, id: string, revision: number, input: unknown, stageSource?: { id: string; version: number; stage: string }) {
     const previous = await this.find(ownerId, id), before = this.normalize(previous.plan), plan = this.normalize(input);
     // Upstream edits invalidate confirmations; successful results remain selectable and recoverable.
     if (before.story !== plan.story || before.style !== plan.style) { plan.storyConfirmed = false; plan.castConfirmed = false; plan.storyboardConfirmed = false; }
@@ -99,7 +109,7 @@ export class ShortDramaService {
     if (JSON.stringify(before.shots.map(s => [s.id, s.description, s.duration, s.image, s.characterIds, s.sceneId])) !== JSON.stringify(plan.shots.map(s => [s.id, s.description, s.duration, s.image, s.characterIds, s.sceneId]))) plan.storyboardConfirmed = false;
     const candidates = await this.candidates.find({ ownerId, projectId: id }).lean();
     try { validateSelections(plan, candidates as DramaCandidate[]); } catch (e) { throw new BadRequestException((e as Error).message); }
-    const saved = await this.projects.findOneAndUpdate({ ownerId, id, revision }, { $set: { plan }, $inc: { revision: 1 }, $push: { history: { $each: [{ revision, plan: before, savedAt: new Date() }], $slice: -20 } } }, { new: true }).lean();
+    const saved = await this.projects.findOneAndUpdate({ ownerId, id, revision, ...(stageSource ? { archived: { $ne: true } } : {}) }, { $set: { plan }, $inc: { revision: 1 }, $push: { history: { $each: [{ revision, plan: before, savedAt: new Date() }], $slice: -20 }, ...(stageSource ? { stageTemplates: { $each: [{ ...stageSource, appliedAt: new Date(), revision: revision + 1 }], $slice: -50 } } : {}) } }, { new: true }).lean();
     if (!saved) throw new ConflictException({ code: 'DRAMA_REVISION_CONFLICT', message: '作品已在其他窗口更新。你的编辑已保留在本机，请先比较最新版本。' });
     return this.view(saved);
   }
@@ -141,12 +151,17 @@ export class ShortDramaService {
     const provider = project.plan.production?.providers?.[kind] || project.plan.production?.provider;
     const configs = await this.models.find({ disabled: { $ne: true }, model_type: { $in: types }, ...(configId ? { _id: configId } : {}), ...(provider ? { provider } : {}) }).sort({ sort: 1, _id: 1 }).lean();
     if (!configs.length) throw new BadRequestException('当前没有可用的模型配置，请联系管理员启用对应能力，或先上传自己的素材');
+    if (!configId && ['image','video'].includes(kind)) {
+      const coverage = (cfg: ModelConfig) => unique.reduce((sum,targetId)=>sum+referenceUsage(shotReferences(project.plan,kind,targetId),Object.entries(cfg.params || {}).map(([name,def])=>({name,...def}))).used.length,0);
+      configs.sort((a,b)=>coverage(b)-coverage(a));
+    }
     const candidates = await this.candidates.find({ ownerId, projectId: id }).lean();
     const errors: string[] = [];
     for (const cfg of configs) {
       try {
         await this.policy.assertNodesAllowed(ownerId, [{ id: 'drama', type: 'model', position: { x: 0, y: 0 }, data: { modelId: cfg.model_id } }]);
-        let estimatedCost = 0;
+        let estimatedCostMicros = 0;
+        const voiceChecks = new Map<string, Promise<unknown>>();
         const items = await Promise.all(unique.map(async targetId => {
           const input: Record<string, any> = {};
           for (const [name, def] of Object.entries(cfg.params || {})) if (def.default !== undefined) input[name] = def.default;
@@ -157,31 +172,30 @@ export class ShortDramaService {
           const shot = project.plan.shots.find(s => s.id === targetId);
           if (cfg.params?.duration && overrides.duration === undefined) {
             const duration = shot?.duration || project.plan.duration; const def = cfg.params.duration;
-            const compatible = !def.enum || def.enum.includes(duration) || def.enum.includes(String(duration));
-            if (compatible) input.duration = def.type === 'string' ? String(duration) : duration;
+            input.duration = generationDuration(duration,def);
           }
           if (['character', 'scene', 'image', 'video'].includes(kind)) applyFrameInput(input, cfg.params || {}, project.plan, overrides);
-          const refs = kind === 'video' ? [candidates.find(c => c.id === shot?.image)?.url].filter(Boolean) : [...(shot?.characterIds.map(x => candidates.find(c => c.id === project.plan.characters.find(r => r.id === x)?.selected)?.url).filter(Boolean) || []), candidates.find(c => c.id === project.plan.scenes.find(r => r.id === shot?.sceneId)?.selected)?.url].filter(Boolean);
-          if (refs.length) {
-            const field = Object.entries(cfg.params || {}).find(([name, def]) => def.media?.kind === 'image' || ['image', 'images', 'image_url', 'image_urls', 'reference_images', 'start_image'].includes(name));
-            if (field && overrides[field[0]] === undefined) input[field[0]] = field[1].type === 'array' ? refs : refs[0];
-          }
+          const reference = applyShotReferences(project.plan, kind, targetId, candidates as DramaCandidate[], Object.entries(cfg.params || {}).map(([name, def]) => ({ name, ...def })), input);
           const validation = validateParams(input, cfg.params || {}, cfg.params_rules);
           if (!validation.valid) throw new Error(validation.errors.map(x => `${x.field}: ${x.message}`).join('；'));
           if (kind === 'voice' && cfg.provider === 'akool-openapi') {
             if (!this.openapi) throw new Error('配音供应商未就绪');
-            await this.openapi.validateVoice(validation.sanitized);
+            const key = JSON.stringify([validation.sanitized.voice_id, validation.sanitized.voice_model_name]);
+            if (!voiceChecks.has(key)) voiceChecks.set(key, this.openapi.validateVoice(validation.sanitized));
+            await voiceChecks.get(key);
           }
           const cost = estimateModelPrice(cfg, validation.sanitized);
           if (!Number.isFinite(cost.estimatedCost) || cost.unitPrice <= 0) throw new Error('模型未配置有效积分价格');
-          estimatedCost += Math.ceil(cost.estimatedCost * 1e6) / 1e6;
-          return { id: randomUUID(), targetId, input: validation.sanitized, fingerprint: dramaFingerprint(project.plan, kind, targetId), ceiling: Math.ceil(cost.estimatedCost * 1e6) / 1e6 };
+          const ceilingMicros = Math.ceil(cost.estimatedCost * 1e6);
+          estimatedCostMicros += ceilingMicros;
+          return { id: randomUUID(), targetId, input: validation.sanitized, fingerprint: dramaFingerprint(project.plan, kind, targetId), ceiling: ceilingMicros / 1e6, ...(['image','video'].includes(kind) ? {references:reference.used,omittedReferences:reference.omitted,manualReferenceCount:reference.manualReferenceCount} : {}) };
         }));
         const quote = await this.quotes.create({ id: randomUUID(), ownerId, projectId: id, revision: project.revision, kind,
-          items, estimatedCost: Math.ceil(estimatedCost * 1e6) / 1e6, expiresAt: new Date(Date.now() + 5 * 60 * 1000), status: 'quoted',
+          items, estimatedCost: estimatedCostMicros / 1e6, expiresAt: new Date(Date.now() + 5 * 60 * 1000), status: 'quoted',
           model: { id: String(cfg._id), modelId: cfg.model_id, revision: cfg.revision, name: cfg.model_name || cfg.model_id, type: cfg.model_type, fingerprint: configFingerprint(cfg), outputSchema: cfg.output_schema } });
         return { id: quote.id, kind, count: items.length, estimatedCost: quote.estimatedCost, currency: 'credit', expiresAt: quote.expiresAt, modelName: quote.model.name, provider: cfg.provider,
-          warnings: ['本次报价也是本批授权扣费上限；失败退款以任务结算状态为准。', ...(['image', 'video'].includes(kind) ? ['角色一致性取决于模型能力，请逐镜头检查后再选用。'] : [])] };
+          items:items.map(item=>{const shot=project.plan.shots.find(s=>s.id===item.targetId);return {targetId:item.targetId,title:shot?.title || item.targetId,references:item.references,omittedReferences:item.omittedReferences,manualReferenceCount:item.manualReferenceCount,...(kind==='video' ? {duration:Number(item.input.duration) || undefined,requestedDuration:shot?.duration} : {})};}),
+          warnings: ['本次报价也是本批授权扣费上限；失败退款以任务结算状态为准。', ...(['character','scene','image','video'].includes(kind) ? [`作品画幅 ${project.plan.frame?.ratio || '9:16'}。${cfg.params?.aspect_ratio || cfg.params?.width && cfg.params?.height ? '已按模型尺寸能力检查；上游返回后仍需检查实际画幅。' : cfg.model_type==='imageToVideo' ? '此模型没有独立画幅参数，通常跟随参考图；请先检查所选图片。' : '此模型未声明可控画幅，返回尺寸可能不同，请检查后选用。'}`,'角色一致性取决于模型能力，请逐镜头检查后再选用。'] : [])] };
       } catch (error) { errors.push(`${cfg.model_name || cfg.model_id}：${(error as Error).message}`); }
     }
     throw new BadRequestException({ code: 'DRAMA_PREFLIGHT_FAILED', message: `生成前检查未通过。${errors.slice(0, 2).join('；')}。${kind === 'voice' ? '本次未提交配音生成，请按提示重试、重新选择音色或检查配音配置。' : '可展开“更多设置”补充必填项或切换模型。'}` });
@@ -216,7 +230,7 @@ export class ShortDramaService {
       }
       for (const item of quote.items) {
         await this.quotes.updateOne({ id: quoteId }, { $set: { leaseUntil: new Date(Date.now() + 5 * 60 * 1000) } });
-        await this.candidates.updateOne({ id: item.id }, { $setOnInsert: { id: item.id, ownerId, projectId: id, kind: quote.kind, targetId: item.targetId, source: 'model', status: 'pending', billingKey: key, outputSchema: quote.model.outputSchema, inputFingerprint: item.fingerprint } }, { upsert: true });
+        await this.candidates.updateOne({ id: item.id }, { $setOnInsert: { id: item.id, ownerId, projectId: id, kind: quote.kind, targetId: item.targetId, source: 'model', status: 'pending', billingKey: key, outputSchema: quote.model.outputSchema, inputFingerprint: item.fingerprint, ...(item.references ? {references:item.references,manualReferenceCount:item.manualReferenceCount} : {}) } }, { upsert: true });
         const existing = await this.candidates.findOne({ id: item.id }).select('+billingKey').lean();
         if (existing?.taskId || existing?.status === 'failed') continue;
         try {
@@ -277,7 +291,11 @@ export class ShortDramaService {
   }
   async fromTemplate(ownerId: string, templateId: string) {
     if (process.env.DRAMA_TEMPLATES_ENABLED === 'false') throw new NotFoundException('项目模板暂未开放');
-    const plan = templatePlan(templateId);
+    let plan = templatePlan(templateId);
+    if (!plan && isValidObjectId(templateId) && this.templateSubmissions) {
+      const template = await this.templateSubmissions.findOne({ _id: templateId, kind: 'short-drama', status: 'published' }).select('+dramaPlan').lean();
+      if (template?.dramaPlan) plan = structuredClone(template.dramaPlan);
+    }
     if (!plan) throw new NotFoundException('模板不存在或版本已下架');
     const models = await this.catalog();
     const image = models.find(m => m.provider === 'akool-maas' && m.modelId === 'seedream-4-0/text-to-image' && m.type === 'textToImage');
@@ -292,7 +310,20 @@ export class ShortDramaService {
         plan.production!.providers = { ...plan.production!.providers, [kind]: provider };
       }
     }
-    return this.create(ownerId, plan);
+    return this.create(ownerId, plan, { id: templateId, version: DRAMA_TEMPLATES.find(t => t.id === templateId)?.version || 1 });
+  }
+  async applyStageTemplate(ownerId: string, id: string, revision: number, templateId: string, stage: 'characters' | 'storyboard') {
+    if (process.env.DRAMA_TEMPLATES_ENABLED === 'false') throw new NotFoundException('项目模板暂未开放');
+    const project = await this.find(ownerId, id);
+    if (project.archived) throw new BadRequestException('请先恢复作品，再应用模板');
+    if (project.revision !== revision) throw new ConflictException('作品已更新，请刷新后重试');
+    let source = templatePlan(templateId), version = DRAMA_TEMPLATES.find(t => t.id === templateId)?.version || 1;
+    if (!source && isValidObjectId(templateId) && this.templateSubmissions) source = (await this.templateSubmissions.findOne({ _id: templateId, kind: 'short-drama', status: 'published' }).select('+dramaPlan').lean())?.dramaPlan;
+    if (!source) throw new NotFoundException('模板不存在或已下架');
+    if (stage === 'characters' && !source.characters.length || stage === 'storyboard' && !source.shots.length) throw new BadRequestException('模板没有该阶段内容');
+    let plan: DramaPlan;
+    try { plan = appendDramaStage(project.plan, source, stage); } catch (error) { throw new BadRequestException(`无法追加模板：${(error as Error).message}`); }
+    return this.update(ownerId, id, revision, plan, { id: templateId, version, stage });
   }
   async setBudget(ownerId: string, id: string, revision: number, limit: number) {
     const updated = await this.projects.findOneAndUpdate({ ownerId, id, revision,
@@ -301,6 +332,7 @@ export class ShortDramaService {
     return this.view(updated);
   }
   async reconcileBudget(ownerId: string, projectId: string) {
+    await this.workflowBudget?.reconcile(ownerId, projectId);
     const project = await this.find(ownerId, projectId);
     const quotes = await this.quotes.find({ ownerId, projectId, status: 'complete' }).lean();
     for (const q of quotes) {
@@ -326,7 +358,7 @@ export class ShortDramaService {
   }
   private async archiveResults(ownerId: string, projectId: string) {
     if (!this.assetStorage) return;
-    const items = await this.candidates.find({ ownerId, projectId, source: 'model', kind: { $ne: 'script' }, status: 'succeeded', url: { $exists: true }, archiveStatus: { $ne: 'archived' },
+    const items = await this.candidates.find({ ownerId, projectId, source: { $in: ['model', 'workflow'] }, kind: { $ne: 'script' }, status: 'succeeded', url: { $exists: true }, archiveStatus: { $ne: 'archived' },
       $or: [{ archiveLeaseUntil: { $exists: false } }, { archiveLeaseUntil: { $lt: new Date() } }] }).limit(3).lean();
     for (const c of items) {
       const claimed = await this.candidates.updateOne({ id: c.id, archiveStatus: { $ne: 'archived' }, $or: [{ archiveLeaseUntil: { $exists: false } }, { archiveLeaseUntil: { $lt: new Date() } }] },

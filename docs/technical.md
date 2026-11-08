@@ -4323,3 +4323,70 @@ VITE_API_TARGET=http://localhost:7000
 |------|------|------|------|
 | /workflows | 工作流管理 | business | 35 |
 <!-- AUTO:workflow:END -->
+
+
+## 创作闭环接口与数据
+
+- 公开只读：GET /v1/catalog/drama-templates（search、page、pageSize，最大 48）与 GET /v1/catalog/drama-templates/:id。只投影故事结构；不使用登录刷新或返回内部模型绑定。官方静态模板与已发布社区模板共同分页。
+- 登录后投稿：POST /v1/creation-templates/submissions；GET 同路径查询本人的投稿。提交参数为 kind、sourceId、name、description、instructions，服务端读取所属源项目并构建不可变快照，客户端不能指定公开状态。
+- 后台审核：GET /api/v1/admin/creation-templates、GET /:id、PUT /:id/review（action=publish/reject/withdraw，note）。使用既有 JWT、角色与权限守卫。
+- 镜头关联：POST /v1/drama-workflows（projectId、shotId、kind=image/video、revision）；GET /v1/drama-workflows/by-workflow/:workflowId；POST /v1/drama-workflows/:id/import（runId、nodeId）。后端分别验证作品、关联、运行的所有者、媒体类型和输入指纹。
+
+新增集合 creation_template_submissions 和 drama_workflow_links，由 WorkflowModule 注册。投稿以 ownerId/kind/sourceId/sourceFingerprint 唯一；关联以 id、workflowId 唯一。工作流发布复用投稿 ObjectId 作为 workflow_templates 的 ID，重复审核不产生重复模板。短剧采用已发布快照；旧官方静态模板继续有效。已有模型配置、钱包、项目及模板无需数据迁移。
+
+关联流程运行时保存 workflow_runs.definitionSnapshot 与 definitionHash。后续节点调度、失败策略和重试使用同次运行的快照，后续画布编辑不改变该次执行；普通及历史未保存快照的运行继续原路径。运行列表不返回完整快照。短剧候选增加 source=workflow 和 workflowOrigin（workflowId/runId/nodeId/workflowVersion/definitionHash/sourceRevision），导入使用确定性候选 ID 保证幂等，并沿用后台媒体归档。
+
+验证命令：
+
+- npm run test:creation:browser：先构建到 output/creation-portal-dist 与 output/creation-dashboard-dist，再运行门户与审核后台的隔离浏览器用例，不替换正在服务的 portal/dist 或 dashboard/dist。
+- npx jest --cacheDirectory ./output/creation-jest-cache --runInBand --runTestsByPath src/creation/creation-loop.integration.spec.ts：隔离 MongoDB、模拟身份与计费依赖，不连接真实供应商或钱包。
+
+关联镜头的高级流程模型任务现计入原短剧项目预算；下文规定统一预算准入及核对流程。生成开关同时检查创建分支、新运行和失败重试。生产上线仍需按既有部署方式发布后端、Portal 与管理后台，并确认数据库索引及角色权限。
+
+### 模板推荐与项目漏斗（P2）
+
+TemplateInsightsService 从 workflows / short_drama_projects 的 templateSource，按模板、所属账号、项目聚合实际 workflow_runs / short_drama_candidates。关联同时验证 workflowId/projectId 与 triggerId/ownerId。输出 copies、creators、startedProjects、completedProjects、startedCreators、completedCreators，不输出账号、剧本、节点参数或素材。统计保留当前存量直接副本，按模板 ID 跨版本汇总，不是永久累计事件账本。
+
+工作流从模板创建时由服务端第三参数写入 templateSource.id/version，普通创建和表单更新不能指定归因；工作流及短剧增加 templateSource.id/owner 复合索引。旧来源不明的项目不迁移猜测，已存在的短剧来源可直接统计。归档保留、删除移出；重复运行和导出通过项目级 max 聚合去重。短剧完成要求 source=render、kind=export、status=succeeded；工作流要求至少一次所属账号的运行 status=succeeded。短剧 upload 不计启动，model/render/workflow 计制作活动。
+
+两个公开目录增加推荐排序与 metrics；短剧另支持 official/community 来源过滤，工作流保持原有筛选。推荐分数为 3*ln(1+completedCreators)+ln(1+startedCreators)+0.25*ln(1+creators)，相同分数按创建时间排序。工作流先在完整可公开且匹配筛选的 ID 集合上排序，再分页，避免仅对当前页排序。每种类型内存缓存 60 秒，同实例并发统计请求合并，聚合限制 10 秒；缓存失败不伪造成功数据。部署多实例时刷新时间可相差最多一分钟。当前为目录规模的内存排序，模板或归因项目量增长时需结合生产执行计划评估预聚合，不能把此实现当作海量推荐服务。
+
+GET /api/v1/admin/creation-templates/insights?kind=short-drama|workflow&page=1 返回逐模板效果、全量阶段合计及 computedAt；复用现有 admin/super_admin 角色和 workflow:read 权限。该项目效果接口只读，成功数仍从服务端结果计算。新增操作事件独立统计，不能写入付费金额或成功状态。
+
+验证：src/creation/template-insights.integration.spec.ts 使用隔离 MongoDB 验证所有权关联、去重、完成定义、删除与归档、推荐/筛选/分页、下架隔离、归因写入和缓存合并；creation-loop.integration.spec.ts 验证统计接口鉴权与查询校验。npm run test:creation:browser 覆盖发现页排序、来源筛选、活动数据及后台效果类型切换、零分母展示与原有创作闭环。
+
+### 统一预算、操作事件与阶段模板
+
+关联镜头流程的 NodeExecutor 在创建模型任务前调用 WorkflowBudgetService。drama_workflow_budget_tasks 按 runId/nodeId/attempt 的哈希唯一，记录模型配置版本、参数指纹、授权上限和任务关联。与普通短剧报价共用项目 budgetHolds，通过单次条件更新验证「全部已用和预留 + 本次上限 <= budgetLimit」。模型参数验证及现有积分估价通过后才预留；传入 TaskService 的可信 maxCharge 继续约束实际结算。普通独立工作流沿用原路径。钱包余额和供应商成本不等于项目预算，整个流程没有提前计算总报价，后续节点可能因预算不足停止，前序已提交节点仍会扣费。
+
+节点提交先以 ready→submitting 原子认领，成功绑定 taskId；相同节点尝试不能重复调用创建。未知提交结果保留预留，通过受信任的 task metadata、运行执行密钥核对已存在任务。仅明确的提交前拒绝释放；settled/refunded 计费记录确认后条件更新 hold，重复核对不会重复释放。免计费密钥的终态任务核对为 0。归档、暂停生成、无效节点状态阻止新提交。旧版本已提交、未带预算关联的高级任务不倒填为零消费；金额超授权、结果不明且查无任务的记录需人工核对，不直接删除 hold 重试。
+
+POST /v1/creation-events/public 接受 template_view/create_click、kind、templateId、sessionId（UUID）；仅允许当前公开模板，按实例/IP 每分钟最多 120 次。POST /v1/creation-events 接受 quote_viewed/take_selected/download_started、projectId、referenceId，要求登录、所属项目及有效报价/成功候选，下载开始还要求成功成片 URL。DTO 拒绝额外字段，不采集剧本、素材 URL、费用、凭证或原始 IP。会话/账号只保留哈希。creation_events 按 UTC 日去重，TTL 90 天；GET /api/v1/admin/creation-templates/funnel?kind=short-drama|workflow 查询近 30 天。浏览/采用按会话去重，短剧操作按项目去重，不将匿名浏览与登录作品强行拼接为完整转化率。事件来自浏览器且可受重复会话、拦截或请求伪造影响，不参与费用和成功结果统计；发送失败不阻塞主要操作。选片是点击信号，下载是开始信号，均不证明保存或下载完成。
+
+POST /v1/short-dramas/:id/stage-templates 接受 revision/templateId/stage=characters|storyboard。服务端读取官方或已发布模板，角色阶段只追加角色；分镜阶段追加完整依赖的角色、场景和镜头，全部重新分配 ID、移除选片与制作参数。保留原有故事、设置、条目及素材，撤销角色/分镜确认；超出原有数量或时长限制时整次失败。作品修订条件更新同时保存 history 和 stageTemplates（最近 50 条 id/version/stage/appliedAt/revision），并发修订不重复追加。历史恢复只恢复草稿，不抹除应用记录。
+
+POST /v1/drama-workflows 可选 templateId，将公开工作流的可移植快照复制到新的镜头流程，并记录 templateSource.id/version。模板须包含所选类型的媒体节点；不自动填充任意图输入，也不自动运行。已下架模板不能新采用，已有副本独立。工作流模板详情包含 compatibility.checkedAt/issues/runnable，只检查当前模型配置存在、启用和显式版本匹配；不承诺参数、素材或外部供应商完整可用。真正运行仍使用原参数校验、权限与计费路径。
+
+### 本地发布预检
+
+先执行隔离构建、专项集成测试及 npm run test:creation:browser；后端可用 `npx tsc -p tsconfig.build.json --outDir output/creation-api-dist --tsBuildInfoFile output/creation-api.tsbuildinfo` 构建，不覆盖正在服务的 dist。`node scripts/check-creation-local.cjs --out output/creation-local-preflight.json` 只检查本机 API/后台的 JSON readiness、未登录保护、媒体工具和 Redis。MongoDB 不是回环地址时默认跳过；确认配置目标后可加 --inspect-configured-db 只读核查事务能力、模型类型与索引，indexPlan 只列缺项，不创建索引。预检不启动 worker/scheduler，不重放旧队列，不调用付费模型，不打印连接串或凭证。
+
+发布前需要确保 creation_template_submissions、drama_workflow_links、drama_workflow_budget_tasks 的唯一索引和 creation_events 的唯一/TTL/查询索引、tasks 的预算关联索引已存在；先排查重复数据，再按索引计划执行。构建或隔离测试通过不证明本地运行进程已加载新代码。真实生成验收需明确本地账号、钱包、费用上限及运行中的 API/媒体工具；按模板创建→报价确认→少量生成→高级流程→回传选片→导出→下载开始逐项验收，并核对项目预算、钱包与事件，不能以静态 HTTP 200 或模拟结果替代。
+
+### 统一预算、操作事件与阶段模板
+
+关联镜头流程的 NodeExecutor 在创建模型任务前调用 WorkflowBudgetService。drama_workflow_budget_tasks 按 runId/nodeId/attempt 的哈希唯一，记录模型配置版本、参数指纹、授权上限和任务关联。与普通短剧报价共用项目 budgetHolds，通过单次条件更新验证「全部已用和预留 + 本次上限 <= budgetLimit」。模型参数验证及现有积分估价通过后才预留；传入 TaskService 的可信 maxCharge 继续约束实际结算。普通独立工作流沿用原路径。钱包余额和供应商成本不等于项目预算，整个流程没有提前计算总报价，后续节点可能因预算不足停止，前序已提交节点仍会扣费。
+
+节点提交先以 ready→submitting 原子认领，成功绑定 taskId；相同节点尝试不能重复调用创建。未知提交结果保留预留，通过受信任的 task metadata、运行执行密钥核对已存在任务。仅明确的提交前拒绝释放；settled/refunded 计费记录确认后条件更新 hold，重复核对不会重复释放。免计费密钥的终态任务核对为 0。归档、暂停生成、无效节点状态阻止新提交。旧版本已提交、未带预算关联的高级任务不倒填为零消费；金额超授权、结果不明且查无任务的记录需人工核对，不直接删除 hold 重试。
+
+POST /v1/creation-events/public 接受 template_view/create_click、kind、templateId、sessionId（UUID）；仅允许当前公开模板，按实例/IP 每分钟最多 120 次。POST /v1/creation-events 接受 quote_viewed/take_selected/download_started、projectId、referenceId，要求登录、所属项目及有效报价/成功候选，下载开始还要求成功成片 URL。DTO 拒绝额外字段，不采集剧本、素材 URL、费用、凭证或原始 IP。会话/账号只保留哈希。creation_events 按 UTC 日去重，TTL 90 天；GET /api/v1/admin/creation-templates/funnel?kind=short-drama|workflow 查询近 30 天。浏览/采用按会话去重，短剧操作按项目去重，不将匿名浏览与登录作品强行拼接为完整转化率。事件来自浏览器且可受重复会话、拦截或请求伪造影响，不参与费用和成功结果统计；发送失败不阻塞主要操作。选片是点击信号，下载是开始信号，均不证明保存或下载完成。
+
+POST /v1/short-dramas/:id/stage-templates 接受 revision/templateId/stage=characters|storyboard。服务端读取官方或已发布模板，角色阶段只追加角色；分镜阶段追加完整依赖的角色、场景和镜头，全部重新分配 ID、移除选片与制作参数。保留原有故事、设置、条目及素材，撤销角色/分镜确认；超出原有数量或时长限制时整次失败。作品修订条件更新同时保存 history 和 stageTemplates（最近 50 条 id/version/stage/appliedAt/revision），并发修订不重复追加。历史恢复只恢复草稿，不抹除应用记录。
+
+POST /v1/drama-workflows 可选 templateId，将公开工作流的可移植快照复制到新的镜头流程，并记录 templateSource.id/version。模板须包含所选类型的媒体节点；不自动填充任意图输入，也不自动运行。已下架模板不能新采用，已有副本独立。工作流模板详情包含 compatibility.checkedAt/issues/runnable，只检查当前模型配置存在、启用和显式版本匹配；不承诺参数、素材或外部供应商完整可用。真正运行仍使用原参数校验、权限与计费路径。
+
+### 本地发布预检
+
+先执行隔离构建、专项集成测试及 npm run test:creation:browser；后端可用 `npx tsc -p tsconfig.build.json --outDir output/creation-api-dist --tsBuildInfoFile output/creation-api.tsbuildinfo` 构建，不覆盖正在服务的 dist。`node scripts/check-creation-local.cjs --out output/creation-local-preflight.json` 只检查本机 API/后台的 JSON readiness、未登录保护、媒体工具和 Redis。MongoDB 不是回环地址时默认跳过；确认配置目标后可加 --inspect-configured-db 只读核查事务能力、模型类型与索引，indexPlan 只列缺项，不创建索引。预检不启动 worker/scheduler，不重放旧队列，不调用付费模型，不打印连接串或凭证。
+
+发布前需要确保 creation_template_submissions、drama_workflow_links、drama_workflow_budget_tasks 的唯一索引和 creation_events 的唯一/TTL/查询索引、tasks 的预算关联索引已存在；先排查重复数据，再按索引计划执行。构建或隔离测试通过不证明本地运行进程已加载新代码。真实生成验收需明确本地账号、钱包、费用上限及运行中的 API/媒体工具；按模板创建→报价确认→少量生成→高级流程→回传选片→导出→下载开始逐项验收，并核对项目预算、钱包与事件，不能以静态 HTTP 200 或模拟结果替代。

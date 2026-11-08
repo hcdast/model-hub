@@ -11,6 +11,7 @@ import { ShortDramaRenderService } from './drama-render.service';
 
 class CreateDramaDto { @IsOptional() @IsObject() plan?: Record<string, unknown> }
 class UpdateDramaDto { @IsInt() @Min(0) revision!: number; @IsObject() plan!: Record<string, unknown> }
+class StageTemplateDto { @IsInt() @Min(0) revision!: number; @IsString() @MaxLength(64) templateId!: string; @IsIn(['characters', 'storyboard']) stage!: 'characters' | 'storyboard' }
 class QuoteDramaDto {
   @IsIn(['script', 'character', 'scene', 'image', 'video', 'voice', 'music']) kind!: DramaKind;
   @IsArray() @ArrayMaxSize(12) @IsString({ each: true }) @MaxLength(64, { each: true }) targetIds!: string[];
@@ -27,6 +28,7 @@ class AssetDramaDto {
   @IsString() @MaxLength(64) targetId!: string; @IsUUID() assetId!: string;
 }
 class RenderDramaDto { @IsInt() @Min(0) revision!: number; @IsUUID() requestId!: string }
+class TimingDramaDto { @IsInt() @Min(0) revision!: number }
 class DramaListDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100000) page = 1;
   @IsOptional() @IsIn(['true', 'false']) archived?: string;
@@ -52,11 +54,15 @@ export class ShortDramaController {
   @Post() async create(@ClientId() owner: string, @Body() dto: CreateDramaDto) { return envelope(await this.service.create(owner, dto.plan)); }
   @Get(':id') async get(@ClientId() owner: string, @Param('id') id: string) { return envelope(await this.service.get(owner, id)); }
   @Put(':id') async update(@ClientId() owner: string, @Param('id') id: string, @Body() dto: UpdateDramaDto) { return envelope(await this.service.update(owner, id, dto.revision, dto.plan)); }
+  @Post(':id/stage-templates') async stage(@ClientId() owner: string, @Param('id') id: string, @Body() dto: StageTemplateDto) { return envelope(await this.service.applyStageTemplate(owner, id, dto.revision, dto.templateId, dto.stage)); }
   @Post(':id/quotes') async quote(@ClientId() owner: string, @Param('id') id: string, @Body() dto: QuoteDramaDto) { return envelope(await this.service.quote(owner, id, dto.kind, dto.targetIds, dto.configId, dto.parameters)); }
   @Post(':id/generate') async generate(@ClientId() owner: string, @Param('id') id: string, @Body() dto: ConfirmDramaDto) { return envelope(await this.service.confirm(owner, id, dto.quoteId)); }
   @Post(':id/assets') async attach(@ClientId() owner: string, @Param('id') id: string, @Body() dto: AssetDramaDto) { return envelope(await this.service.attach(owner, id, dto.kind, dto.targetId, dto.assetId)); }
   @Post(':id/candidates/:candidateId/cancel') async cancel(@ClientId() owner: string, @Param('id') id: string, @Param('candidateId') candidateId: string) { return envelope(await this.service.cancel(owner, id, candidateId)); }
   @Post(':id/exports') async export(@ClientId() owner: string, @Param('id') id: string, @Body() dto: RenderDramaDto) { return envelope(await this.render.start(owner, id, dto.revision, dto.requestId)); }
+  @Post(':id/voice-timing') async timing(@ClientId() owner: string, @Param('id') id: string, @Body() dto: TimingDramaDto) { return envelope(await this.render.timing(owner, id, dto.revision)); }
+  @Post(':id/media-check') async mediaCheck(@ClientId() owner: string, @Param('id') id: string, @Body() dto: TimingDramaDto) { return envelope(await this.render.inspect(owner,id,dto.revision,'visual')); }
+  @Post(':id/caption-timing') async captionTiming(@ClientId() owner: string, @Param('id') id: string, @Body() dto: TimingDramaDto) { return envelope(await this.render.inspect(owner,id,dto.revision,'captions')); }
   @Put(':id/budget') async budget(@ClientId() owner: string, @Param('id') id: string, @Body() dto: BudgetDramaDto) { return envelope(await this.service.setBudget(owner, id, dto.revision, dto.limit)); }
   @Post(':id/copy') async copy(@ClientId() owner: string, @Param('id') id: string) { return envelope(await this.service.copy(owner, id)); }
   @Post(':id/archive-retry') async retryArchives(@ClientId() owner: string, @Param('id') id: string) { return envelope(await this.service.retryArchives(owner, id)); }

@@ -226,6 +226,7 @@ export class WorkflowController {
         tags: template.tags,
       },
       clientId,
+      { id: String(template._id), version: template.version },
     );
 
     return { code: 0, message: 'Workflow created from template', data };

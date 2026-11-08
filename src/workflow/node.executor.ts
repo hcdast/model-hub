@@ -3,7 +3,8 @@
  * 负责执行工作流中的各类节点
  */
 import { Processor, Process, OnQueueActive, OnQueueCompleted, OnQueueFailed } from '@nestjs/bull';
-import { Logger } from '@nestjs/common';
+import { Logger, Optional } from '@nestjs/common';
+import { WorkflowBudgetService, WorkflowTaskAuthorization } from '../creation/workflow-budget.service';
 import { Job } from 'bull';
 import { WorkflowExecutionService } from './workflow-execution.service';
 import { WorkflowNode } from '../database/schemas/workflow.schema';
@@ -54,6 +55,7 @@ export class NodeExecutor {
     private readonly executionService: WorkflowExecutionService,
     private readonly safeExpression: SafeExpressionService,
     private readonly taskService: TaskService,
+    @Optional() private readonly projectBudget?: WorkflowBudgetService,
   ) {}
 
   /**
@@ -143,19 +145,25 @@ export class NodeExecutor {
     if (params.prompt !== undefined && typeof params.prompt !== 'string') {
       throw new Error('模型 prompt 参数必须是纯文本');
     }
-    const task = await this.taskService.createTask(
+    const create = async (authorization?: WorkflowTaskAuthorization): Promise<{ taskId: string }> => {
+      const result = await this.taskService.createTask(
       apiKey,
       {
         model: modelId,
-        input: params,
-        ...(nodeData.modelSelection ? { options: { configId: nodeData.modelSelection.configId, configRevision: nodeData.modelSelection.configRevision, featureType: nodeData.modelSelection.featureType } } : {}),
+        input: authorization?.input || params,
+        ...(authorization ? { options: { configId: authorization.configId, configRevision: authorization.configRevision, featureType: authorization.featureType } } : nodeData.modelSelection ? { options: { configId: nodeData.modelSelection.configId, configRevision: nodeData.modelSelection.configRevision, featureType: nodeData.modelSelection.featureType } } : {}),
         metadata: {
           workflowRunId: runId,
           workflowNodeId: nodeId,
+          ...(authorization ? { workflowBudgetId: authorization.budgetId } : {}),
         },
       },
       `workflow:${runId}:${nodeId}:${job.attempt ?? 0}`,
-    );
+      ...(authorization ? [{ maxCharge: authorization.maxCharge }] : []),
+      );
+      return { taskId: result.taskId };
+    };
+    const task = this.projectBudget ? await this.projectBudget.createTask(job, create) : await create();
     await this.executionService.onNodeTaskCreated(runId, nodeId, task.taskId);
 
     const deadline = Date.now() + (job.timeoutMs ?? 5 * 60 * 1000);

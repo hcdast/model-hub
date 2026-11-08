@@ -29,8 +29,23 @@ import { ShortDramaProject, ShortDramaProjectSchema, ShortDramaCandidate, ShortD
 import { ShortDramaService } from '../short-drama/drama.service';
 import { ShortDramaRenderService } from '../short-drama/drama-render.service';
 import { ShortDramaController } from '../short-drama/drama.controller';
+import { DramaTemplateCatalogController } from '../short-drama/drama-template-catalog.controller';
 import { ModelConfig, ModelConfigSchema } from '../database/schemas/model-config.schema';
 import { ProviderModule } from '../provider/provider.module';
+import { CreationTemplateSubmission, CreationTemplateSubmissionSchema } from '../creation/creation-template.schema';
+import { CreationTemplateService } from '../creation/creation-template.service';
+import { CreationTemplateController } from '../creation/creation-template.controller';
+import { DramaWorkflowLink, DramaWorkflowLinkSchema } from '../creation/drama-workflow.schema';
+import { DramaWorkflowService } from '../creation/drama-workflow.service';
+import { DramaWorkflowController } from '../creation/drama-workflow.controller';
+import { TemplateInsightsService } from '../creation/template-insights.service';
+import { WorkflowBudgetService } from '../creation/workflow-budget.service';
+import { WorkflowBudgetTask, WorkflowBudgetTaskSchema } from '../creation/workflow-budget.schema';
+import { BillingRecord, BillingRecordSchema } from '../database/schemas/billing-record.schema';
+import { Task, TaskSchema } from '../database/schemas/task.schema';
+import { CreationEvent, CreationEventSchema } from '../creation/creation-event.schema';
+import { CreationEventService } from '../creation/creation-event.service';
+import { CreationEventController } from '../creation/creation-event.controller';
 
 /**
  * Workflow 模块
@@ -39,6 +54,12 @@ import { ProviderModule } from '../provider/provider.module';
 @Module({
   imports: [
     MongooseModule.forFeature([
+      { name: CreationEvent.name, schema: CreationEventSchema },
+      { name: WorkflowBudgetTask.name, schema: WorkflowBudgetTaskSchema },
+      { name: BillingRecord.name, schema: BillingRecordSchema },
+      { name: Task.name, schema: TaskSchema },
+      { name: CreationTemplateSubmission.name, schema: CreationTemplateSubmissionSchema },
+      { name: DramaWorkflowLink.name, schema: DramaWorkflowLinkSchema },
       { name: Workflow.name, schema: WorkflowSchema },
       { name: WorkflowRun.name, schema: WorkflowRunSchema },
       { name: WorkflowTemplate.name, schema: WorkflowTemplateSchema },
@@ -58,8 +79,12 @@ import { ProviderModule } from '../provider/provider.module';
     LinkConversionConfigModule,
     ProviderModule,
   ],
-  controllers: [WorkflowController, WorkflowRunController, WorkflowTemplateController, WorkflowTemplateCatalogController, WorkflowAssetController, ShortDramaController],
+  controllers: [CreationEventController, CreationTemplateController, DramaWorkflowController, WorkflowController, WorkflowRunController, WorkflowTemplateController, WorkflowTemplateCatalogController, WorkflowAssetController, ShortDramaController, DramaTemplateCatalogController],
   providers: [
+    CreationEventService,
+    WorkflowBudgetService,
+    TemplateInsightsService,
+    CreationTemplateService, DramaWorkflowService,
     ShortDramaService,
     ShortDramaRenderService,
     WorkflowAssetService,
@@ -74,6 +99,9 @@ import { ProviderModule } from '../provider/provider.module';
     WorkflowTemplateService,
   ],
   exports: [
+    CreationEventService,
+    TemplateInsightsService,
+    CreationTemplateService,
     WorkflowService,
     ExecutionGraphResolver,
     PortSchemaService,

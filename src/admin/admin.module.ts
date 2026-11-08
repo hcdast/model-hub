@@ -19,6 +19,7 @@ import { AdminBillingController } from './admin-billing.controller';
 import { AdminMenuController } from './admin-menu.controller';
 import { ProviderHealthController } from './provider-health.controller';
 import { AdminWorkflowController } from './admin-workflow.controller';
+import { AdminCreationTemplateController } from './admin-creation-template.controller';
 import { AdminJwtGuard } from './guards/admin-jwt.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { ModelConfigService } from './model-config.service';
@@ -68,6 +69,7 @@ import { PortalAuthModule } from '../portal-auth/portal-auth.module';
     AdminMenuController,
     ProviderHealthController,
     AdminWorkflowController,
+    AdminCreationTemplateController,
     AdminLinkConversionConfigController,
     AdminCallbackLogsController,
     AdminSystemInfoController,

@@ -36,6 +36,20 @@ describe('NodeExecutor', () => {
   });
 
   describe('executeModelNode', () => {
+    it('passes the shared project authorization into the real task creation boundary', async () => {
+      const budget = { createTask: jest.fn(async (_job, create) => create({ maxCharge: 2.5, budgetId: 'trusted-budget', input: { prompt: 'validated' }, configId: '507f1f77bcf86cd799439011', configRevision: 3, featureType: 'textToImage' })) };
+      executor = new NodeExecutor(executionService, new SafeExpressionService(), taskService, budget as any);
+      await executor.execute({ data: { runId: 'run', nodeId: 'node', attempt: 2, nodeType: 'model', apiKey: 'isolated-key', nodeData: { modelId: 'fixture', parameters: { prompt: 'original' } }, input: {}, context: { input: {}, nodeOutputs: {} } } } as any);
+      expect(taskService.createTask).toHaveBeenCalledWith('isolated-key', expect.objectContaining({ input: { prompt: 'validated' }, options: { configId: '507f1f77bcf86cd799439011', configRevision: 3, featureType: 'textToImage' }, metadata: { workflowBudgetId: 'trusted-budget', workflowRunId: 'run', workflowNodeId: 'node' } }), 'workflow:run:node:2', { maxCharge: 2.5 });
+    });
+
+    it('does not bypass a rejected project budget when executing a model node', async () => {
+      executor = new NodeExecutor(executionService, new SafeExpressionService(), taskService, { createTask: jest.fn().mockRejectedValue(new Error('项目剩余预算不足')) } as any);
+      await executor.execute({ data: { runId: 'run', nodeId: 'node', nodeType: 'model', apiKey: 'isolated-key', nodeData: { modelId: 'fixture' }, input: {}, context: { input: {}, nodeOutputs: {} } } } as any);
+      expect(taskService.createTask).not.toHaveBeenCalled();
+      expect(executionService.onNodeFailed).toHaveBeenCalledWith('run', 'node', expect.objectContaining({ message: '项目剩余预算不足' }));
+    });
+
     it('应成功执行模型节点', async () => {
       const job: NodeExecutionJob = {
         runId: 'test-run-1',

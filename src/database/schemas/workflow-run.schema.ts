@@ -1,3 +1,4 @@
+import type { Workflow } from './workflow.schema';
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Schema as MongooseSchema } from 'mongoose';
 
@@ -79,6 +80,9 @@ export class WorkflowRun {
   /** 执行时的工作流版本快照 */
   @Prop({ required: true })
   workflowVersion!: number;
+
+  @Prop({ type: Object }) definitionSnapshot?: Workflow;
+  @Prop() definitionHash?: string;
 
   /** 触发者 ID（clientId 或 userId） */
   @Prop({ required: true })

@@ -1,4 +1,4 @@
-import { applyFrameInput, budgetSummary, frameDimensions } from './drama-production';
+import { applyFrameInput, budgetSummary, frameDimensions, voiceBatchTargets } from './drama-production';
 import { normalizeDramaPlan, srtText } from './drama-plan';
 import { emptyDramaPlan } from './drama.types';
 
@@ -35,5 +35,14 @@ describe('Short drama production settings', () => {
     const p = { ...emptyDramaPlan(), production: { provider:'akool-maas', models:{}, voiceParameters:{voice:'warm',speed:1.1} } };
     expect(normalizeDramaPlan(p).production?.voiceParameters).toEqual({voice:'warm',speed:1.1});
     expect(()=>normalizeDramaPlan({...p,production:{...p.production,voiceParameters:{voice:{secret:'unsupported'}}}})).toThrow('配音设置');
+  });
+  it('never batches selected, blank, running or completed voices, and requires unambiguous current audio', () => {
+    const shots = ['selected', 'blank', 'running', 'ready', 'multiple', 'stale', 'failed', 'missing'].map(id => ({ id, title: id, description: '', narration: id === 'blank' ? '  ' : '你好', duration: 5, characterIds: [], ...(id === 'selected' ? { voice: 'chosen' } : {}) }));
+    const candidate = (targetId: string, id: string, status: 'running' | 'succeeded' | 'failed', stale = false) => ({ id, projectId: 'acceptance', targetId, kind: 'voice' as const, source: 'model' as const, status, stale });
+    expect(voiceBatchTargets({ ...emptyDramaPlan(), shots }, [candidate('running', 'a', 'running'), candidate('ready', 'b', 'succeeded'), candidate('multiple', 'c', 'succeeded'), candidate('multiple', 'd', 'succeeded'), candidate('stale', 'e', 'succeeded', true), candidate('failed', 'f', 'failed')])).toEqual({ missing: ['stale', 'failed', 'missing'], ready: { ready: 'b' } });
+  });
+  it('limits each narration quote to twelve shots in story order', () => {
+    const shots = Array.from({ length: 24 }, (_, i) => ({ id: String(i), title: '', description: '', narration: '你好', duration: 5, characterIds: [] }));
+    expect(voiceBatchTargets({ ...emptyDramaPlan(), shots }, []).missing).toEqual(shots.slice(0, 12).map(s => s.id));
   });
 });

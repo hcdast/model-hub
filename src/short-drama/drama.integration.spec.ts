@@ -7,6 +7,7 @@ import { ShortDramaService } from './drama.service';
 import { emptyDramaPlan } from './drama.types';
 import { GlobalExceptionFilter } from '../common/filters/global-exception.filter';
 import { InsufficientBalanceException } from '../billing/exceptions/insufficient-balance.exception';
+import { renderManifest } from './drama-version';
 
 describe('Short drama persistence and authorized generation', () => {
   let mongo: MongoMemoryServer, db: Connection, service: ShortDramaService;
@@ -28,6 +29,60 @@ describe('Short drama persistence and authorized generation', () => {
       unit_price_map: { default: { unit_credit: 2 } }, params: { prompt: { type: 'string', required: true }, batch_quantity: { type: 'integer', required: false, default: 1 } } });
   });
   async function project() { return service.create('owner', { ...emptyDramaPlan(), story: '女孩在咖啡馆相遇', storyConfirmed: true, characters: [{ id: 'girl', name: '小雨', description: '短发风衣' }] }); }
+  it('persists export source snapshots and exposes only the current owner’s versions',async()=>{
+    const p=await project(),renderSource={revision:p.revision,manifest:renderManifest(p.plan)};
+    await candidates.create({id:'export-snapshot',ownerId:'owner',projectId:p.id,kind:'export',targetId:'project',source:'render',status:'succeeded',url:'https://media.example/film.mp4',renderSource});
+    await candidates.create({id:'foreign-snapshot',ownerId:'other',projectId:p.id,kind:'export',targetId:'project',source:'render',status:'succeeded',url:'https://media.example/private.mp4',renderSource});
+    const result=await service.view(await service.find('owner',p.id));
+    expect(result.candidates).toHaveLength(1);expect(result.candidates[0].renderSource).toEqual(renderSource);
+    await expect(service.find('other',p.id)).rejects.toThrow('无权');
+  });
+  it('quotes actual reference capacity and freezes the same owned reference inputs on submission',async()=>{
+    let p=await service.create('owner',{...emptyDramaPlan(),story:'咖啡馆来信',storyConfirmed:true,characters:[{id:'girl',name:'小雨',description:'风衣'},{id:'boy',name:'小林',description:'夹克'}],scenes:[{id:'cafe',name:'咖啡馆',description:'木窗'}],shots:[{id:'s',title:'推门',description:'二人推门',narration:'你好',duration:5,characterIds:['girl','boy'],sceneId:'cafe'}]});
+    await candidates.create([{id:'girl-ref',kind:'character',targetId:'girl'},{id:'boy-ref',kind:'character',targetId:'boy'},{id:'cafe-ref',kind:'scene',targetId:'cafe'}].map(c=>({...c,ownerId:'owner',projectId:p.id,source:'upload',status:'succeeded',url:`https://media.example/${c.id}`})));
+    p=await service.update('owner',p.id,p.revision,{...p.plan,characters:p.plan.characters.map(r=>({...r,selected:r.id+'-ref'})),scenes:p.plan.scenes.map(r=>({...r,selected:r.id+'-ref'}))});
+    p=await service.update('owner',p.id,p.revision,{...p.plan,castConfirmed:true});
+    const scalar=await configs.create({model_id:'scalar-ref',model_name:'单图测试',model_type:'imageToImage',provider:'test',unit_price_map:{default:{unit_credit:1}},params:{prompt:{type:'string'},image:{type:'string',required:true}}});
+    const multi=await configs.create({model_id:'multi-ref',model_name:'多图测试',model_type:'imageToImage',provider:'test',unit_price_map:{default:{unit_credit:1}},params:{prompt:{type:'string'},image:{type:'string'},images:{type:'array',items:{type:'string'},maxItems:2,required:true}}});
+    const single=await service.quote('owner',p.id,'image',['s'],String(scalar._id),{image:'https://unexpected.example/image'});
+    expect(single.items[0].references!.map(r=>r.name)).toEqual(['小雨']);expect(single.items[0].omittedReferences!.map(r=>r.name)).toEqual(['小林','咖啡馆']);
+    const q=await service.quote('owner',p.id,'image',['s'],String(multi._id));
+    expect(q.items[0].references!.map(r=>r.name)).toEqual(['小雨','小林']);expect(q.items[0].omittedReferences!.map(r=>r.name)).toEqual(['咖啡馆']);
+    expect(tasks.createTask).not.toHaveBeenCalled();
+    const recommended=await service.quote('owner',p.id,'image',['s']);
+    expect(recommended.modelName).toBe('多图测试');expect(recommended.items[0].references).toHaveLength(2);
+    await service.confirm('owner',p.id,q.id);
+    expect(tasks.createTask.mock.calls[0][1].input.images).toEqual(['https://media.example/girl-ref','https://media.example/boy-ref']);
+    const result=await service.get('owner',p.id),made=result.candidates.find(c=>c.kind==='image');
+    if (!made?.references) throw new Error('generated candidate must retain references');
+    expect(made.references.map(r=>r.candidateId)).toEqual(['girl-ref','boy-ref']);
+    await service.update('owner',p.id,result.revision,{...result.plan,characters:result.plan.characters.map(r=>({...r,selected:undefined}))});
+    const reopened=await service.get('owner',p.id);expect(reopened.candidates.find(c=>c.id===made.id)).toMatchObject({stale:true,references:made.references});
+  });
+  it('explicitly reports no reference inputs when the selected image model only accepts text',async()=>{
+    let p=await project();await candidates.create({id:'girl-ref',ownerId:'owner',projectId:p.id,kind:'character',targetId:'girl',source:'upload',status:'succeeded',url:'https://media.example/girl.png'});
+    p=await service.update('owner',p.id,p.revision,{...p.plan,characters:[{...p.plan.characters[0],selected:'girl-ref'}],shots:[{id:'s',title:'推门',description:'女孩推门',narration:'',duration:5,characterIds:['girl']}]});
+    p=await service.update('owner',p.id,p.revision,{...p.plan,castConfirmed:true});
+    const q=await service.quote('owner',p.id,'image',['s']);
+    expect(q.items[0]).toMatchObject({references:[],omittedReferences:[{candidateId:'girl-ref'}]});expect(tasks.createTask).not.toHaveBeenCalled();
+    p=await service.update('owner',p.id,p.revision,{...p.plan,characters:[{...p.plan.characters[0],selected:undefined}]});
+    p=await service.update('owner',p.id,p.revision,{...p.plan,castConfirmed:true});
+    const manual=await configs.create({model_id:'manual-image',model_name:'手动图像输入',model_type:'imageToImage',provider:'test',unit_price_map:{default:{unit_credit:1}},params:{prompt:{type:'string'},image:{type:'string',required:true}}});
+    const manualQuote=await service.quote('owner',p.id,'image',['s'],String(manual._id),{image:'https://media.example/manual.png'});
+    expect(manualQuote.items[0]).toMatchObject({references:[],manualReferenceCount:1});
+  });
+  it('quotes and submits the visible per-shot compatible duration, including its actual price',async()=>{
+    const cfg=await configs.create({model_id:'compatible-video',model_type:'imageToVideo',provider:'test',model_name:'十秒模型',revision:1,unit_price_map:{default:{unit_credit:1}},params:{prompt:{type:'string',required:true},image:{type:'string',required:true},duration:{type:'integer',enum:[5,10],default:5}}});
+    const p=await service.create('owner',{...emptyDramaPlan(),story:'来信',storyConfirmed:true,castConfirmed:true,characters:[{id:'girl',name:'女孩',description:'短发'}],shots:[{id:'s',title:'收到来信',description:'推门',narration:'你好',duration:8,characterIds:['girl']}]});
+    await candidates.create({id:'source-image',ownerId:'owner',projectId:p.id,kind:'image',targetId:'s',source:'upload',status:'succeeded',url:'https://media.example/frame.png'});
+    const framed=await service.update('owner',p.id,0,{...p.plan,shots:[{...p.plan.shots[0],image:'source-image'}]});
+    await service.update('owner',p.id,framed.revision,{...framed.plan,storyboardConfirmed:true});
+    const q=await service.quote('owner',p.id,'video',['s'],String(cfg._id));
+    expect(q).toMatchObject({estimatedCost:10,items:[{title:'收到来信',duration:10,requestedDuration:8}]});
+    expect(q.warnings.join(' ')).toContain('跟随参考图');
+    expect(tasks.createTask).not.toHaveBeenCalled();
+    await service.confirm('owner',p.id,q.id);expect(tasks.createTask.mock.calls[0][1].input).toMatchObject({image:'https://media.example/frame.png',duration:10});
+  });
   it('persists drafts, isolates owners and detects competing edits without losing the winner', async () => {
     const p = await project(); await expect(service.get('other', p.id)).rejects.toThrow('作品不存在');
     const saved = await service.update('owner', p.id, p.revision, { ...p.plan, title: '云端新版本' }); expect(saved.revision).toBe(1);
@@ -55,6 +110,20 @@ describe('Short drama persistence and authorized generation', () => {
     await service.update('owner', p.id, 0, { ...p.plan, title: '新标题' }); await expect(service.confirm('owner', p.id, q.id)).rejects.toThrow('报价已过期或作品已修改');
     const q2 = await service.quote('owner', p.id, 'character', ['girl']); await quotes.updateOne({ id: q2.id }, { $set: { expiresAt: new Date(0) } }); await expect(service.confirm('owner', p.id, q2.id)).rejects.toThrow('报价已过期');
     expect(tasks.createTask).not.toHaveBeenCalled();
+  });
+  it('checks a shared OpenAPI voice once per batch and fails closed without caching failures across quotes', async () => {
+    const cfg = await configs.create({ model_id: 'batch-tts', model_type: 'tts', provider: 'akool-openapi', model_name: '批量配音', revision: 1,
+      unit_price_map: { default: { unit_credit: 0.01 } }, pricing: { usage_type: 'count', usage_param: 'text', usage_measure: 'characters' }, params: { text: { type: 'string', required: true }, voice_id: { type: 'string', required: true }, voice_model_name: { type: 'string', default: 'Akool Multilingual 3', hide: true } } });
+    const voice = { validateVoice: jest.fn().mockRejectedValue(new Error('音色服务暂时不可用')) };
+    const mixed = new ShortDramaService(projects as any, candidates as any, quotes as any, configs as any, assets as any, keys as any, tasks as any, policy as any, undefined, voice as any);
+    const p = await mixed.create('owner', { ...emptyDramaPlan(), story: '一封信', storyConfirmed: true, castConfirmed: true,
+      characters: [{ id: 'girl', name: '小雨', description: '风衣' }], shots: Array.from({ length: 6 }, (_, i) => ({ id: String(i), title: '', description: '拿起信', narration: '你好', duration: 5, characterIds: ['girl'] })),
+      production: { provider: 'akool-openapi', models: { voice: String(cfg._id) }, voiceParameters: { voice_id: 'official-reference' } } });
+    await expect(mixed.quote('owner', p.id, 'voice', p.plan.shots.map(s => s.id))).rejects.toThrow('音色服务暂时不可用');
+    expect(voice.validateVoice).toHaveBeenCalledTimes(1); expect(await quotes.countDocuments()).toBe(0); expect(tasks.createTask).not.toHaveBeenCalled();
+    voice.validateVoice.mockResolvedValue({});
+    expect(await mixed.quote('owner', p.id, 'voice', p.plan.shots.map(s => s.id))).toMatchObject({ count: 6, estimatedCost: 0.12 });
+    expect(voice.validateVoice).toHaveBeenCalledTimes(2); expect(tasks.createTask).not.toHaveBeenCalled();
   });
   it('reuses persisted voice settings, takes narration from the shot and validates against the chosen model', async () => {
     const cfg=await configs.create({model_id:'isolated-tts',model_type:'tts',provider:'akool-maas',model_name:'测试配音',revision:1,unit_price_map:{default:{unit_credit:0.001}},params:{text:{type:'string',required:true},voice:{type:'string',enum:['warm','clear'],required:true},speed:{type:'number',min:0.5,max:2,default:1}}});

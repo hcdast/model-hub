@@ -76,8 +76,8 @@ export class ListTemplateCatalogDto {
   @IsOptional() @IsIn(templateScenarios)
   scenario?: typeof templateScenarios[number];
 
-  @IsOptional() @IsIn(['updated', 'newest', 'name'])
-  order?: 'updated' | 'newest' | 'name';
+  @IsOptional() @IsIn(['recommended', 'updated', 'newest', 'name'])
+  order?: 'recommended' | 'updated' | 'newest' | 'name';
 
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100000)
   page?: number;

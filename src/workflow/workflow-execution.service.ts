@@ -4,6 +4,8 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bull';
 import { InjectModel } from '@nestjs/mongoose';
@@ -11,6 +13,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Queue } from 'bull';
 import { Model } from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
+import { createHash } from 'crypto';
 import {
   WorkflowRun,
   WorkflowRunDocument,
@@ -29,6 +32,8 @@ import { WorkflowPolicyService } from './workflow-policy.service';
 import { assignPortInput, readOutputPort } from './workflow-ports';
 import { BusinessException } from '../common/exceptions/business.exception';
 import { ErrorCode } from '../common/constants/error-codes';
+import { DramaWorkflowLink } from '../creation/drama-workflow.schema';
+import { WorkflowBudgetService } from '../creation/workflow-budget.service';
 
 const TERMINAL_NODE_STATES: Record<string, true> = {
   succeeded: true,
@@ -53,6 +58,8 @@ export class WorkflowExecutionService {
     private readonly portalApiKeyService: PortalApiKeyService,
     private readonly taskService: TaskService,
     private readonly workflowPolicy: WorkflowPolicyService,
+    @Optional() @InjectModel(DramaWorkflowLink.name) private readonly dramaLinks?: Model<DramaWorkflowLink>,
+    @Optional() private readonly projectBudget?: WorkflowBudgetService,
   ) {}
   async run(
     workflowId: string,
@@ -70,6 +77,12 @@ export class WorkflowExecutionService {
         code: 'WORKFLOW_NOT_FOUND',
         message: 'Workflow not found',
       });
+    }
+
+    const dramaLink = this.dramaLinks ? await this.dramaLinks.findOne({ workflowId, ownerId: clientId }).lean() : null;
+    await this.projectBudget?.assertRunnable(workflowId, clientId);
+    if (dramaLink && process.env.DRAMA_GENERATION_ENABLED === 'false') {
+      throw new ServiceUnavailableException('短剧新生成暂时暂停，已有流程和结果仍可查看');
     }
 
     const validation = this.graphResolver.validate(workflow);
@@ -110,6 +123,7 @@ export class WorkflowExecutionService {
       runId,
       workflowId,
       workflowVersion: workflow.__v ?? 0,
+      ...(dramaLink ? { definitionSnapshot: workflow.toObject(), definitionHash: createHash('sha256').update(JSON.stringify([workflow.nodes, workflow.edges, workflow.executionConfig])).digest('hex') } : {}),
       triggerId: clientId,
       executionApiKey,
       executionTimeoutSeconds,
@@ -249,6 +263,8 @@ export class WorkflowExecutionService {
   async retry(runId: string, clientId: string, nodeIds?: string[]): Promise<void> {
     const run = await this.runModel.findOne({ runId, triggerId: clientId });
     if (!run) throw new NotFoundException('Run not found');
+    await this.projectBudget?.assertRunnable(run.workflowId, clientId);
+    if (this.dramaLinks && process.env.DRAMA_GENERATION_ENABLED === 'false' && await this.dramaLinks.exists({ workflowId: run.workflowId, ownerId: clientId })) throw new ServiceUnavailableException('短剧新生成暂时暂停');
     if (run.status !== 'failed') {
       throw new ConflictException(`Run cannot be retried from ${run.status}`);
     }
@@ -262,7 +278,7 @@ export class WorkflowExecutionService {
       throw new ConflictException('No failed nodes are available for retry');
     }
 
-    const workflow = await this.workflowModel.findById(run.workflowId);
+    const workflow = run.definitionSnapshot ? this.workflowModel.hydrate(run.definitionSnapshot) : await this.workflowModel.findById(run.workflowId);
     if (!workflow) throw new NotFoundException('Workflow not found');
     const retryNodeIds = new Set(retryable.map((state) => state.nodeId));
     await this.workflowPolicy.assertNodesAllowed(
@@ -460,7 +476,7 @@ export class WorkflowExecutionService {
       return;
     }
 
-    const workflow = await this.workflowModel.findById(run.workflowId);
+    const workflow = run.definitionSnapshot ? this.workflowModel.hydrate(run.definitionSnapshot) : await this.workflowModel.findById(run.workflowId);
     if (workflow) await this.scheduleReadyNodes(runId, workflow);
   }
 
@@ -489,7 +505,7 @@ export class WorkflowExecutionService {
 
     let run = await this.runModel.findOne({ runId });
     if (!run) return;
-    const workflow = await this.workflowModel.findById(run.workflowId);
+    const workflow = run.definitionSnapshot ? this.workflowModel.hydrate(run.definitionSnapshot) : await this.workflowModel.findById(run.workflowId);
     const continueOnFailure =
       workflow?.executionConfig?.failureStrategy === 'continue';
     let finalized = false;
@@ -568,6 +584,7 @@ export class WorkflowExecutionService {
     const [items, total] = await Promise.all([
       this.runModel
         .find(filter)
+        .select('-definitionSnapshot')
         .sort({ createdAt: -1, _id: -1 })
         .skip((page - 1) * pageSize)
         .limit(pageSize),

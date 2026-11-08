@@ -49,6 +49,7 @@ export class WorkflowService {
       tags?: string[];
     },
     creatorId: string,
+    templateSource?: { id: string; version: number },
   ): Promise<WorkflowDocument> {
     const slotClaimed = await this.workflowPolicy.assertCanCreate(
       creatorId,
@@ -59,6 +60,7 @@ export class WorkflowService {
     const workflow = new this.workflowModel({
       ...dto,
       creatorId,
+      templateSource,
       status: 'draft',
       edges: dto.edges || [],
       tags: dto.tags || [],

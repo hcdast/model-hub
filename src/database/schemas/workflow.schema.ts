@@ -148,6 +148,8 @@ export interface ExecutionConfig {
  */
 @Schema({ timestamps: true, collection: 'workflows' })
 export class Workflow {
+  /** Server-assigned provenance; editing/copying a workflow cannot claim a new template conversion. */
+  @Prop({ type: Object }) templateSource?: { id: string; version: number };
   /** 工作流名称 */
   @Prop({ required: true })
   name!: string;
@@ -203,3 +205,4 @@ WorkflowSchema.index({ creatorId: 1, createdAt: -1 });
 
 /** 按状态查询 */
 WorkflowSchema.index({ status: 1 });
+WorkflowSchema.index({ 'templateSource.id': 1, creatorId: 1 });

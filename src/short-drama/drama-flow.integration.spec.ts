@@ -27,6 +27,7 @@ import { PortalAuthService } from '../portal-auth/portal-auth.service';
 import { APP_CONFIG } from '../config/config.module';
 import { GlobalExceptionFilter } from '../common/filters/global-exception.filter';
 import { ResponseTransformInterceptor } from '../common/interceptors/response-transform.interceptor';
+import { estimateCaptions } from './drama-captions';
 
 const execute = promisify(execFile);
 const acceptance = process.env.DRAMA_ACCEPTANCE === '1' ? describe : describe.skip;
@@ -79,6 +80,8 @@ acceptance('Short drama five-stage local acceptance (no paid providers)', () => 
       media.set('https://acceptance.invalid/' + name, await fs.readFile(join(work, name)));
     }
     media.set('https://acceptance.invalid/broken.mp4', Buffer.from('intentionally invalid video'));
+    await execute(ffmpeg,['-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=teal:s=320x240','-frames:v','1',join(work,'frame.png')],{windowsHide:true});
+    media.set('https://acceptance.invalid/frame.png',await fs.readFile(join(work,'frame.png')));
     // Only fixture transport is substituted. All decoder/filter/encoder commands below are real.
     const fixtureGet = ((url: URL, _options: unknown, callback: any) => {
       const request: any = new EventEmitter(); request.destroy = (e: Error) => { request.emit('error', e); request.emit('close'); };
@@ -146,8 +149,15 @@ acceptance('Short drama five-stage local acceptance (no paid providers)', () => 
     const voice = await attach(p, 'voice', 'shot1', 'https://acceptance.invalid/voice.wav', 'audio/wav');
     const music = await attach(p, 'music', 'project', 'https://acceptance.invalid/music.wav', 'audio/wav');
     const secondVideo = await attach(p, 'video', 'shot2', 'https://acceptance.invalid/violet.mp4', 'video/mp4');
-    p = await save(p, { step: 4, shots: p.plan.shots.map((s, i) => ({ ...s, video: i ? secondVideo : p.candidates.find(c => c.targetId === s.id && c.kind === 'video')!.id, ...(i ? {} : { voice }) })), settings: { ...p.plan.settings, music } });
+    p = await save(p, { step: 4, shots: p.plan.shots.map((s, i) => ({ ...s, video: i ? secondVideo : p.candidates.find(c => c.targetId === s.id && c.kind === 'video')!.id, ...(i ? {} : { voice }) })), settings: { ...p.plan.settings, music, normalizeVoice: true, musicDucking: true } });
     expect((await api('/' + p.id)).data.plan).toEqual(p.plan);
+    const checked=await api(`/${p.id}/media-check`,'POST',{revision:p.revision});expect(checked.status).toBe(201);
+    expect(checked.data.entries).toHaveLength(4);expect(checked.data.entries.find((e:any)=>e.kind==='video')).toMatchObject({width:320,height:240});
+    expect((await api(`/${p.id}/media-check`,'POST',{revision:p.revision},'acceptance-other')).status).toBe(400);
+    expect((await api(`/${p.id}/caption-timing`,'POST',{revision:p.revision-1})).status).toBe(400);
+    const speech=await api(`/${p.id}/caption-timing`,'POST',{revision:p.revision});expect(speech.status).toBe(201);expect(speech.data.voices[0].seconds).toBeCloseTo(1,1);
+    const first=p.plan.shots[0],cues=estimateCaptions(first,speech.data.voices[0]);expect(cues[0].end).toBeLessThan(1.1);
+    p=await save(p,{shots:p.plan.shots.map((s,i)=>i?s:{...s,captions:[{start:0,end:.45,text:'这是第一段'},{start:.5,end:1,text:'中文字幕。'}],captionSource:{narration:s.narration,voiceId:s.voice,method:'pause'}})});
     expect((await api('/capabilities')).data).toMatchObject({ mp4: true, subtitles: true });
     const requestId = randomUUID(), exported = await finishExport(p, requestId);
     if (exported.status !== 'succeeded') throw new Error('Render: ' + JSON.stringify(exported));
@@ -158,6 +168,7 @@ acceptance('Short drama five-stage local acceptance (no paid providers)', () => 
     expect(Buffer.from(await ownedMedia.arrayBuffer())).toEqual(uploads.get(exported.url));
     expect((await fetch(mediaPath, { headers: { Authorization: 'Bearer acceptance-other' } })).status).toBe(404);
     expect(exported.text).toContain('00:00:03,000 --> 00:00:06,000'); expect(exported.text).toContain('中文字幕');
+    expect(exported.text).toContain('00:00:00,500 --> 00:00:01,000');
     expect((await api(`/${p.id}/exports`, 'POST', { revision: p.revision, requestId })).data.id).toBe(requestId); expect(uploads.size).toBe(1);
     const file = join(reportDir, 'synthetic-acceptance-720p.mp4'); await fs.writeFile(file, uploads.get(exported.url)!);
     await fs.writeFile(join(reportDir, 'synthetic-acceptance.srt'), exported.text, 'utf8');
@@ -178,7 +189,11 @@ acceptance('Short drama five-stage local acceptance (no paid providers)', () => 
   it('rejects overlong narration and malformed video without publishing partial exports', async () => {
     const long = await attach(finishedProject, 'voice', 'shot1', 'https://acceptance.invalid/long-voice.wav', 'audio/wav');
     let p = await save(finishedProject, { shots: finishedProject.plan.shots.map((s, i) => i ? s : { ...s, voice: long }) });
-    const before = uploads.size, failed = await finishExport(p); expect(failed.status).toBe('failed'); expect(failed.error).toMatch(/镜头 1.*旁白.*超过/); expect(uploads.size).toBe(before);
+    const before = uploads.size, timing = await api(`/${p.id}/voice-timing`, 'POST', { revision: p.revision });
+    expect(timing.status).toBe(201); expect(timing.data.voices[0].seconds).toBeCloseTo(5, 1);
+    expect((await api(`/${p.id}/voice-timing`, 'POST', { revision: p.revision }, 'acceptance-other')).status).toBe(400);
+    const failed = await api(`/${p.id}/exports`, 'POST', { revision: p.revision, requestId: randomUUID() });
+    expect(failed.status).toBe(400); expect(failed.message).toMatch(/镜头 1.*旁白.*超过/); expect(uploads.size).toBe(before);
     const broken = await attach(p, 'video', 'shot1', 'https://acceptance.invalid/broken.mp4', 'video/mp4');
     p = await save(p, { shots: p.plan.shots.map((s, i) => i ? s : { ...s, video: broken, voice: undefined }) });
     const invalid = await finishExport(p); expect(invalid.status).toBe('failed'); expect(uploads.size).toBe(before);
@@ -186,7 +201,7 @@ acceptance('Short drama five-stage local acceptance (no paid providers)', () => 
   it('renders landscape crop with fractional subtitles and rejects a trim beyond the source', async () => {
     finishedProject = (await api('/' + finishedProject.id)).data;
     let p = await save(finishedProject, { frame: { ratio: '16:9', fit: 'cover', voiceVolume: 80 }, storyboardConfirmed: true,
-      shots: finishedProject.plan.shots.map((s, i) => ({ ...s, video: finishedProject.candidates.find(c => c.kind === 'video' && c.targetId === s.id && c.status === 'succeeded')!.id, voice: undefined, trimStart: 0.25, subtitleStart: 0.5, subtitleEnd: 2.75 })),
+      shots: finishedProject.plan.shots.map((s, i) => ({ ...s, video: finishedProject.candidates.find(c => c.kind === 'video' && c.targetId === s.id && c.status === 'succeeded')!.id, voice: undefined, captions:undefined,captionSource:undefined,trimStart: 0.25, subtitleStart: 0.5, subtitleEnd: 2.75 })),
       settings: { ...finishedProject.plan.settings, subtitles: true, resolution: '720p', music: undefined } });
     // A changed ratio invalidates approval. Reconfirm the same reviewed storyboard explicitly.
     p = await save(p, { storyboardConfirmed: true });

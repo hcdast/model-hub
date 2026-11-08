@@ -1,4 +1,18 @@
-import type { DramaKind, DramaPlan } from './drama.types';
+import type { DramaCandidate, DramaKind, DramaPlan } from './drama.types';
+
+/** Batch only missing narration; choosing finished audio remains an explicit user action. */
+export function voiceBatchTargets(plan: DramaPlan, candidates: DramaCandidate[]) {
+  const missing: string[] = [], ready: Record<string, string> = {};
+  for (const shot of plan.shots) {
+    if (!shot.narration.trim() || shot.voice) continue;
+    const voices = candidates.filter(c => c.kind === 'voice' && c.targetId === shot.id);
+    if (voices.some(c => c.status === 'pending' || c.status === 'running')) continue;
+    const completed = voices.filter(c => c.status === 'succeeded' && !c.stale);
+    if (completed.length === 1) ready[shot.id] = completed[0].id;
+    if (!completed.length) missing.push(shot.id);
+  }
+  return { missing: missing.slice(0, 12), ready };
+}
 
 export const DRAMA_KINDS: DramaKind[] = ['script', 'character', 'scene', 'image', 'video', 'voice', 'music'];
 export function productionSettings(value: any): Pick<DramaPlan, 'production' | 'frame'> {
