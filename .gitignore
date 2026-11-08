@@ -4,6 +4,7 @@ dist/
 *.js.map
 *.d.ts
 !/dashboard/src/vite-env.d.ts
+!/portal/src/vite-env.d.ts
 coverage/
 .DS_Store
 
