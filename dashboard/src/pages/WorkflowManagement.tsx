@@ -29,6 +29,8 @@ import {
 import { workflowApi } from '../services/api';
 import { ErrorHandler } from '../utils/error-handler';
 import PageHeader from '../components/PageHeader';
+import TemplateReviewPanel from '../components/TemplateReviewPanel';
+import TemplateInsightsPanel from '../components/TemplateInsightsPanel';
 
 /** 工作流状态 */
 type WorkflowStatus = 'draft' | 'active' | 'archived';
@@ -265,7 +267,9 @@ export default function WorkflowManagementPage() {
 
   return (
     <div>
-      <PageHeader title="工作流管理" subtitle="管理工作流定义和执行历史" />
+      <PageHeader title="工作流管理" subtitle="管理工作流定义、执行历史和创作模板审核" />
+      <TemplateInsightsPanel />
+      <TemplateReviewPanel />
 
       <Card>
         <Space style={{ marginBottom: 16 }}>
