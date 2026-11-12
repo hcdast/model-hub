@@ -303,8 +303,8 @@ export default function ApiKeys() {
       </div>
 
       {returnTo && <Alert type="info" showIcon style={{ marginBottom: tokens.spacing.xl }}
-        message={t('Set up model billing')}
-        description={returnTo.startsWith('/short-dramas/') ? t('Create or enable a Portal API Key, then return to your short drama. Paid generation needs sufficient wallet balance. Returning does not start generation.') : t('Create or enable a Portal API Key, then return to your workflow. The key needs sufficient wallet balance for paid model usage. Returning does not automatically run the workflow.')}
+        message={t('Browser creation uses your account')}
+        description={t('You can return to creation without creating an API Key. Paid generation uses your account balance; project budgets do not add funds. API Keys are for programmatic access.')}
         action={<Link to={returnTo}><Button>{t(returnTo.startsWith('/short-dramas/') ? 'Back to short drama' : 'Back to workflow')}</Button></Link>} />}
       {/* 用户角色和限制信息 */}
       {limits && (

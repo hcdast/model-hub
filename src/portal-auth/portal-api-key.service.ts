@@ -342,4 +342,30 @@ export class PortalApiKeyService {
     return key?.billingKey ?? null;
   }
 
+  /** Browser generation authenticates with the user session, never a developer key. */
+  async ensureExecutionBillingKey(userId: string): Promise<string> {
+    const activeUser = { _id: userId, status: 'active', deletedAt: null };
+    let user = await this.portalUserModel.findOne(activeUser).select('+executionBillingKey').lean();
+    if (!user) throw new ForbiddenException('账号不可用，请重新登录或联系管理员');
+
+    if (!user.executionBillingKey) {
+      // Keep the wallet previously used by browser generation when it was internally
+      // billed. No balance transfers, API secrets, key slots or free credits are created.
+      const existing = await this.apiKeyModel.findOne({
+        userId, enabled: true,
+        $and: [
+          { $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] },
+          { $or: [{ billingPolicy: 'internal' }, { billingPolicy: { $exists: false } }] },
+        ],
+      }).sort({ createdAt: 1, _id: 1 }).select('billingKey').lean();
+      const billingKey = existing?.billingKey || `portal:${userId}`;
+      // Compare and set on the user document: concurrent first requests use one wallet.
+      await this.portalUserModel.updateOne({ ...activeUser, executionBillingKey: null }, { $set: { executionBillingKey: billingKey } });
+      user = await this.portalUserModel.findOne(activeUser).select('+executionBillingKey').lean();
+    }
+    if (!user?.executionBillingKey) throw new ForbiddenException('账号不可用，请重新登录或联系管理员');
+    await this.walletService.ensureWallet(user.executionBillingKey);
+    return user.executionBillingKey;
+  }
+
 }

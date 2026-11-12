@@ -41,7 +41,7 @@ acceptance('Short drama five-stage local acceptance (no paid providers)', () => 
   const probe = process.env.DRAMA_FFPROBE_PATH || join(dirname(ffmpeg), process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe');
   const reportDir = resolve(process.env.DRAMA_TEST_REPORT_DIR || 'output/short-drama');
   const tasks = { createTask: jest.fn(), getTask: jest.fn(), cancelTask: jest.fn() };
-  const keys = { findExecutionBillingKey: jest.fn().mockResolvedValue('isolated-test-key'), validate: jest.fn() };
+  const keys = { ensureExecutionBillingKey: jest.fn().mockResolvedValue('isolated-test-key'), validate: jest.fn() };
   const identity = { verifyAccessToken: (token: string) => {
     if (!['acceptance-owner', 'acceptance-other'].includes(token)) throw new UnauthorizedException();
     return { sub: token };

@@ -20,7 +20,7 @@ export default function DramaProductionPanel({ project, models, modelStatus, ref
   const failures = failedProduction(p, project.candidates);
   const archiveFailures = project.candidates.filter(c => c.archiveStatus === 'failed').length;
   return <section className="sd-production" aria-label="制作方案与预算">
-    <div className="sd-actions" aria-live="polite"><Tag>{provider}</Tag><span>预算 {budget?.limit ?? 0} 积分 · 已用 {budget?.used ?? 0} · 预留 {budget?.reserved ?? 0} · 剩余 {budget?.remaining ?? 0}</span><Tag>{active} 项制作中</Tag><Button size="small" loading={modelStatus === 'loading'} onClick={refreshModels}>刷新制作能力</Button>{failures.actionable > 0 && <Tag color="warning">{failures.actionable} 项待补做</Tag>}</div>
+    <div className="sd-actions" aria-live="polite"><Tag>{provider}</Tag><span>项目预算 {budget?.limit ?? 0} 积分 · 已用 {budget?.used ?? 0} · 预留 {budget?.reserved ?? 0} · 剩余 {budget?.remaining ?? 0}</span><Tag>{active} 项制作中</Tag><Button size="small" loading={modelStatus === 'loading'} onClick={refreshModels}>刷新制作能力</Button>{failures.actionable > 0 && <Tag color="warning">{failures.actionable} 项待补做</Tag>}</div>
     {failures.actionable > 0 && <Alert type="warning" message="部分内容还没有可用结果，只需补做这些项" description={<div className="sd-actions">{failures.retry.map(group => <Button key={group.kind} onClick={() => retry(group.kind, group.ids, `仅补做失败的${(kinds.find(([k]) => k === group.kind)?.[1] || '成片')}（${Math.min(12,group.ids.length)} 项）`)}>补做{kinds.find(([k]) => k === group.kind)?.[1] || '成片'} · {Math.min(12,group.ids.length)} 项</Button>)}<span>模型制作先查看消耗再确认；成片只重新合成，已有选片不会改变。</span></div>} />}
     {failures.total > 0 && <Collapse ghost items={[{ key:'failed-history',label:`历史失败记录 · ${failures.total} 个候选${failures.actionable ? '' : '（当前无需补做）'}`,children:<p>失败记录保留供排查，不代表当前作品未完成。有已选用、待选用或正在补做的结果时，不会重复补做。导出失败可在出成片步骤重新导出。</p> }]} />}
     {!p.production && <Alert type="info" message="先确认制作方案：当前推荐使用 akool-maas，确认后会固定到本作品。" />}
@@ -40,7 +40,7 @@ export default function DramaProductionPanel({ project, models, modelStatus, ref
         edit({ ...p, production: { ...p.production, provider, providers, models: { ...p.production?.models, [kind]: value }, ...(kind === 'voice' ? { voiceParameters: {} } : {}) } });
       }} /></div>)}
       <label>项目预算上限（积分，不会充值或扣款）</label><InputNumber aria-label="项目预算上限" min={0} max={1000000} precision={6} value={limit} onChange={value => setLimit(value ?? 0)} /><Button onClick={() => run(async () => { await mutate(saved => dramaApi.budget(saved.id, saved.revision, limit)); })}>保存预算上限</Button>
-      <p>预算包含已用和已预留金额；失败退款确认后释放。上限变更只影响后续制作。</p>
+      <p>项目预算是本作品的消费上限，不是账号可用余额。调高预算不会充值；确认制作时仍需账号余额充足。预算包含已用和已预留金额，失败退款确认后释放。</p>
       {!!project.history?.length && <><label>恢复草稿历史（最近 20 次保存）</label><Select<number> aria-label="草稿历史" placeholder="选择历史版本" options={[...project.history].reverse().map(h => ({ value: h.revision, label: `版本 ${h.revision} · ${new Date(h.savedAt).toLocaleString()}` }))} onChange={target => Modal.confirm({ title: '恢复这份草稿？', content: '会更新文字、设定和选片，当前草稿先保存到历史。不会删除候选、调用模型或重新扣费。', onOk: () => run(async () => { await mutate(saved => dramaApi.restore(saved.id, saved.revision, target)); }) })} /></>}
     </div> }]} />
   </section>;

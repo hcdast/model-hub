@@ -14,8 +14,9 @@ export async function withClientDisplay<T extends { apiKey?: string }>(model: Mo
   const byPortalKey = new Map(portalKeys.map(key => [key.billingKey, key]));
   const portalIds = [...keys.filter(key => key!.startsWith('portal:')).map(key => key!.slice(7)), ...portalKeys.map(key => key.userId)];
   const objectIds = portalIds.filter(Types.ObjectId.isValid).map(id => new Types.ObjectId(id));
-  const users = objectIds.length ? await model.db.collection('portal_users').find({ _id: { $in: objectIds } }, { projection: { username: 1 } }).toArray() : [];
+  const users = keys.length ? await model.db.collection('portal_users').find({ $or: [{ _id: { $in: objectIds } }, { executionBillingKey: { $in: keys } }] }, { projection: { username: 1, executionBillingKey: 1 } }).toArray() : [];
   const names = new Map(users.map(user => [String(user._id), user.username]));
+  const accounts = new Map(users.filter(user => user.executionBillingKey).map(user => [user.executionBillingKey, user]));
   return rows.map(row => {
     const { clientId: legacyId, ...unredacted } = row as any;
     const safe = redactAdminData(unredacted);
@@ -23,15 +24,20 @@ export async function withClientDisplay<T extends { apiKey?: string }>(model: Mo
     if (safe.callback) { safe.callback = { ...safe.callback }; delete safe.callback.secret; }
     const client = byKey.get(key) as any;
     const portalKey = byPortalKey.get(key);
+    const account = accounts.get(key);
     const portal = key.startsWith('portal:');
-    return { ...safe, apiKey: maskAdminKey(key), clientRef: portalKey ? `portal-key:${portalKey._id}` : client ? `client:${client._id}` : portal ? key : null,
-      clientName: portalKey ? `${names.get(portalKey.userId) || 'Portal 用户'} / ${portalKey.name}` : client?.name || (portal ? names.get(key.slice(7)) || `Portal 用户（${key.slice(-6)}）` : '历史客户端') };
+    return { ...safe, apiKey: maskAdminKey(key), clientRef: account ? `portal:${account._id}` : portalKey ? `portal-key:${portalKey._id}` : client ? `client:${client._id}` : portal ? key : null,
+      clientName: account ? `${account.username || 'Portal 用户'} / 网页创作` : portalKey ? `${names.get(portalKey.userId) || 'Portal 用户'} / ${portalKey.name}` : client?.name || (portal ? names.get(key.slice(7)) || `Portal 用户（${key.slice(-6)}）` : '历史客户端') };
   });
 }
 
 /** Resolve non-secret admin references; legacy raw keys remain accepted as input. */
 export async function resolveAdminClientKey(model: Model<any>, reference?: string): Promise<string | undefined> {
   if (!reference) return undefined;
+  if (reference.startsWith('portal:') && Types.ObjectId.isValid(reference.slice(7))) {
+    const account = await model.db.collection('portal_users').findOne({ _id: new Types.ObjectId(reference.slice(7)) }, { projection: { executionBillingKey: 1 } });
+    return account?.executionBillingKey || reference;
+  }
   if (reference.startsWith('portal-key:')) {
     const id = reference.slice(11);
     const row = Types.ObjectId.isValid(id) ? await model.db.collection('portal_api_keys').findOne({ _id: new Types.ObjectId(id) }, { projection: { billingKey: 1 } }) : null;

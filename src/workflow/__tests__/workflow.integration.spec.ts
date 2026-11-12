@@ -69,7 +69,7 @@ describe('Workflow Integration Tests', () => {
         },
         {
           provide: PortalApiKeyService,
-          useValue: { findExecutionBillingKey: jest.fn() },
+          useValue: { ensureExecutionBillingKey: jest.fn() },
         },
         {
           provide: TaskService,

@@ -27,6 +27,10 @@ export class PortalUser {
   @Prop()
   termsAcceptedAt?: Date;
 
+  // Stable, non-secret identity for browser generation, independent of developer keys.
+  @Prop({ select: false })
+  executionBillingKey?: string;
+
   // Preserve stored types so invalid authentication versions fail closed.
   @Prop({ type: MongooseSchema.Types.Mixed, validate: (value: unknown) => Number.isSafeInteger(value) && Number(value) >= 0 })
   authVersion?: number;
@@ -76,6 +80,7 @@ export const PortalUserSchema = SchemaFactory.createForClass(PortalUser);
 PortalUserSchema.index({ email: 1 }, { unique: true });
 PortalUserSchema.index({ googleId: 1 }, { unique: true, sparse: true });
 PortalUserSchema.index({ githubId: 1 }, { unique: true, sparse: true });
+PortalUserSchema.index({ executionBillingKey: 1 }, { unique: true, partialFilterExpression: { executionBillingKey: { $type: 'string' } } });
 PortalUserSchema.index({ username: 1 });
 PortalUserSchema.index({ status: 1, deletedAt: 1 });
 PortalUserSchema.index({ createdAt: -1 });

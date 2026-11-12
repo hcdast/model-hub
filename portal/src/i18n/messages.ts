@@ -4,7 +4,10 @@ export type Locale = 'en' | 'zh' | 'ja';
 
 // English keys keep existing product copy readable at the call site.
 export const messages: Record<string, [string, string]> = {
+  'Model billing is temporarily unavailable. Your workflow is saved. Please retry later or contact an administrator.': ['模型计费服务暂时不可用。工作流已保存，请稍后重试或联系管理员。', 'モデルの課金サービスは一時的に利用できません。ワークフローは保存済みです。後で再試行するか管理者にお問い合わせください。'],
   ...creationMessages,
+  'Browser creation uses your account': ['网页创作使用登录账号', 'ブラウザーでの制作はアカウントを使用します'],
+  'You can return to creation without creating an API Key. Paid generation uses your account balance; project budgets do not add funds. API Keys are for programmatic access.': ['无需创建 API Key，可直接返回创作。付费生成使用账号余额，项目预算不会增加余额。API Key 用于程序接口调用。', 'API Key を作成せずに制作へ戻れます。有料生成にはアカウント残高を使用し、作品の予算ではチャージされません。API Key はプログラムからの API 呼び出し用です。'],
   'Your workflow and short drama results appear here.': ['工作流和短剧制作结果会显示在这里。', 'ワークフローとショートドラマの結果が表示されます。'],
   'Short drama result ready': ['短剧素材已完成', 'ショートドラマの素材が完成'],
   'Short drama needs attention': ['短剧制作需要处理', 'ショートドラマ制作の確認が必要'],

@@ -36,7 +36,7 @@ describe('Admin LLM/TTS configuration, publish gate and character billing', () =
     const wallet: any = { freeze: jest.fn().mockResolvedValue(true), unfreeze: jest.fn(), debit: jest.fn().mockResolvedValue(true) };
     const cfg = { ...voiceModelPreset(), unit_price_map: { default: { unit_credit: 0.01 } } };
     const adapter = new BillingAdapter({ findOne: () => ({ select: () => ({ lean: async () => ({ billingPolicy: 'internal' }) }) }) } as any, {} as any,
-      { estimate: async () => estimateModelPrice(cfg as any, { text: '你😀好！' }) } as any, billing, wallet);
+      { estimate: async () => estimateModelPrice(cfg as any, { text: '你😀好！' }) } as any, billing, wallet, {} as any);
     await adapter.initBilling({ taskId: 'tts-test', model: cfg.model_id, provider: cfg.provider, apiKey: 'fixture', featureType: 'tts', input: { text: '你😀好！' }, modelConfig: cfg as any });
     expect(billing.createRecord.mock.calls[0][0].usageMeasure).toBe('characters');
     expect(wallet.freeze).toHaveBeenCalledWith('fixture', 0.04, 'tts-test');

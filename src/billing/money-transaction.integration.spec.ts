@@ -25,7 +25,7 @@ describe('Financial atomicity on a disposable replica set', () => {
     wallet = new WalletService(wallets, ledger, clients as any, new EventEmitter2(), {} as any);
     billing = new BillingService(bills);
     const client: any = { findOne: () => ({ select: () => ({ lean: async () => ({ billingPolicy: 'internal' }) }) }) };
-    adapter = new BillingAdapter(client, {} as any, { estimate: async () => ({ usageType: UsageType.COUNT, estimatedUsage: 1, estimatedCost: 10, unitPrice: 10, currency: 'credit' }) } as any, billing, wallet);
+    adapter = new BillingAdapter(client, {} as any, { estimate: async () => ({ usageType: UsageType.COUNT, estimatedUsage: 1, estimatedCost: 10, unitPrice: 10, currency: 'credit' }) } as any, billing, wallet, {} as any);
   }, 60000);
   afterAll(async () => { await db?.close(); await mongo?.stop(); });
   beforeEach(async () => {

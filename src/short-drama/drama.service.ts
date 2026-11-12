@@ -15,8 +15,6 @@ import { TaskService } from '../task/task.service';
 import { WorkflowPolicyService } from '../workflow/workflow-policy.service';
 import { validateParams } from '../common/utils/param-validator';
 import { estimateModelPrice } from '../common/utils/model-pricing';
-import { BusinessException } from '../common/exceptions/business.exception';
-import { ErrorCode } from '../common/constants/error-codes';
 import { applyFrameInput, budgetSummary, roleInputs } from './drama-production';
 import { WorkflowAssetService } from '../workflow/workflow-asset.service';
 import { downloadDramaMedia } from './drama-render.service';
@@ -41,7 +39,7 @@ function candidateError(message?: string, code?: string): string | undefined {
   }
   if (!message || !message.startsWith('Insufficient balance for client ')) return message;
   const required = message.match(/required: (\d+(?:\.\d+)?)/)?.[1];
-  return `生成凭证的钱包余额不足${required ? `，此项需要 ${required} 积分` : ''}。请联系管理员补足该凭证的钱包余额，再重新查看消耗并制作。已有作品和素材已保留。`;
+  return `账号可用余额不足${required ? `，此项需要 ${required} 积分` : ''}。请联系管理员补足账号余额后重试。项目预算不会增加账号余额。已有作品和素材已保留。`;
 }
 export function dramaPrompt(plan: DramaPlan, kind: DramaKind, targetId: string): string {
   if (kind === 'script') return `你是短剧编剧。基于下方故事，写一集约 ${plan.duration} 秒的${plan.style}旁白短剧。返回纯 JSON，不用 Markdown：{"title":"标题","story":"完整故事","characters":[{"name":"姓名","description":"稳定的外貌与服装设定"}],"scenes":[{"name":"名称","description":"环境描述"}],"shots":[{"title":"镜头标题","description":"画面和运镜","narration":"旁白","duration":5,"characters":["姓名"],"scene":"场景名称"}]}。每镜头2至15秒，总时长不超过180秒，最多24镜头，角色和场景各不超过8个。\n故事：${plan.story}`;
@@ -128,9 +126,7 @@ export class ShortDramaService {
     catch (e: any) { throw new BadRequestException(e?.isAxiosError ? '音色读取失败，请管理员检查 akool-openapi 账号池与权限' : e.message); }
   }
   private async billingKey(ownerId: string) {
-    const key = await this.keys.findExecutionBillingKey(ownerId);
-    if (!key) throw new BusinessException(ErrorCode.WORKFLOW_API_KEY_REQUIRED, '请先启用一个 API Key 作为生成凭证。作品已保留，配置后可继续。');
-    return key;
+    return this.keys.ensureExecutionBillingKey(ownerId);
   }
   private assertStage(plan: DramaPlan, kind: DramaKind) {
     if (!plan.story.trim()) throw new BadRequestException('先写下你要讲的故事');
@@ -141,7 +137,7 @@ export class ShortDramaService {
   async quote(ownerId: string, id: string, kind: DramaKind, targetIds: string[], configId?: string, overrides: Record<string, unknown> = {}) {
     this.assertGenerationEnabled();
     if (configId && !/^[a-f\d]{24}$/i.test(configId)) throw new BadRequestException('模型配置 ID 不正确');
-    const project = await this.find(ownerId, id); this.assertStage(project.plan, kind); await this.billingKey(ownerId);
+    const project = await this.find(ownerId, id); this.assertStage(project.plan, kind);
     if (project.archived) throw new BadRequestException('请先恢复已归档作品再制作');
     configId ||= project.plan.production?.models?.[kind];
     if (kind === 'voice' && configId && configId === project.plan.production?.models?.voice) overrides = { ...project.plan.production?.voiceParameters, ...overrides };
@@ -234,7 +230,9 @@ export class ShortDramaService {
         const existing = await this.candidates.findOne({ id: item.id }).select('+billingKey').lean();
         if (existing?.taskId || existing?.status === 'failed') continue;
         try {
-          const task = await this.tasks.createTask(key, { model: quote.model.modelId, input: { ...item.input }, options: { configId: quote.model.id, configRevision: quote.model.revision, featureType: quote.model.type },
+          // A pre-upgrade or interrupted submission keeps its original wallet and
+          // idempotency scope, even if the account now has a different billing binding.
+          const task = await this.tasks.createTask(existing?.billingKey || key, { model: quote.model.modelId, input: { ...item.input }, options: { configId: quote.model.id, configRevision: quote.model.revision, featureType: quote.model.type },
             metadata: { dramaProjectId: id, dramaCandidateId: item.id } }, `drama:${quote.id}:${item.id}`, { maxCharge: item.ceiling ?? quote.estimatedCost / quote.items.length });
           await this.candidates.updateOne({ id: item.id }, { $set: { taskId: task.taskId, status: 'running' } });
         } catch (e) {

@@ -7,7 +7,7 @@ describe('Billing initialization reservation failure', () => {
   const pricing: any = { estimate: jest.fn() };
   const billing: any = { transaction: (work: any) => work(), getRecord: jest.fn().mockResolvedValue(null), createRecord: jest.fn(), markFailed: jest.fn(), markPreDeducted: jest.fn() };
   const wallet: any = { freeze: jest.fn() };
-  const adapter = new BillingAdapter(client, {} as any, pricing, billing, wallet);
+  const adapter = new BillingAdapter(client, {} as any, pricing, billing, wallet, {} as any);
   const context = { taskId: 'unsubmitted-task', apiKey: 'test-client', model: 'image', provider: 'test', featureType: 'textToImage', input: {} };
   beforeEach(() => {
     jest.clearAllMocks();

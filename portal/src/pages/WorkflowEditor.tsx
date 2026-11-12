@@ -104,7 +104,6 @@ function WorkflowEditorInner() {
   const [run, setRun] = useState<Run | null>(null);
   const [pollError, setPollError] = useState('');
   const [operation, setOperation] = useState(false);
-  const [apiKeyRequired, setApiKeyRequired] = useState(false);
   const [chatText, setChatText] = useState('');
   const [portSchemas, setPortSchemas] = useState<Record<string, { inputPorts: Port[]; outputPorts: Port[] }>>({});
   const [connecting, setConnecting] = useState<{ nodeId: string; port: string; direction: 'source' | 'target' } | null>(null);
@@ -175,7 +174,7 @@ function WorkflowEditorInner() {
     setLoadedWorkflowId(null); setHistoryWorkflowId(null);
     setHistoryItems([]); setHistoryTotal(0); setHistoryError(''); setHistoryLoading(false);
     setHistoryPage(1); setHistoryStatus(undefined); setHistoryNodeId(undefined); setHistoryRefresh(0);
-    setOperation(false); setSaving(false); setValidating(false); setAssetChoice(null); setApiKeyRequired(false);
+    setOperation(false); setSaving(false); setValidating(false); setAssetChoice(null);
     useWorkflowStore.getState().reset();
     setNodes([]); setEdges([]); setRun(null); setSelectedRun(null); setSidebarAction(null);
     setParameterId(null); setAssets({ open: false }); setHistoryOpen(false); setConnecting(null);
@@ -360,7 +359,7 @@ function WorkflowEditorInner() {
       setRun({ runId: response.data.runId, workflowId: savedId, status: 'pending' }); setRunId(response.data.runId); monitor(response.data.runId);
     } catch (error) { if (mounted.current && generation === documentGeneration.current) {
       busy.current = false; setIsExecuting(false);
-      if (needsWorkflowApiKey(error)) setApiKeyRequired(true); else message.error(errorText(error));
+      message.error(needsWorkflowApiKey(error) ? t('Model billing is temporarily unavailable. Your workflow is saved. Please retry later or contact an administrator.') : errorText(error));
     } }
   };
   const cancelRun = async () => {
@@ -540,12 +539,7 @@ function WorkflowEditorInner() {
         <NodeParametersPanel node={nodes.find(node => node.id === parameterId) || null} open={!!parameterId} onClose={() => setParameterId(null)} onUpdate={updateNodeData} />
         <AssetsPanel open={assets.open} nodeId={assets.nodeId} onClose={() => setAssets({ open: false })} onSelect={selectAsset} />
         <Modal open={!!assetChoice} title="选择素材写入的模型参数" footer={null} onCancel={() => setAssetChoice(null)}><Space direction="vertical">{assetChoice?.fields.map(field => <Button key={field} onClick={() => applyAsset(field)}>{field}</Button>)}</Space></Modal>
-        <Modal open={apiKeyRequired} title={t('Set up model billing')} onCancel={() => setApiKeyRequired(false)}
-          okText={t('Manage API Keys')} cancelText={t('Continue editing')}
-          onOk={() => { setApiKeyRequired(false); navigate(`/settings/api-keys?returnTo=${encodeURIComponent(`/workflows/${workflowId.current}`)}`); }}>
-          <p>{t('Your workflow is saved. Create or enable a Portal API Key to run model nodes.')}</p>
-          <p>{t('The key links model usage to its billing wallet. No need to paste the key into the editor. Creating a key does not start a run or add wallet balance.')}</p>
-        </Modal>
+
         <Modal open={!!connecting} title="选择连接目标端口" footer={null} onCancel={() => setConnecting(null)}><p>只列出类型兼容、不会产生环路或重复边的端口。</p>{!connectionOptions.length && <Alert type="info" message="暂无兼容端口：请添加目标节点、选择模型，或重试加载端口。" />}<List dataSource={connectionOptions} renderItem={option => <List.Item><Button onClick={() => connect(option.connection)}>{option.node.data.label} / {option.port.displayName || option.port.name}</Button></List.Item>} />{connecting && <Button onClick={() => openConnection(connecting.nodeId, connecting.port, connecting.direction)}>重新加载端口</Button>}</Modal>
         <Drawer title="运行历史" width={640} open={historyOpen && !loading && (!workflowId.current || historyReady)} onClose={() => setHistoryOpen(false)}>
           {!workflowId.current ? <Alert type="info" message="新工作流尚未保存，没有运行历史。" /> : <><Space><Select allowClear disabled={!historyReady} placeholder="所有状态" value={historyStatus} onChange={value => { setHistoryStatus(value); setHistoryPage(1); }} style={{ width: 180 }} options={['pending', 'running', 'succeeded', 'failed', 'cancelled'].map(value => ({ value, label: value }))} /><Button disabled={!historyReady} onClick={() => setHistoryRefresh(value => value + 1)}>刷新</Button></Space>{historyVisible && historyError && <Alert type="error" message={historyError} />}<List loading={historyReady && historyLoading} dataSource={historyVisible ? historyItems : []} renderItem={entry => <List.Item actions={[<Button key="view" disabled={!historyReady || entry.workflowId !== id} onClick={() => chooseHistory(entry)}>查看输出</Button>, ...(entry.status === 'failed' ? [<Button key="retry" disabled={!historyReady || entry.workflowId !== id || isExecuting || operation} onClick={() => retryRun(entry)}>重试</Button>] : [])]}><List.Item.Meta title={entry.runId} description={`${entry.status} · ${entry.createdAt || ''}`} /></List.Item>} /><Pagination current={historyVisible ? historyPage : 1} pageSize={20} total={historyVisible ? historyTotal : 0} disabled={!historyReady} showSizeChanger={false} onChange={setHistoryPage} />{historyVisible && selectedRun?.workflowId === id && <><h3>已选择：{selectedRun.runId}</h3>{(selectedRun.nodeStates || []).filter(state => !historyNodeId || state.nodeId === historyNodeId).map(state => <div key={state.nodeId}><h4>{state.nodeId} · {state.status}</h4>{state.error?.message && <Alert type="error" message={state.error.message} />}<NodeOutputPreview output={state.output} /><Button disabled={!historyReady || state.output === undefined || !nodes.some(node => node.id === state.nodeId)} onClick={() => applyHistory(state)}>应用此节点输出</Button></div>)}</>}</>}

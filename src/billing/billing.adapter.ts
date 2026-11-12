@@ -24,6 +24,7 @@ import {
 } from './interfaces/billing-context.interface';
 import { InsufficientBalanceException } from './exceptions/insufficient-balance.exception';
 import { computeActualUsageValue } from './actual-usage.util';
+import { PortalUser, PortalUserDocument } from '../database/schemas/portal-user.schema';
 
 /**
  * 计费适配器 —— 统一计费入口，按 API Client 的 billingPolicy 动态分发计费行为。
@@ -51,15 +52,26 @@ export class BillingAdapter {
     private readonly pricingService: PricingService,
     private readonly billingService: BillingService,
     private readonly walletService: WalletService,
+    @InjectModel(PortalUser.name)
+    private readonly portalUserModel: Model<PortalUserDocument>,
   ) {}
 
   /**
    * 查询 API Client 的计费策略
    *
    * 从 api_clients 集合查询 billingPolicy 字段。
-   * 未找到客户端或未配置策略时默认返回 'internal'，确保向后兼容。
+   * 网页账号仅允许已绑定的 internal 钱包；无法解析身份时拒绝计费。
    */
   async resolvePolicy(apiKey: string): Promise<BillingPolicy> {
+    // Account wallets remain valid when a developer deletes or disables an API key.
+    // Only a persisted server-side association authorizes browser billing.
+    if (apiKey.startsWith('portal:')) {
+      const account = await this.portalUserModel.findOne({ executionBillingKey: apiKey }).select('status deletedAt').lean();
+      if (account) {
+        if (account.status !== 'active' || account.deletedAt) throw new Error('Portal account is inactive');
+        return BillingPolicy.INTERNAL;
+      }
+    }
     const client = await this.apiClientModel
       .findOne({ apiKey })
       .select('billingPolicy')
@@ -91,7 +103,7 @@ export class BillingAdapter {
    * 5. internal + count/duration → 调用 WalletService.freeze() 预扣费
    *    - freeze 失败 → 抛出 InsufficientBalanceException
    *    - freeze 成功 → 调用 BillingService.markPreDeducted()
-   * 6. internal + token → 不预扣费，记录已创建（状态为 estimated）
+   * 6. internal + token → 有可信授权上限时预扣费；其余沿用 estimated
    * 7. external → 不执行任何钱包操作，记录已创建
    */
   async initBilling(context: BillingInitContext): Promise<void> {
@@ -157,7 +169,10 @@ export class BillingAdapter {
     // internal 策略：根据 usageType 决定是否预扣费
     if (
       estimate.usageType === UsageType.COUNT ||
-      estimate.usageType === UsageType.DURATION
+      estimate.usageType === UsageType.DURATION ||
+      // A confirmed browser quote authorizes a bounded token charge. Reserve it too,
+      // so an empty wallet cannot submit a paid script task or overspend concurrently.
+      (estimate.usageType === UsageType.TOKEN && context.maxCharge !== undefined)
     ) {
       // count/duration 类型：预扣费
       const frozen = await this.walletService.freeze(

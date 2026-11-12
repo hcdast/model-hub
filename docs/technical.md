@@ -4357,6 +4357,10 @@ GET /api/v1/admin/creation-templates/insights?kind=short-drama|workflow&page=1 �
 
 ### 统一预算、操作事件与阶段模板
 
+门户网页生成使用登录账号鉴权，不要求用户创建或启用 API Key。短剧查看报价只校验作品、模型和参数，不创建计费身份、不启动任务。确认制作及网页工作流运行时，后台通过 `ensureExecutionBillingKey` 原子绑定 `portal_users.executionBillingKey` 并确保零余额钱包存在；已有用户优先绑定之前网页执行所用的最早有效 internal Key 钱包，之后停用或删除开发者 Key 不改变该绑定。无可复用钱包时使用 `portal:<用户ID>`；不迁移或合并其他钱包余额，也不自动充值。网页绑定始终按 internal 计费，开发者 API 继续通过 Key 鉴权。管理后台钱包按账号显示“网页创作”，可继续沿用原充值及流水核查入口。
+
+新字段使用字符串部分唯一索引；部署前需确认 `portal_users.executionBillingKey` 索引已创建。作品所有权、模型角色权限、项目预算、任务授权上限及钱包原子预扣费继续有效。带可信 `maxCharge` 的 token 任务也执行钱包预留，避免零余额仍提交剧本任务。界面中的“项目剩余预算”是消费上限的剩余额度，不是账号余额，调高预算不会充值。真实充值和模型调用需在部署后另行验收。
+
 关联镜头流程的 NodeExecutor 在创建模型任务前调用 WorkflowBudgetService。drama_workflow_budget_tasks 按 runId/nodeId/attempt 的哈希唯一，记录模型配置版本、参数指纹、授权上限和任务关联。与普通短剧报价共用项目 budgetHolds，通过单次条件更新验证「全部已用和预留 + 本次上限 <= budgetLimit」。模型参数验证及现有积分估价通过后才预留；传入 TaskService 的可信 maxCharge 继续约束实际结算。普通独立工作流沿用原路径。钱包余额和供应商成本不等于项目预算，整个流程没有提前计算总报价，后续节点可能因预算不足停止，前序已提交节点仍会扣费。
 
 节点提交先以 ready→submitting 原子认领，成功绑定 taskId；相同节点尝试不能重复调用创建。未知提交结果保留预留，通过受信任的 task metadata、运行执行密钥核对已存在任务。仅明确的提交前拒绝释放；settled/refunded 计费记录确认后条件更新 hold，重复核对不会重复释放。免计费密钥的终态任务核对为 0。归档、暂停生成、无效节点状态阻止新提交。旧版本已提交、未带预算关联的高级任务不倒填为零消费；金额超授权、结果不明且查无任务的记录需人工核对，不直接删除 hold 重试。

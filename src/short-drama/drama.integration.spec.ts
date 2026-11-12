@@ -5,7 +5,7 @@ import { ModelConfig, ModelConfigSchema } from '../database/schemas/model-config
 import { WorkflowAsset, WorkflowAssetSchema } from '../database/schemas/workflow-asset.schema';
 import { ShortDramaService } from './drama.service';
 import { emptyDramaPlan } from './drama.types';
-import { GlobalExceptionFilter } from '../common/filters/global-exception.filter';
+import { ForbiddenException } from '@nestjs/common';
 import { InsufficientBalanceException } from '../billing/exceptions/insufficient-balance.exception';
 import { renderManifest } from './drama-version';
 
@@ -13,7 +13,7 @@ describe('Short drama persistence and authorized generation', () => {
   let mongo: MongoMemoryServer, db: Connection, service: ShortDramaService;
   let projects: Model<ShortDramaProject>, candidates: Model<ShortDramaCandidate>, quotes: Model<ShortDramaQuote>;
   let configs: Model<ModelConfig>, assets: Model<WorkflowAsset>;
-  const keys = { findExecutionBillingKey: jest.fn() }, tasks = { createTask: jest.fn(), getTask: jest.fn(), cancelTask: jest.fn() }, policy = { assertNodesAllowed: jest.fn() };
+  const keys = { ensureExecutionBillingKey: jest.fn() }, tasks = { createTask: jest.fn(), getTask: jest.fn(), cancelTask: jest.fn() }, policy = { assertNodesAllowed: jest.fn() };
   beforeAll(async () => {
     mongo = await MongoMemoryServer.create(); db = await createConnection(mongo.getUri()).asPromise();
     projects = db.model(ShortDramaProject.name, ShortDramaProjectSchema); candidates = db.model(ShortDramaCandidate.name, ShortDramaCandidateSchema); quotes = db.model(ShortDramaQuote.name, ShortDramaQuoteSchema);
@@ -24,7 +24,7 @@ describe('Short drama persistence and authorized generation', () => {
   afterAll(async () => { await db?.close(); await mongo?.stop(); });
   beforeEach(async () => {
     await Promise.all([projects.deleteMany({}), candidates.deleteMany({}), quotes.deleteMany({}), configs.deleteMany({}), assets.deleteMany({})]); jest.clearAllMocks();
-    keys.findExecutionBillingKey.mockResolvedValue('private-billing-key'); tasks.createTask.mockResolvedValue({ taskId: 'task-real' }); tasks.getTask.mockResolvedValue({ status: 'PROCESSING' });
+    keys.ensureExecutionBillingKey.mockResolvedValue('private-billing-key'); tasks.createTask.mockResolvedValue({ taskId: 'task-real' }); tasks.getTask.mockResolvedValue({ status: 'PROCESSING' });
     await configs.create({ model_id: 'image-model', model_type: 'textToImage', model_name: '测试模型', provider: 'test', revision: 1,
       unit_price_map: { default: { unit_credit: 2 } }, params: { prompt: { type: 'string', required: true }, batch_quantity: { type: 'integer', required: false, default: 1 } } });
   });
@@ -103,10 +103,11 @@ describe('Short drama persistence and authorized generation', () => {
       characters: [{ ...saved.plan.characters[0], description: '长发' }] });
     expect(changed.plan.castConfirmed).toBe(false);
   });
-  it('never submits during preflight or without a billing key; rejects expired and changed quotes', async () => {
-    const p = await project(); keys.findExecutionBillingKey.mockResolvedValue(null);
-    await expect(service.quote('owner', p.id, 'character', ['girl'])).rejects.toThrow('请先启用'); expect(tasks.createTask).not.toHaveBeenCalled();
-    keys.findExecutionBillingKey.mockResolvedValue('key'); const q = await service.quote('owner', p.id, 'character', ['girl']); expect(q.estimatedCost).toBe(2); expect(tasks.createTask).not.toHaveBeenCalled();
+  it('quotes without provisioning billing or starting tasks; rejects expired and changed quotes', async () => {
+    const p = await project(); keys.ensureExecutionBillingKey.mockResolvedValue(null);
+    const q = await service.quote('owner', p.id, 'character', ['girl']);
+    expect(q.estimatedCost).toBe(2); expect(tasks.createTask).not.toHaveBeenCalled();
+    expect(keys.ensureExecutionBillingKey).not.toHaveBeenCalled();
     await service.update('owner', p.id, 0, { ...p.plan, title: '新标题' }); await expect(service.confirm('owner', p.id, q.id)).rejects.toThrow('报价已过期或作品已修改');
     const q2 = await service.quote('owner', p.id, 'character', ['girl']); await quotes.updateOne({ id: q2.id }, { $set: { expiresAt: new Date(0) } }); await expect(service.confirm('owner', p.id, q2.id)).rejects.toThrow('报价已过期');
     expect(tasks.createTask).not.toHaveBeenCalled();
@@ -326,12 +327,23 @@ describe('Short drama persistence and authorized generation', () => {
     expect(tasks.createTask.mock.calls[1][2]).toBe(firstKey); expect(await candidates.countDocuments({ projectId: p.id })).toBe(1);
     expect((await service.get('owner', p.id)).pendingRequests).toEqual([]);
   });
-  it('preserves the billing recovery code through the real exception filter', async () => {
-    const p = await project(); keys.findExecutionBillingKey.mockResolvedValue(null);
-    const error = await service.quote('owner', p.id, 'character', ['girl']).catch(e => e);
-    const response = { status: jest.fn().mockReturnThis(), json: jest.fn() };
-    new GlobalExceptionFilter().catch(error, { switchToHttp: () => ({ getResponse: () => response, getRequest: () => ({ method: 'POST', path: '/v1/short-dramas/project/quotes' }) }) } as any);
-    expect(response.json).toHaveBeenCalledWith(expect.objectContaining({ code: 1009, statusCode: 400 }));
+  it('keeps the original candidate billing scope when resuming a pre-upgrade submission', async () => {
+    const p = await project(), q = await service.quote('owner', p.id, 'character', ['girl']);
+    tasks.createTask.mockRejectedValueOnce(new Error('connection interrupted'));
+    await expect(service.confirm('owner', p.id, q.id)).rejects.toThrow('connection interrupted');
+    keys.ensureExecutionBillingKey.mockResolvedValue('portal:new-account-wallet');
+    await service.confirm('owner', p.id, q.id);
+    expect(tasks.createTask.mock.calls[0][0]).toBe('private-billing-key');
+    expect(tasks.createTask.mock.calls[1][0]).toBe('private-billing-key');
+    expect(tasks.createTask.mock.calls[1][2]).toBe(tasks.createTask.mock.calls[0][2]);
+  });
+  it('rejects an inactive billing account on confirmation without submitting or reserving project budget', async () => {
+    const p = await project(), q = await service.quote('owner', p.id, 'character', ['girl']);
+    keys.ensureExecutionBillingKey.mockRejectedValueOnce(new ForbiddenException('账号不可用'));
+    await expect(service.confirm('owner', p.id, q.id)).rejects.toThrow('账号不可用');
+    expect(tasks.createTask).not.toHaveBeenCalled();
+    expect((await service.get('owner', p.id)).budget.reserved).toBe(0);
+    expect((await quotes.findOne({ id: q.id }).lean())?.status).toBe('quoted');
   });
   it('does not release ambiguous paid reservations when the model configuration changes', async () => {
     const p = await project(), q = await service.quote('owner', p.id, 'character', ['girl']);

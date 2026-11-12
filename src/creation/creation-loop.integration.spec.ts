@@ -60,7 +60,7 @@ describe('Creation product loop with isolated database and no paid providers', (
     workflowService = new WorkflowService(workflows as any, new EventEmitter2(), policy as any);
     service = new CreationTemplateService(submissions, templates, workflowService, dramas);
     bridge = new DramaWorkflowService(links, runs, candidates, dramas, workflowService, templateService);
-    execution = new WorkflowExecutionService(runs as any, workflows as any, queue as any, new ExecutionGraphResolver(), new EventEmitter2(), { findExecutionBillingKey: async () => 'isolated-key' } as any, tasks as any, policy as any, links);
+    execution = new WorkflowExecutionService(runs as any, workflows as any, queue as any, new ExecutionGraphResolver(), new EventEmitter2(), { ensureExecutionBillingKey: async () => 'isolated-key' } as any, tasks as any, policy as any, links);
     const module = await Test.createTestingModule({ controllers: [CreationEventController, CreationTemplateController, DramaTemplateCatalogController, AdminCreationTemplateController], providers: [
       { provide: CreationEventService, useValue: eventService },
       { provide: CreationTemplateService, useValue: service },

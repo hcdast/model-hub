@@ -30,8 +30,6 @@ import { PortalApiKeyService } from '../portal-auth/portal-api-key.service';
 import { TaskService } from '../task/task.service';
 import { WorkflowPolicyService } from './workflow-policy.service';
 import { assignPortInput, readOutputPort } from './workflow-ports';
-import { BusinessException } from '../common/exceptions/business.exception';
-import { ErrorCode } from '../common/constants/error-codes';
 import { DramaWorkflowLink } from '../creation/drama-workflow.schema';
 import { WorkflowBudgetService } from '../creation/workflow-budget.service';
 
@@ -102,12 +100,7 @@ export class WorkflowExecutionService {
     );
     let executionApiKey = presentedApiKey;
     if (requiresModelExecution && !executionApiKey) {
-      executionApiKey =
-        (await this.portalApiKeyService.findExecutionBillingKey(clientId)) ??
-        undefined;
-    }
-    if (requiresModelExecution && !executionApiKey) {
-      throw new BusinessException(ErrorCode.WORKFLOW_API_KEY_REQUIRED);
+      executionApiKey = await this.portalApiKeyService.ensureExecutionBillingKey(clientId);
     }
 
     const runId = uuidv4();

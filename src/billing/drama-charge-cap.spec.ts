@@ -6,7 +6,7 @@ describe('Server-authorized short drama charge ceiling', () => {
   const pricing: any = { estimate: jest.fn() };
   const billing: any = { transaction: (work: any) => work(), createRecord: jest.fn(), getRecord: jest.fn(), settle: jest.fn(), markPreDeducted: jest.fn() };
   const wallet: any = { freeze: jest.fn(), unfreeze: jest.fn(), debit: jest.fn() };
-  const adapter = new BillingAdapter(client, {} as any, pricing, billing, wallet);
+  const adapter = new BillingAdapter(client, {} as any, pricing, billing, wallet, {} as any);
   beforeEach(() => { jest.clearAllMocks(); billing.getRecord.mockResolvedValue(null); wallet.freeze.mockResolvedValue(true); wallet.debit.mockResolvedValue(true); });
   it('rejects price drift before creating a record or freezing any funds', async () => {
     pricing.estimate.mockResolvedValue({ estimatedCost: 3, usageType: UsageType.COUNT });
