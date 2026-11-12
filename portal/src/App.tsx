@@ -16,6 +16,7 @@ const Login = lazy(() => import('./pages/Login'));
 const Register = lazy(() => import('./pages/Register'));
 const AuthCallback = lazy(() => import('./pages/AuthCallback'));
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
+const Legal = lazy(() => import('./pages/Legal'));
 const WorkflowEditor = lazy(() => import('./pages/WorkflowEditor'));
 const TemplateGallery = lazy(() => import('./pages/TemplateGallery'));
 const TemplateDetail = lazy(() => import('./pages/TemplateDetail'));
@@ -68,6 +69,8 @@ function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/terms" element={<Legal document="terms" />} />
+          <Route path="/privacy" element={<Legal document="privacy" />} />
           <Route path="/models" element={<AppLayout><Models /></AppLayout>} />
           <Route path="/router" element={<Navigate to="/models" replace />} />
           <Route path="/models/:id" element={<AppLayout><ModelDocs /></AppLayout>} />

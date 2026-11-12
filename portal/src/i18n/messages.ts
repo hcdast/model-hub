@@ -4,6 +4,10 @@ export type Locale = 'en' | 'zh' | 'ja';
 
 // English keys keep existing product copy readable at the call site.
 export const messages: Record<string, [string, string]> = {
+  'Third-party sign-in requests are too frequent.': ['第三方登录请求过于频繁。', '外部ログインのリクエストが多すぎます。'],
+  'Please try again in {seconds} seconds, or sign in with your email and password.': ['请在 {seconds} 秒后重试，或使用邮箱和密码登录。', '{seconds} 秒後に再試行するか、メールアドレスとパスワードでログインしてください。'],
+  'You can try third-party sign-in again, or sign in with your email and password.': ['现在可以重试第三方登录，也可以使用邮箱和密码登录。', '外部ログインを再試行するか、メールアドレスとパスワードでログインできます。'],
+  'Third-party sign-in is temporarily unavailable. Please use your email and password, or try again later.': ['第三方登录暂时不可用，请使用邮箱和密码登录，或稍后重试。', '外部ログインは一時的に利用できません。メールアドレスとパスワードでログインするか、後で再試行してください。'],
   'Model billing is temporarily unavailable. Your workflow is saved. Please retry later or contact an administrator.': ['模型计费服务暂时不可用。工作流已保存，请稍后重试或联系管理员。', 'モデルの課金サービスは一時的に利用できません。ワークフローは保存済みです。後で再試行するか管理者にお問い合わせください。'],
   ...creationMessages,
   'Browser creation uses your account': ['网页创作使用登录账号', 'ブラウザーでの制作はアカウントを使用します'],

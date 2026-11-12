@@ -1,4 +1,4 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { HttpException, INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import axios from 'axios';
 import * as nodemailer from 'nodemailer';
@@ -20,7 +20,7 @@ describe('Portal auth HTTP endpoints', () => {
   const sendMail = jest.fn();
   const auth = { register: jest.fn(), login: jest.fn(), loginWithOAuth: jest.fn(), canResetPassword: jest.fn(), recoverPassword: jest.fn(), getRefreshCookieMaxAge: jest.fn(),
     verifyAccessToken: jest.fn(), getUserById: jest.fn(), getOAuthLinkAccount: jest.fn(), linkOAuthAccount: jest.fn() };
-  const throttle = { consume: jest.fn(), reset: jest.fn() };
+  const throttle = { consume: jest.fn(), consumeOAuth: jest.fn(), reset: jest.fn() };
   const session = { accessToken: 'private-access-token', refreshToken: 'private-refresh-token', user: { id: 'user', username: 'Test' } };
   const config = { portalAuth: {
     publicUrl: 'http://localhost:7004',
@@ -110,7 +110,8 @@ describe('Portal auth HTTP endpoints', () => {
   it('round-trips OAuth using a browser-bound cookie and redirects without exposing any tokens', async () => {
     const start = await fetch(`${baseUrl}/v1/auth/oauth/google?returnTo=${encodeURIComponent('/workflows/new?template=1')}`, { redirect: 'manual' });
     expect(start.status).toBe(302);
-    expect(throttle.consume).toHaveBeenCalledWith('127.0.0.1', 'oauth:google:127.0.0.1');
+    expect(throttle.consumeOAuth).toHaveBeenCalledWith('127.0.0.1');
+    expect(throttle.consume).not.toHaveBeenCalled();
     const location = new URL(start.headers.get('location')!);
     const state = location.searchParams.get('state');
     const cookie = start.headers.get('set-cookie')!.split(';')[0];
@@ -135,6 +136,42 @@ describe('Portal auth HTTP endpoints', () => {
     const withoutCsrf = await fetch(`${baseUrl}/v1/auth/oauth/google/link`, { method: 'POST', headers: { Authorization: 'Bearer local-token' } });
     expect(withoutCsrf.status).toBe(403);
     expect(auth.getOAuthLinkAccount).not.toHaveBeenCalled();
+  });
+
+  it('returns OAuth throttling to the login page with an actual retry delay and a safe destination', async () => {
+    throttle.consumeOAuth.mockRejectedValue(new HttpException({ message: 'private redis details', retryAfter: 37 }, 429));
+    const destination = '/workflows/new?template=1#prompt';
+    const response = await fetch(`${baseUrl}/v1/auth/oauth/google?returnTo=${encodeURIComponent(destination)}`, { redirect: 'manual' });
+    expect(response.status).toBe(303);
+    const url = new URL(response.headers.get('location')!);
+    expect(url.origin + url.pathname).toBe('http://localhost:7004/login');
+    expect(url.searchParams.get('error')).toBe('oauth_rate_limited');
+    expect(url.searchParams.get('returnTo')).toBe(destination);
+    expect(url.searchParams.get('retryAfter')).toBe('37');
+    expect(response.headers.get('retry-after')).toBe('37');
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+    expect(await response.text()).not.toContain('private');
+    expect(await redis.keys('portal:oauth:*')).toEqual([]);
+    expect(response.headers.get('set-cookie')).toBeNull();
+  });
+
+  it.each(['https://attacker.example/', '//attacker.example/', '/login', '/\\attacker.example/'])('sanitizes the error redirect destination: %s', async destination => {
+    throttle.consumeOAuth.mockRejectedValue(new HttpException('rate limited', 429));
+    const response = await fetch(`${baseUrl}/v1/auth/oauth/google?returnTo=${encodeURIComponent(destination)}`, { redirect: 'manual' });
+    const url = new URL(response.headers.get('location')!);
+    expect(url.searchParams.get('returnTo')).toBe('/');
+    expect(url.searchParams.get('retryAfter')).toBe('900');
+  });
+
+  it('returns an unavailable provider to a recoverable login page', async () => {
+    const response = await fetch(`${baseUrl}/v1/auth/oauth/github?returnTo=%2Fworks`, { redirect: 'manual' });
+    expect(response.status).toBe(303);
+    const url = new URL(response.headers.get('location')!);
+    expect(url.searchParams.get('error')).toBe('oauth_unavailable');
+    expect(url.searchParams.get('returnTo')).toBe('/works');
+    expect(response.headers.get('retry-after')).toBeNull();
+    expect(await response.text()).not.toContain('secret');
   });
 
   it('links the server-selected authenticated account after a fresh Google proof, never a body or query user ID', async () => {

@@ -20,6 +20,7 @@ import {
   Param,
   Query,
   ConflictException,
+  HttpException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiProperty } from '@nestjs/swagger';
 import { IsEmail, IsString, MinLength, MaxLength, IsOptional, Matches, Equals, IsIn, IsByteLength } from 'class-validator';
@@ -162,14 +163,32 @@ export class PortalAuthController {
   @ApiOperation({ summary: '发起 Google / GitHub 登录' })
   async startOAuth(@Param('provider') provider: OAuthProvider, @Query('returnTo') returnTo: unknown,
     @Req() request: Request, @Res() response: ExpressResponse) {
-    const ip = request.ip || request.socket.remoteAddress;
-    await this.loginThrottle.consume(ip, `oauth:${provider}:${ip || 'unknown'}`);
-    const result = await this.authFlow.startOAuth(provider, returnTo);
-    response.cookie('portal_oauth_binding', result.binding, {
-      httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 600000,
-    });
     response.setHeader('Cache-Control', 'no-store');
-    response.redirect(result.url);
+    response.setHeader('Referrer-Policy', 'no-referrer');
+    try {
+      const ip = request.ip || request.socket.remoteAddress;
+      await this.loginThrottle.consumeOAuth(ip);
+      const result = await this.authFlow.startOAuth(provider, returnTo);
+      response.cookie('portal_oauth_binding', result.binding, {
+        httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 600000,
+      });
+      response.redirect(result.url);
+    } catch (error) {
+      const status = error instanceof HttpException ? error.getStatus() : 500;
+      const params = new URLSearchParams({
+        error: status === 429 ? 'oauth_rate_limited' : status === 503 ? 'oauth_unavailable' : 'oauth_failed',
+        returnTo: this.authFlow.returnPath(returnTo),
+      });
+      if (status === 429) {
+        const detail = (error as HttpException).getResponse() as { retryAfter?: number };
+        const retryAfter = Number.isFinite(detail?.retryAfter) ? Math.max(1, Math.min(900, Math.ceil(detail.retryAfter!))) : 900;
+        params.set('retryAfter', String(retryAfter));
+        response.setHeader('Retry-After', retryAfter);
+      }
+      let publicUrl = '';
+      try { publicUrl = this.authFlow.publicUrl(); } catch { /* Same-origin login remains usable if OAuth config is unavailable. */ }
+      response.redirect(303, `${publicUrl}/login?${params}`);
+    }
   }
 
   @Get('oauth/:provider/callback')

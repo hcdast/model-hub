@@ -8,10 +8,12 @@ const EMAIL_ATTEMPT_LIMIT = 10;
 const IP_ATTEMPT_LIMIT = 50;
 const INCREMENT_SCRIPT = `
 local count = redis.call('INCR', KEYS[1])
-if count == 1 then
+local ttl = redis.call('TTL', KEYS[1])
+if count == 1 or ttl < 0 then
   redis.call('EXPIRE', KEYS[1], ARGV[1])
+  ttl = tonumber(ARGV[1])
 end
-return count
+return {count, ttl}
 `;
 
 @Injectable()
@@ -22,14 +24,22 @@ export class PortalLoginThrottleService {
 
   async consume(ip: string | undefined, email: string): Promise<void> {
     const keys = this.getKeys(ip, email);
+    await this.consumeLimits([{ key: keys.email, limit: EMAIL_ATTEMPT_LIMIT }, { key: keys.ip, limit: IP_ATTEMPT_LIMIT }]);
+  }
+
+  /** OAuth has no email identity yet; do not apply the password email limit to a shared IP. */
+  async consumeOAuth(ip: string | undefined): Promise<void> {
+    const ipHash = createHash('sha256').update(ip || 'unknown').digest('hex');
+    await this.consumeLimits([{ key: `portal:oauth:start:ip:${ipHash}`, limit: IP_ATTEMPT_LIMIT }]);
+  }
+
+  private async consumeLimits(limits: Array<{ key: string; limit: number }>): Promise<void> {
     try {
-      const [emailAttempts, ipAttempts] = await Promise.all([
-        this.increment(keys.email),
-        this.increment(keys.ip),
-      ]);
-      if (emailAttempts > EMAIL_ATTEMPT_LIMIT || ipAttempts > IP_ATTEMPT_LIMIT) {
+      const results = await Promise.all(limits.map(async ({ key, limit }) => ({ ...await this.increment(key), limit })));
+      const blocked = results.filter(result => result.count > result.limit);
+      if (blocked.length) {
         throw new HttpException(
-          'Too many login attempts. Try again later.',
+          { message: 'Too many login attempts. Try again later.', retryAfter: Math.max(...blocked.map(result => result.retryAfter)) },
           HttpStatus.TOO_MANY_REQUESTS,
         );
       }
@@ -57,8 +67,9 @@ export class PortalLoginThrottleService {
     }
   }
 
-  private async increment(key: string): Promise<number> {
-    return Number(await this.redis.eval(INCREMENT_SCRIPT, 1, key, WINDOW_SECONDS));
+  private async increment(key: string): Promise<{ count: number; retryAfter: number }> {
+    const [count, ttl] = await this.redis.eval(INCREMENT_SCRIPT, 1, key, WINDOW_SECONDS) as [number, number];
+    return { count: Number(count), retryAfter: Math.max(1, Math.min(WINDOW_SECONDS, Number(ttl) || WINDOW_SECONDS)) };
   }
 
   private getKeys(

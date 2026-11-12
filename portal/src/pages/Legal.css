@@ -1,0 +1,94 @@
+.portal-legal {
+  min-height: 100vh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.portal-legal-header {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.portal-legal-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-primary);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.portal-legal-main {
+  max-width: 848px;
+  margin: 24px auto 0;
+  padding: 0 24px 48px;
+}
+
+.portal-legal-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  margin-bottom: 24px;
+}
+
+.portal-legal-nav a {
+  padding-bottom: 8px;
+  color: var(--text-secondary);
+  border-bottom: 2px solid transparent;
+}
+
+.portal-legal-nav a[aria-current='page'] {
+  color: var(--accent-primary-hover);
+  border-bottom-color: var(--accent-primary);
+}
+
+.portal-legal-document {
+  padding: 40px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  overflow-wrap: anywhere;
+}
+
+.portal-legal-document h1 {
+  margin: 0 0 24px;
+  font-size: 32px;
+  line-height: 1.4;
+}
+
+.portal-legal-document h2 {
+  margin: 28px 0 12px;
+  font-size: 18px;
+  line-height: 1.5;
+}
+
+.portal-legal-document p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.9;
+}
+
+.portal-legal-document .portal-legal-intro {
+  margin-top: 24px;
+}
+
+.portal-legal-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+@media (max-width: 600px) {
+  .portal-legal-header { padding: 16px; }
+  .portal-legal-main { margin-top: 16px; padding: 0 16px 32px; }
+  .portal-legal-document { padding: 24px 20px; border-radius: var(--radius-lg); }
+  .portal-legal-document h1 { font-size: 26px; }
+}

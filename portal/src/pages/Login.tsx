@@ -3,7 +3,7 @@ import '../styles/portal-shell.css';
 import { useI18n } from '../i18n';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Button, Input, message } from 'antd';
+import { Alert, Button, Input, message } from 'antd';
 import { MailOutlined, LockOutlined } from '@ant-design/icons';
 import tokens from '../theme/dark';
 import { useAuthStore } from '../store/auth-store';
@@ -20,12 +20,29 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const params = new URLSearchParams(location.search);
+  const reason = params.get('error');
+  const returnState = location.state ?? { from: params.get('returnTo') };
+  const [retryAt, setRetryAt] = useState(0);
+  const [now, setNow] = useState(Date.now());
+  const retrySeconds = Math.max(0, Math.ceil((retryAt - now) / 1000));
   useEffect(() => {
-    const reason = new URLSearchParams(location.search).get('error');
     useAuthStore.getState().setError(reason === 'email_conflict'
       ? 'An account already uses this email. Please sign in using its original method.'
-      : reason ? 'Sign-in could not be completed. Please try again.' : null);
+      : reason === 'oauth_unavailable' ? 'Third-party sign-in is temporarily unavailable. Please use your email and password, or try again later.'
+      : reason && reason !== 'oauth_rate_limited' ? 'Sign-in could not be completed. Please try again.' : null);
+    const seconds = Number(new URLSearchParams(location.search).get('retryAfter'));
+    const start = Date.now(); setNow(start);
+    setRetryAt(reason === 'oauth_rate_limited' ? start + (Number.isInteger(seconds) && seconds > 0 ? Math.min(900, seconds) : 900) * 1000 : 0);
   }, [location.search]);
+  useEffect(() => {
+    if (!retryAt) return;
+    const timer = window.setInterval(() => {
+      const value = Date.now(); setNow(value);
+      if (value >= retryAt) window.clearInterval(timer);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [retryAt]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,7 +56,7 @@ export default function Login() {
     try {
       await login(email.trim(), password);
       message.success(t("Login successful"));
-      navigate(getAuthReturnPath(location.state), { replace: true });
+      navigate(getAuthReturnPath(returnState), { replace: true });
     } catch (err) {
       // Error is handled by store
     } finally {
@@ -172,6 +189,11 @@ export default function Login() {
             {t("Sign in to your account to continue")}</p>
 
           {/* 错误提示 */}
+          {reason === 'oauth_rate_limited' && <Alert style={{ marginBottom: tokens.spacing.lg }} type="warning" showIcon
+            message={t('Third-party sign-in requests are too frequent.')}
+            description={retrySeconds > 0
+              ? t('Please try again in {seconds} seconds, or sign in with your email and password.').replace('{seconds}', String(retrySeconds))
+              : t('You can try third-party sign-in again, or sign in with your email and password.')} />}
           {error && (
             <div role="alert" style={{
               padding: tokens.spacing.md,
@@ -270,7 +292,7 @@ export default function Login() {
               {t("Sign in")}</Button>
           </form>
 
-          <SocialAuth returnState={location.state} disabled={loading} />
+          <SocialAuth returnState={returnState} disabled={loading || retrySeconds > 0} />
 
           {/* 注册链接 */}
           <p style={{
@@ -279,7 +301,7 @@ export default function Login() {
             fontSize: tokens.font.size.base,
           }}>
             {t("Don't have an account?")}{' '}
-            <Link to="/register" state={location.state} style={{
+            <Link to="/register" state={returnState} style={{
               color: tokens.accent.primary,
               fontWeight: tokens.font.weight.medium,
             }}>

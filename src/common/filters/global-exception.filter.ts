@@ -106,6 +106,13 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     if ((context as any).errors) {
       body.errors = (context as any).errors;
     }
+    if (status === HttpStatus.TOO_MANY_REQUESTS && exception instanceof HttpException) {
+      const detail = exception.getResponse() as { retryAfter?: unknown };
+      if (typeof detail?.retryAfter === 'number' && Number.isFinite(detail.retryAfter) && detail.retryAfter > 0) {
+        body.retryAfter = Math.ceil(detail.retryAfter);
+        response.setHeader('Retry-After', body.retryAfter);
+      }
+    }
     response.status(status).json(body);
   }
 
