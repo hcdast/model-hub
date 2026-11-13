@@ -43,7 +43,7 @@ export default function DramaGenerationModal({ projectId, plan, visualReport, vi
     {visualBusy && request.kind==='video' && <p aria-live="polite">正在检查所选参考图的实际画幅…</p>}
     <p className="sd-note">本次仅制作 {request.ids.length} 项。查看报价不会开始生成；确认后才提交。后续阶段的制作与重做不包含在本次报价中。确认后将校验账号余额和项目预算。</p>
     <details><summary>查看本次制作范围 · {request.ids.length} 项</summary><ol className="sd-generation-scope">{request.ids.map(id=><li key={id}>{plan.shots.find(s=>s.id===id)?.title || [...plan.characters,...plan.scenes].find(r=>r.id===id)?.name || plan.title}</li>)}</ol></details>
-    {quote && budgetRemaining!==undefined && <p aria-label="本批预算影响">项目剩余预算 {budgetRemaining} 积分 · 本批预估 {quote.estimatedCost} 积分 · 按预估预留后剩余 {Math.max(0,Math.round((budgetRemaining-quote.estimatedCost)*1e6)/1e6)} 积分。实际结算以后端结果为准。</p>}
+    {quote && budgetRemaining!==undefined && <p aria-label="本批预算影响">项目剩余预算 {budgetRemaining} 积分 · 本批预估 {quote.estimatedCost} 积分 · 按预估预留后剩余 {Math.max(0,Math.round((budgetRemaining-quote.estimatedCost)*1e6)/1e6)} 积分。最终按实际用量结算，可能高于或低于预估。</p>}
     {['image','video'].includes(request.kind) && <section aria-label="本批参考图使用情况"><strong>本批参考图使用情况</strong><p className="sd-note">角色与场景按关联顺序传入；单图模型只接收一张，多图模型受配置数量限制。参考图不能保证人物完全一致，请预览后选用。</p>{request.ids.map(id=>{
       const shot=plan.shots.find(s=>s.id===id),actual=quote?.items?.find(item=>item.targetId===id);
       const preview=model ? referenceUsage(shotReferences(plan,request.kind,id),model.params) : undefined;

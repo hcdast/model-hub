@@ -40,7 +40,7 @@ export default function DramaProductionPanel({ project, models, modelStatus, ref
         edit({ ...p, production: { ...p.production, provider, providers, models: { ...p.production?.models, [kind]: value }, ...(kind === 'voice' ? { voiceParameters: {} } : {}) } });
       }} /></div>)}
       <label>项目预算上限（积分，不会充值或扣款）</label><InputNumber aria-label="项目预算上限" min={0} max={1000000} precision={6} value={limit} onChange={value => setLimit(value ?? 0)} /><Button onClick={() => run(async () => { await mutate(saved => dramaApi.budget(saved.id, saved.revision, limit)); })}>保存预算上限</Button>
-      <p>项目预算是本作品的消费上限，不是账号可用余额。调高预算不会充值；确认制作时仍需账号余额充足。预算包含已用和已预留金额，失败退款确认后释放。</p>
+      <p>项目预算用于按预估消耗检查是否允许开始新任务，不是账号余额。调高预算不会充值。任务按实际用量结算，可能超过预估；预算不足时不再开始新任务。预算包含已用和已预留金额，失败退款确认后释放。</p>
       {!!project.history?.length && <><label>恢复草稿历史（最近 20 次保存）</label><Select<number> aria-label="草稿历史" placeholder="选择历史版本" options={[...project.history].reverse().map(h => ({ value: h.revision, label: `版本 ${h.revision} · ${new Date(h.savedAt).toLocaleString()}` }))} onChange={target => Modal.confirm({ title: '恢复这份草稿？', content: '会更新文字、设定和选片，当前草稿先保存到历史。不会删除候选、调用模型或重新扣费。', onOk: () => run(async () => { await mutate(saved => dramaApi.restore(saved.id, saved.revision, target)); }) })} /></>}
     </div> }]} />
   </section>;

@@ -46,6 +46,7 @@ test('a signed-in creator can quote without API keys; confirmation explains insu
   const state = await fixture(page);
   await page.getByRole('button', { name: '查看本次消耗', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('项目剩余预算 100 积分');
+  await expect(page.getByRole('dialog')).toContainText('最终按实际用量结算，可能高于或低于预估');
   expect(state.quotes).toBe(1); expect(state.submissions).toBe(0); expect(state.keyCalls).toBe(0);
   await page.getByRole('button', { name: /确认并开始制作/ }).click();
   await expect(page.locator('.sd-script-results')).toContainText('账号可用余额不足');

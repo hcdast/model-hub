@@ -9,6 +9,8 @@ import type { ModelConfig } from '../../database/schemas/model-config.schema';
 
 /** 计费初始化上下文 —— 任务创建时传入 BillingAdapter.initBilling() */
 export interface BillingInitContext {
+  /** Reserve the estimate before submission, without limiting actual settlement. Server-only. */
+  reserveEstimate?: boolean;
   /** Trusted server-side authorization, never taken from public options/metadata. */
   maxCharge?: number;
   modelConfig?: ModelConfig;

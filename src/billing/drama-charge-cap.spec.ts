@@ -1,7 +1,7 @@
 import { BillingAdapter } from './billing.adapter';
 import { UsageType } from './interfaces/billing.interface';
 
-describe('Server-authorized short drama charge ceiling', () => {
+describe('Actual usage settlement and legacy server-authorized charge ceilings', () => {
   const client: any = { findOne: () => ({ select: () => ({ lean: async () => ({ billingPolicy: 'internal' }) }) }) };
   const pricing: any = { estimate: jest.fn() };
   const billing: any = { transaction: (work: any) => work(), createRecord: jest.fn(), getRecord: jest.fn(), settle: jest.fn(), markPreDeducted: jest.fn() };
@@ -34,5 +34,17 @@ describe('Server-authorized short drama charge ceiling', () => {
     await adapter.settle({ taskId: 'llm', actualUsage: { usageType: UsageType.COUNT, usageValue: 1 }, requestInput: { max_tokens: 4096 }, usageParam: 'max_tokens', rawUsageResult: { choices: [{ message: { content: '剧本' } }], usage: { prompt_tokens: 1000, completion_tokens: 4096, total_tokens: 5096 } } });
     expect(wallet.debit).toHaveBeenCalledWith('test', 4.096, 'llm');
     expect(billing.settle).toHaveBeenCalledWith('llm', 5096, 4.096);
+  });
+  it('reserves a browser token estimate without creating a charge ceiling', async () => {
+    pricing.estimate.mockResolvedValue({ estimatedCost: 40.96, usageType: UsageType.TOKEN });
+    await adapter.initBilling({ taskId: 'browser', apiKey: 'test', model: 'm', provider: 'test', featureType: 'textGenerate', input: {}, reserveEstimate: true });
+    expect(wallet.freeze).toHaveBeenCalledWith('test', 40.96, 'browser');
+    expect(billing.createRecord.mock.calls[0][0]).not.toHaveProperty('maxCharge');
+  });
+  it('settles full input and output usage even when it exceeds the browser estimate', async () => {
+    billing.getRecord.mockResolvedValue({ unitPrice: 0.01, usageType: UsageType.TOKEN, status: 'pre_deducted', billingPolicy: 'internal', estimatedCost: 40.96, apiKey: 'test' });
+    await adapter.settle({ taskId: 'browser', actualUsage: { usageType: UsageType.COUNT, usageValue: 1 }, requestInput: { max_tokens: 4096 }, rawUsageResult: { usage: { prompt_tokens: 223, completion_tokens: 4096, total_tokens: 4319 } } });
+    expect(wallet.debit).toHaveBeenCalledWith('test', 43.19, 'browser');
+    expect(billing.settle).toHaveBeenCalledWith('browser', 4319, 43.19);
   });
 });

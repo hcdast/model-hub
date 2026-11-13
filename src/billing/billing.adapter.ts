@@ -103,7 +103,7 @@ export class BillingAdapter {
    * 5. internal + count/duration → 调用 WalletService.freeze() 预扣费
    *    - freeze 失败 → 抛出 InsufficientBalanceException
    *    - freeze 成功 → 调用 BillingService.markPreDeducted()
-   * 6. internal + token → 有可信授权上限时预扣费；其余沿用 estimated
+   * 6. internal + token → 网页预留请求或可信授权上限时预扣费；其余沿用 estimated
    * 7. external → 不执行任何钱包操作，记录已创建
    */
   async initBilling(context: BillingInitContext): Promise<void> {
@@ -170,11 +170,10 @@ export class BillingAdapter {
     if (
       estimate.usageType === UsageType.COUNT ||
       estimate.usageType === UsageType.DURATION ||
-      // A confirmed browser quote authorizes a bounded token charge. Reserve it too,
-      // so an empty wallet cannot submit a paid script task or overspend concurrently.
-      (estimate.usageType === UsageType.TOKEN && context.maxCharge !== undefined)
+      // Browser token tasks reserve their estimate independently of any charge cap.
+      (estimate.usageType === UsageType.TOKEN && (context.reserveEstimate === true || context.maxCharge !== undefined))
     ) {
-      // count/duration 类型：预扣费
+      // 预留估算费用，最终按实际用量结算。
       const frozen = await this.walletService.freeze(
         context.apiKey,
         estimate.estimatedCost,

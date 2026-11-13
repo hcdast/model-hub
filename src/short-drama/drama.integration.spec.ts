@@ -181,13 +181,27 @@ describe('Short drama persistence and authorized generation', () => {
     expect(tasks.createTask).not.toHaveBeenCalled();
     await service.confirm('owner', p.id, q.id);
     expect(tasks.createTask.mock.calls[0][1].input).toMatchObject({ maas_protocol: 'chat-completions', max_tokens: 4096, prompt: expect.stringContaining('雨后收到信') });
-    expect(tasks.createTask.mock.calls[0][3]).toEqual({ maxCharge: 4.096 });
+    expect(tasks.createTask.mock.calls[0][3]).toEqual({ reserveEstimate: true });
+    expect(q.warnings.join('')).toContain('最终按实际用量结算');
+    expect((await quotes.findOne({ id: q.id }).lean())?.items[0]).not.toHaveProperty('ceiling');
     const text = JSON.stringify({ title: '信', characters: [], scenes: [], shots: [{ description: '雨停了', duration: 5 }] });
     tasks.getTask.mockResolvedValue({ status: 'SUCCESS', result: { choices: [{ message: { content: text }, finish_reason: 'stop' }], usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 } }, billing: { status: 'settled', actualCost: 0.15 } });
     const completed = await service.get('owner', p.id);
     expect(completed.candidates[0]).toMatchObject({ kind: 'script', status: 'succeeded', text });
     expect(completed.budget).toEqual({ limit: 100, used: 0.15, reserved: 0, remaining: 99.85 });
     expect(completed.plan.shots).toHaveLength(0); // Requires the user's review and adoption.
+  });
+  it('records actual spend above the estimate and blocks further submissions after the project budget is exhausted', async () => {
+    const p = await project();
+    await service.setBudget('owner', p.id, 0, 2);
+    const q = await service.quote('owner', p.id, 'character', ['girl']);
+    await service.confirm('owner', p.id, q.id);
+    tasks.getTask.mockResolvedValue({ status: 'SUCCESS', result: ['https://media.example/girl.jpg'], billing: { status: 'settled', actualCost: 3 } });
+    const completed = await service.get('owner', p.id);
+    expect(completed.budget).toEqual({ limit: 2, used: 3, reserved: 0, remaining: 0 });
+    const next = await service.quote('owner', p.id, 'character', ['girl']);
+    await expect(service.confirm('owner', p.id, next.id)).rejects.toThrow('项目剩余预算不足');
+    expect(tasks.createTask).toHaveBeenCalledTimes(1);
   });
   it('atomically admits one of two batches against a shared project budget and resumes without reserving twice', async () => {
     const p = await project(); await service.setBudget('owner', p.id, 0, 2);
@@ -196,7 +210,7 @@ describe('Short drama persistence and authorized generation', () => {
     const result = await Promise.allSettled([service.confirm('owner', p.id, a.id), service.confirm('owner', p.id, b.id)]);
     expect(result.filter(r => r.status === 'fulfilled')).toHaveLength(1);
     expect(tasks.createTask).toHaveBeenCalledTimes(1);
-    expect(tasks.createTask.mock.calls[0][3]).toEqual({ maxCharge: 2 });
+    expect(tasks.createTask.mock.calls[0][3]).toEqual({ reserveEstimate: true });
     const held = await service.get('owner', p.id);
     expect(held.budget).toEqual({ limit: 2, used: 0, reserved: 2, remaining: 0 });
     const winner = result[0].status === 'fulfilled' ? a : b;

@@ -182,16 +182,15 @@ export class ShortDramaService {
           }
           const cost = estimateModelPrice(cfg, validation.sanitized);
           if (!Number.isFinite(cost.estimatedCost) || cost.unitPrice <= 0) throw new Error('模型未配置有效积分价格');
-          const ceilingMicros = Math.ceil(cost.estimatedCost * 1e6);
-          estimatedCostMicros += ceilingMicros;
-          return { id: randomUUID(), targetId, input: validation.sanitized, fingerprint: dramaFingerprint(project.plan, kind, targetId), ceiling: ceilingMicros / 1e6, ...(['image','video'].includes(kind) ? {references:reference.used,omittedReferences:reference.omitted,manualReferenceCount:reference.manualReferenceCount} : {}) };
+          estimatedCostMicros += Math.ceil(cost.estimatedCost * 1e6);
+          return { id: randomUUID(), targetId, input: validation.sanitized, fingerprint: dramaFingerprint(project.plan, kind, targetId), ...(['image','video'].includes(kind) ? {references:reference.used,omittedReferences:reference.omitted,manualReferenceCount:reference.manualReferenceCount} : {}) };
         }));
         const quote = await this.quotes.create({ id: randomUUID(), ownerId, projectId: id, revision: project.revision, kind,
           items, estimatedCost: estimatedCostMicros / 1e6, expiresAt: new Date(Date.now() + 5 * 60 * 1000), status: 'quoted',
           model: { id: String(cfg._id), modelId: cfg.model_id, revision: cfg.revision, name: cfg.model_name || cfg.model_id, type: cfg.model_type, fingerprint: configFingerprint(cfg), outputSchema: cfg.output_schema } });
         return { id: quote.id, kind, count: items.length, estimatedCost: quote.estimatedCost, currency: 'credit', expiresAt: quote.expiresAt, modelName: quote.model.name, provider: cfg.provider,
           items:items.map(item=>{const shot=project.plan.shots.find(s=>s.id===item.targetId);return {targetId:item.targetId,title:shot?.title || item.targetId,references:item.references,omittedReferences:item.omittedReferences,manualReferenceCount:item.manualReferenceCount,...(kind==='video' ? {duration:Number(item.input.duration) || undefined,requestedDuration:shot?.duration} : {})};}),
-          warnings: ['本次报价也是本批授权扣费上限；失败退款以任务结算状态为准。', ...(['character','scene','image','video'].includes(kind) ? [`作品画幅 ${project.plan.frame?.ratio || '9:16'}。${cfg.params?.aspect_ratio || cfg.params?.width && cfg.params?.height ? '已按模型尺寸能力检查；上游返回后仍需检查实际画幅。' : cfg.model_type==='imageToVideo' ? '此模型没有独立画幅参数，通常跟随参考图；请先检查所选图片。' : '此模型未声明可控画幅，返回尺寸可能不同，请检查后选用。'}`,'角色一致性取决于模型能力，请逐镜头检查后再选用。'] : [])] };
+          warnings: ['本次为预估消耗，将预留相应账号余额；最终按实际用量结算，可能高于或低于预估。失败退款以任务结算状态为准。', ...(['character','scene','image','video'].includes(kind) ? [`作品画幅 ${project.plan.frame?.ratio || '9:16'}。${cfg.params?.aspect_ratio || cfg.params?.width && cfg.params?.height ? '已按模型尺寸能力检查；上游返回后仍需检查实际画幅。' : cfg.model_type==='imageToVideo' ? '此模型没有独立画幅参数，通常跟随参考图；请先检查所选图片。' : '此模型未声明可控画幅，返回尺寸可能不同，请检查后选用。'}`,'角色一致性取决于模型能力，请逐镜头检查后再选用。'] : [])] };
       } catch (error) { errors.push(`${cfg.model_name || cfg.model_id}：${(error as Error).message}`); }
     }
     throw new BadRequestException({ code: 'DRAMA_PREFLIGHT_FAILED', message: `生成前检查未通过。${errors.slice(0, 2).join('；')}。${kind === 'voice' ? '本次未提交配音生成，请按提示重试、重新选择音色或检查配音配置。' : '可展开“更多设置”补充必填项或切换模型。'}` });
@@ -233,7 +232,7 @@ export class ShortDramaService {
           // A pre-upgrade or interrupted submission keeps its original wallet and
           // idempotency scope, even if the account now has a different billing binding.
           const task = await this.tasks.createTask(existing?.billingKey || key, { model: quote.model.modelId, input: { ...item.input }, options: { configId: quote.model.id, configRevision: quote.model.revision, featureType: quote.model.type },
-            metadata: { dramaProjectId: id, dramaCandidateId: item.id } }, `drama:${quote.id}:${item.id}`, { maxCharge: item.ceiling ?? quote.estimatedCost / quote.items.length });
+            metadata: { dramaProjectId: id, dramaCandidateId: item.id } }, `drama:${quote.id}:${item.id}`, { reserveEstimate: true });
           await this.candidates.updateOne({ id: item.id }, { $set: { taskId: task.taskId, status: 'running' } });
         } catch (e) {
           // A lost response is ambiguous: leave the quote resumable with the same task idempotency key.

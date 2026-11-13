@@ -66,7 +66,7 @@ export class TaskService {
     private readonly mediaValidator: MediaInputValidatorService,
   ) {}
 
-  async createTask(apiKey: string, dto: CreateTaskDto, idempotencyKey?: string, authorization?: { maxCharge: number }) {
+  async createTask(apiKey: string, dto: CreateTaskDto, idempotencyKey?: string, authorization?: { maxCharge?: number; reserveEstimate?: boolean }) {
     const receivedAt = new Date();
 
     if (idempotencyKey) {
@@ -212,6 +212,7 @@ export class TaskService {
         modelConfig: cfg || undefined,
         options: dto.options,
         maxCharge: authorization?.maxCharge,
+        reserveEstimate: authorization?.reserveEstimate,
       });
     } catch (err) {
       if (err instanceof InsufficientBalanceException) {

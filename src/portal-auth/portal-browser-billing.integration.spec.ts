@@ -20,7 +20,7 @@ describe('Browser account billing without developer API keys', () => {
   let service: PortalApiKeyService, wallet: WalletService, billing: BillingService, adapter: BillingAdapter;
   const owner = new Types.ObjectId().toString(), other = new Types.ObjectId().toString();
   const pricing = { estimate: jest.fn() };
-  const task = (apiKey: string, taskId = 'script') => ({ apiKey, taskId, model: 'test-script', provider: 'test', featureType: 'textGenerate', input: {}, maxCharge: 2 });
+  const task = (apiKey: string, taskId = 'script') => ({ apiKey, taskId, model: 'test-script', provider: 'test', featureType: 'textGenerate', input: {}, reserveEstimate: true });
 
   beforeAll(async () => {
     mongo = await MongoMemoryReplSet.create({ binary: { version: '7.0.24' }, replSet: { count: 1 } });
@@ -97,10 +97,28 @@ describe('Browser account billing without developer API keys', () => {
     await adapter.initBilling(task(identity)); await adapter.initBilling(task(identity));
     expect(await wallet.getBalance(identity)).toMatchObject({ available: 8, frozenAmount: 2 });
     pricing.estimate.mockResolvedValueOnce({ usageType: UsageType.TOKEN, estimatedUsage: 10, estimatedCost: 10, unitPrice: 1, currency: 'credit' });
-    await expect(adapter.initBilling({ ...task(identity, 'too-large'), maxCharge: 10 })).rejects.toBeInstanceOf(InsufficientBalanceException);
+    await expect(adapter.initBilling(task(identity, 'too-large'))).rejects.toBeInstanceOf(InsufficientBalanceException);
     const result = { taskId: 'script', actualUsage: { usageType: UsageType.TOKEN, usageValue: 5 } };
     await adapter.settle(result); await adapter.settle(result);
-    expect(await wallet.getBalance(identity)).toMatchObject({ balance: 8, frozenAmount: 0 });
+    expect(await wallet.getBalance(identity)).toMatchObject({ balance: 5, frozenAmount: 0 });
+    expect(await billing.getRecord('script')).toMatchObject({ status: 'settled', actualUsage: 5, actualCost: 5 });
+    expect(await bills.collection.findOne({ taskId: 'script' })).not.toHaveProperty('maxCharge');
+    expect(await ledger.countDocuments({ type: 'debit' })).toBe(1);
+  });
+
+  it('keeps settlement pending when actual usage exceeds available funds, then settles the full amount once after funding', async () => {
+    const identity = await service.ensureExecutionBillingKey(owner);
+    await wallets.updateOne({ apiKey: identity }, { $set: { balance: 2 } });
+    await adapter.initBilling(task(identity));
+    const result = { taskId: 'script', actualUsage: { usageType: UsageType.TOKEN, usageValue: 5 } };
+    await expect(adapter.settle(result)).rejects.toThrow('Debit failed');
+    expect(await wallet.getBalance(identity)).toMatchObject({ balance: 2, frozenAmount: 2 });
+    expect(await billing.getRecord('script')).toMatchObject({ status: 'pre_deducted' });
+    expect(await ledger.countDocuments({ type: 'debit' })).toBe(0);
+    await wallets.updateOne({ apiKey: identity }, { $inc: { balance: 5 } });
+    await adapter.settle(result); await adapter.settle(result);
+    expect(await wallet.getBalance(identity)).toMatchObject({ balance: 2, frozenAmount: 0 });
+    expect(await billing.getRecord('script')).toMatchObject({ status: 'settled', actualCost: 5 });
     expect(await ledger.countDocuments({ type: 'debit' })).toBe(1);
   });
 
