@@ -1,3 +1,4 @@
+import DramaImage from './DramaImage';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Button, Empty, Select, Tabs } from 'antd';
 import type { DramaProject } from '../../services/drama-api';
@@ -24,7 +25,7 @@ export default function DramaAssemblyWorkspace({project,index,tab,setTab,focus,r
     <section className="sd-edit-timeline" aria-label="镜头时间线"><div className="sd-timeline-head"><strong>镜头顺序 · {total} 秒</strong><span>点击切换 · 使用前移 / 后移调整顺序</span></div><div className="sd-edit-strip">{project.plan.shots.map((shot,i)=>{
       const image=project.candidates.find(c=>c.id===shot.image && c.kind==='image' && c.targetId===shot.id && c.status==='succeeded');
       const start=project.plan.shots.slice(0,i).reduce((sum,s)=>sum+s.duration,0);
-      return <div key={shot.id} className={index===i?'active':''}><button type="button" aria-label={`预览镜头 ${i+1} ${shot.title}`} aria-pressed={index===i} onClick={()=>{focus(i);setMode('shot');}}>{image?.url?<img src={image.url} alt=""/>:<span>{i+1}</span>}<strong>{i+1}. {shot.title}</strong><small>{start}s — {start+shot.duration}s</small></button><div className="sd-timeline-reorder"><button aria-label={`镜头 ${i+1} 前移`} disabled={disabled || i===0} onClick={()=>reorder(i,-1)}>←</button><button aria-label={`镜头 ${i+1} 后移`} disabled={disabled || i===project.plan.shots.length-1} onClick={()=>reorder(i,1)}>→</button></div></div>;
+      return <div key={shot.id} className={index===i?'active':''}><button type="button" aria-label={`预览镜头 ${i+1} ${shot.title}`} aria-pressed={index===i} onClick={()=>{focus(i);setMode('shot');}}>{image?.url?<DramaImage projectId={project.id} candidate={image} alt="" retryable={false}/>:<span>{i+1}</span>}<strong>{i+1}. {shot.title}</strong><small>{start}s — {start+shot.duration}s</small></button><div className="sd-timeline-reorder"><button aria-label={`镜头 ${i+1} 前移`} disabled={disabled || i===0} onClick={()=>reorder(i,-1)}>←</button><button aria-label={`镜头 ${i+1} 后移`} disabled={disabled || i===project.plan.shots.length-1} onClick={()=>reorder(i,1)}>→</button></div></div>;
     })}</div></section>
   </div>;
 }

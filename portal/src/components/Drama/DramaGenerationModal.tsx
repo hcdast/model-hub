@@ -1,3 +1,4 @@
+import DramaImage from './DramaImage';
 import { useState } from 'react';
 import { Alert, Button, Collapse, Modal, Select, Space } from 'antd';
 import ModelParamField from '../Node/ModelParamField';
@@ -48,7 +49,7 @@ export default function DramaGenerationModal({ projectId, plan, visualReport, vi
       const shot=plan.shots.find(s=>s.id===id),actual=quote?.items?.find(item=>item.targetId===id);
       const preview=model ? referenceUsage(shotReferences(plan,request.kind,id),model.params) : undefined;
       const used=actual?.references ?? preview?.used,omitted=actual?.omittedReferences ?? preview?.omitted;
-      return <div key={id}><p><strong>{shot?.title || id}</strong>：{used ? used.length?`使用 ${used.length} 张（${used.map(r=>r.name).join('、')}）`:actual ? actual.manualReferenceCount ? '使用 '+actual.manualReferenceCount+' 张手动输入参考图（非角色/场景绑定）' : '未传参考图，仅使用文字描述' : '未使用关联参考图，手动输入以报价结果为准':'推荐模型将在报价后显示实际参考图'}</p>{used && <div className="sd-reference-thumbnails">{used.map(ref=>{const media=candidates.find(c=>c.id===ref.candidateId && c.kind===ref.kind && c.targetId===ref.targetId);return media?.url?<figure key={ref.candidateId}><img src={media.url} alt={ref.name+'参考图'}/><figcaption>{ref.name}</figcaption></figure>:null;})}</div>}{!!omitted?.length && <Alert type="warning" message={`未传入：${omitted.map(r=>r.name).join('、')}`} description="当前模型没有参考图输入或数量不足。若这些参考图必须生效，请切换支持更多参考图的模型后重新报价。"/>}</div>;
+      return <div key={id}><p><strong>{shot?.title || id}</strong>：{used ? used.length?`使用 ${used.length} 张（${used.map(r=>r.name).join('、')}）`:actual ? actual.manualReferenceCount ? '使用 '+actual.manualReferenceCount+' 张手动输入参考图（非角色/场景绑定）' : '未传参考图，仅使用文字描述' : '未使用关联参考图，手动输入以报价结果为准':'推荐模型将在报价后显示实际参考图'}</p>{used && <div className="sd-reference-thumbnails">{used.map(ref=>{const media=candidates.find(c=>c.id===ref.candidateId && c.kind===ref.kind && c.targetId===ref.targetId);return media?.url?<figure key={ref.candidateId}><DramaImage projectId={projectId} candidate={media} alt={ref.name+'参考图'}/><figcaption>{ref.name}</figcaption></figure>:null;})}</div>}{!!omitted?.length && <Alert type="warning" message={`未传入：${omitted.map(r=>r.name).join('、')}`} description="当前模型没有参考图输入或数量不足。若这些参考图必须生效，请切换支持更多参考图的模型后重新报价。"/>}</div>;
     })}</section>}
     {referenceWarnings.length>0 && <Alert type="warning" message="参考图画幅与成片要求不同，或原生尺寸较低" description={<><p>图生视频可能跟随参考图画幅。请先检查或更换参考图；继续制作时，成片会按当前留边/裁切设置适配。</p>{referenceWarnings.map((note,i)=><p key={i}>{note}</p>)}</>}/>}
     {overBudget && <Alert type="warning" showIcon message={`本次需要 ${quote!.estimatedCost} 积分，项目剩余预算 ${budgetRemaining} 积分，无法开始制作。请调整范围或联系管理员核实单价。`} />}

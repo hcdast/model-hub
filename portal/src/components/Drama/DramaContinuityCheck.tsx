@@ -1,3 +1,4 @@
+import DramaImage from './DramaImage';
 import { useState } from 'react';
 import { Button, Collapse, Empty, Segmented, Tag } from 'antd';
 import type { DramaProject } from '../../services/drama-api';
@@ -25,7 +26,7 @@ export default function DramaContinuityCheck({ project, disabled, locate, role }
         <div className="sd-actions"><strong>{index+1}. {shot.title || '未命名镜头'}</strong>{stale.length>0 && <Tag color="warning">设定已更新，复核选片</Tag>}</div>
         <div className="sd-continuity-references">{references.map(ref=>{
           const c=project.candidates.find(item=>item.id===ref.candidateId && item.kind===ref.kind && item.targetId===ref.targetId);
-          return <button key={`${ref.kind}-${ref.targetId}`} disabled={disabled} onClick={()=>role(ref.kind as 'character'|'scene',ref.targetId)}>{c?.url && <img src={c.url} alt={`${ref.name}参考图`}/>}<span>{ref.kind==='character'?'角色':'场景'} · {ref.name}</span></button>;
+          return <button key={`${ref.kind}-${ref.targetId}`} disabled={disabled} onClick={()=>role(ref.kind as 'character'|'scene',ref.targetId)}>{c?.url && <DramaImage projectId={project.id} candidate={c} alt={`${ref.name}参考图`} retryable={false}/>}<span>{ref.kind==='character'?'角色':'场景'} · {ref.name}</span></button>;
         })}</div>
         {!shot.characterIds.length && <p className="sd-note">未关联角色；空镜可保持不关联。</p>}
         {!shot.sceneId && <p className="sd-note">未关联场景，环境仅按镜头描述制作。</p>}
@@ -34,7 +35,7 @@ export default function DramaContinuityCheck({ project, disabled, locate, role }
           const selected=kind==='image'?image:video;
           return <div key={kind}><Button disabled={disabled} onClick={()=>locate(index,kind)}>检查镜头{kind==='image'?'画面':'视频'}</Button>
             <p>{selected ? selected.stale?'已有选片 · 设定已更新':'已有选片' : '尚未选片'}</p>
-            {kind==='image' && selected?.url && <img src={selected.url} alt={`镜头 ${index+1} 已选画面`}/>}
+            {kind==='image' && selected?.url && <DramaImage projectId={project.id} candidate={selected} alt={`镜头 ${index+1} 已选画面`}/>}
             {selected && <p className="sd-note">{selected.source==='upload'?'自有素材，请人工检查一致性':selected.references===undefined?'历史参考记录不完整':selected.references.length?`制作时使用：${selected.references.map(r=>r.name).join('、')}`:selected.manualReferenceCount ? '制作时使用 '+selected.manualReferenceCount+' 张手动参考图' : '制作时未传入参考图，仅使用文字描述'}</p>}
           </div>;
         })}</div>

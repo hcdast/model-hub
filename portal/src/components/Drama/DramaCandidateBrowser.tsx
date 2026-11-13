@@ -3,6 +3,7 @@ import { Alert, Button, Empty, Modal, Segmented, Tag } from 'antd';
 import type { DramaCandidate, DramaKind, DramaPlan } from '../../services/drama-api';
 import { visualWarnings } from '../../../../src/short-drama/drama-visual';
 import DramaMedia from './DramaMedia';
+import DramaImage from './DramaImage';
 
 const status = { pending:'等待制作', running:'制作中', succeeded:'已完成', failed:'需要处理' };
 export default function DramaCandidateBrowser({projectId,kind,list,chosen,disabled,select,cancel,retry,plan}: {
@@ -16,7 +17,7 @@ export default function DramaCandidateBrowser({projectId,kind,list,chosen,disabl
   const current=list.find(c=>c.id===chosen && c.status==='succeeded' && c.url);
   const active=list.filter(c=>c.status==='running'||c.status==='pending'),failed=list.filter(c=>c.status==='failed');
   const rows=filter==='usable'?list.filter(c=>c.status==='succeeded'):filter==='working'?active:failed;
-  const media=(c:DramaCandidate)=>['voice','music'].includes(kind)?<DramaMedia projectId={projectId} candidate={c} audio/>:kind==='video'?<DramaMedia projectId={projectId} candidate={c} onDimensions={size=>measure(c.id,size)}/>:<img src={c.url} alt={c.id===chosen?'当前使用的画面':'候选画面'} onLoad={e=>measure(c.id,{width:e.currentTarget.naturalWidth,height:e.currentTarget.naturalHeight})}/>;
+  const media=(c:DramaCandidate)=>['voice','music'].includes(kind)?<DramaMedia projectId={projectId} candidate={c} audio/>:kind==='video'?<DramaMedia projectId={projectId} candidate={c} onDimensions={size=>measure(c.id,size)}/>:<DramaImage projectId={projectId} candidate={c} alt={c.id===chosen?'当前使用的画面':'候选画面'} onDimensions={size=>measure(c.id,size)}/>;
   const meta=(c:DramaCandidate)=><><p className="sd-note">{c.source==='upload'?'自有素材':c.source==='workflow'?'高级工作流结果':'制作候选'}{c.createdAt?` · ${new Date(c.createdAt).toLocaleString()}`:''}</p>{c.stale && <Alert type="warning" message="设定已有修改，请复核是否继续使用"/>}{c.references!==undefined && <p className="sd-note">参考图：{c.references.length?c.references.map(r=>r.name).join('、'):c.manualReferenceCount?`${c.manualReferenceCount} 张手动参考图`:'仅使用文字描述'}</p>}{c.archiveStatus==='failed' && <Tag color="warning">归档待重试</Tag>}</>;
   return <section className="sd-candidate-browser" aria-label="制作候选">
     <Segmented aria-label="候选范围" value={filter} onChange={value=>setFilter(String(value))} options={[{value:'usable',label:`可选 ${list.filter(c=>c.status==='succeeded').length}`},{value:'working',label:`制作中 ${active.length}`},{value:'failed',label:`失败记录 ${failed.length}`}]}/>

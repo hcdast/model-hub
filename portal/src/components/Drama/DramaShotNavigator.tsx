@@ -1,3 +1,4 @@
+import DramaImage from './DramaImage';
 import { useState } from 'react';
 import { Button, Checkbox, Empty, InputNumber, Modal, Select, Tag, message } from 'antd';
 import type { DramaPlan, DramaProject } from '../../services/drama-api';
@@ -22,7 +23,7 @@ export default function DramaShotNavigator({project,kind,index,focus,generate,ed
       const image=candidates.find(c=>c.id===shot.image && c.kind==='image' && c.targetId===shot.id && c.status==='succeeded');
       return <div className={`sd-shot-list-row ${index===i?'active':''}`} key={shot.id}>
         <Checkbox aria-label={`勾选镜头 ${i+1}`} checked={scope.includes(shot.id)} disabled={disabled} onChange={e=>setChecked(prev=>e.target.checked?[...new Set([...prev,shot.id])]:prev.filter(id=>id!==shot.id))}/>
-        <button type="button" aria-label={`编辑镜头 ${i+1} ${shot.title}`} aria-pressed={index===i} onClick={()=>focus(i)}>{image?.url?<img src={image.url} alt=""/>:<span className="sd-shot-no">{i+1}</span>}<span><strong>{i+1}. {shot.title || '未命名镜头'}</strong><small>{shot.duration} 秒 · {labels[status]}</small></span></button>
+        <button type="button" aria-label={`编辑镜头 ${i+1} ${shot.title}`} aria-pressed={index===i} onClick={()=>focus(i)}>{image?.url?<DramaImage projectId={project.id} candidate={image} alt="" retryable={false}/>:<span className="sd-shot-no">{i+1}</span>}<span><strong>{i+1}. {shot.title || '未命名镜头'}</strong><small>{shot.duration} 秒 · {labels[status]}</small></span></button>
       </div>;
     })}{!rows.length && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有此状态的镜头"/>}</div>
     <div className="sd-shot-batch"><Checkbox disabled={disabled || !rows.length} checked={!!rows.length && rows.every(r=>scope.includes(r.shot.id))} indeterminate={rows.some(r=>scope.includes(r.shot.id)) && !rows.every(r=>scope.includes(r.shot.id))} onChange={e=>setChecked(prev=>e.target.checked?[...new Set([...prev,...rows.map(r=>r.shot.id)])]:prev.filter(id=>!rows.some(r=>r.shot.id===id)))}>勾选当前列表</Checkbox>
