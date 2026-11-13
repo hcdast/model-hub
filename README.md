@@ -309,6 +309,16 @@ pm2 stop ecosystem.config.js
 
 Portal 的静态服务依赖 `portal/node_modules/serve/build/main.js`，仅在仓库根目录安装依赖不会安装这个入口。若 PM2 提示该脚本不存在，在仓库根目录执行 `npm run install:portal`、`npm run build:portal`，再执行 `pm2 start ecosystem.config.js --only model-hub-portal`。确认进程正常后执行 `pm2 save`。
 
+后端 `npm run build` 会复用已通过类型检查的构建结果。源码、构建配置、依赖锁文件和编译产物均未变化时，直接跳过编译；仅修改已有源码时复用 `dist/backend.tsbuildinfo` 增量编译。首次构建、增删源码文件、配置或依赖变化、产物缺失或被修改时，自动清理 `dist` 后全量重建，避免遗留旧模块或缺少运行文件。`postbuild` 仍会更新 `dist/build-info.json`。生产编译保留严格类型检查、装饰器元数据及 source map，仅加载 Node 全局类型，不生成运行时不需要的 `.d.ts` 文件；测试仍使用原有 TypeScript 配置。
+
+```bash
+npm run build        # 日常构建：校验缓存，必要时编译
+npm run build:clean  # 强制清理并全量构建
+npm run test:build   # 验证缓存恢复和类型错误阻断
+```
+
+构建开始即输出状态，编译期间每 15 秒输出等待提示。保留 `dist` 中的缓存才能减少后续构建消耗；首次或强制全量构建仍需要较多 CPU 和内存。资源紧张的生产服务器可在独立构建机或 CI 完成构建，部署产物及匹配的生产依赖；涉及原生模块时，构建与运行环境应保持兼容。
+
 ## 核心 API
 
 ### 业务 API（默认端口 7000，见 `ecosystem.config.js`）

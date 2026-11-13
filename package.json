@@ -5,8 +5,9 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "prebuild": "rimraf dist",
-    "build": "nest build",
+    "build": "node scripts/build-backend.cjs",
+    "build:clean": "npm run build -- --clean",
+    "test:build": "node --test scripts/build-backend.test.cjs",
     "build:dashboard": "cd dashboard && npm run build",
     "install:portal": "npm --prefix portal ci --include=dev",
     "build:portal": "npm --prefix portal run build",

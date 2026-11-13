@@ -33,6 +33,8 @@ scripts/*
 !scripts/backfill-media-constraints.cjs
 
 !scripts/write-build-info.cjs
+!scripts/build-backend.cjs
+!scripts/build-backend.test.cjs
 !scripts/prune-dashboard-assets.cjs
 !scripts/prune-dashboard-assets.test.cjs
 playwright-report/
